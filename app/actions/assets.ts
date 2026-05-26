@@ -45,10 +45,10 @@ export async function getAssetSuggestions() {
     });
 
     const suggestions = {
-      names: Array.from(new Set(assets.map((a) => a.name))).filter(Boolean),
-      categories: Array.from(new Set(assets.map((a) => a.category))).filter(Boolean),
-      models: Array.from(new Set(assets.map((a) => a.modelOrSize))).filter(Boolean),
-      units: Array.from(new Set(assets.map((a) => a.unit))).filter(Boolean),
+      names: Array.from(new Set(assets.map((a: { name: string }) => a.name))).filter(Boolean),
+      categories: Array.from(new Set(assets.map((a: { category: string | null }) => a.category))).filter(Boolean),
+      models: Array.from(new Set(assets.map((a: { modelOrSize: string }) => a.modelOrSize))).filter(Boolean),
+      units: Array.from(new Set(assets.map((a: { unit: string }) => a.unit))).filter(Boolean),
     };
 
     return { success: true, data: suggestions };
