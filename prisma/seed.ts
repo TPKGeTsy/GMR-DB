@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const username = "admin";
-  const password = "password123";
+  const password = "123";
   // bcryptjs.hash is async
   const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -13,10 +13,12 @@ async function main() {
     where: { username },
     update: {
       password: hashedPassword,
+      role: "ADMIN",
     },
     create: {
       username,
       password: hashedPassword,
+      role: "ADMIN",
     },
   });
 

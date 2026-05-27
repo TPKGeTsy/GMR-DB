@@ -17,14 +17,14 @@ export default function Home() {
           <ShieldCheck className="w-4 h-4 mr-2" />
           Engineering Asset Management System
         </div>
-        <h1 className="text-5xl font-extrabold text-gray-900 tracking-tight sm:text-6xl">
-          จัดการคลังอุปกรณ์ <br />
-          <span className="text-indigo-600">อย่างมืออาชีพ</span>
+        <h1 className="text-5xl font-extrabold text-gray-500 tracking-tight sm:text-6xl">
+          Group maker robotic <br />
+          <span className="text-indigo-600">Stock</span>
         </h1>
-        <p className="max-w-2xl mx-auto text-xl text-gray-700">
+        {/* <p className="max-w-2xl mx-auto text-xl text-gray-700">
           ระบบควบคุมสต็อกอุปกรณ์วิศวกรรม ติดตามงบประมาณ และวิเคราะห์ข้อมูลสถานะวัสดุในที่เดียว 
           แม่นยำ รวดเร็ว และรองรับการขยายตัวในอนาคต
-        </p>
+        </p> */}
         <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
           <Link
             href="/inventory"

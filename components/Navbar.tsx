@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { LayoutDashboard, ListFilter, PlusCircle, LogOut, User } from "lucide-react";
+import { LayoutDashboard, ListFilter, PlusCircle, LogOut, User, ShoppingBag } from "lucide-react";
 import { auth, signOut } from "@/auth";
 
 export default async function Navbar() {
   const session = await auth();
+  const role = (session?.user as any)?.role;
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -16,26 +17,46 @@ export default async function Navbar() {
             {session && (
               <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-8">
                 <Link
+                  href="/catalog"
+                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
+                >
+                  <ShoppingBag className="w-4 h-4 mr-2" />
+                  Catalog
+                </Link>
+                <Link
                   href="/dashboard"
                   className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
                 >
                   <LayoutDashboard className="w-4 h-4 mr-2" />
                   Dashboard
                 </Link>
-                <Link
-                  href="/inventory"
-                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                >
-                  <ListFilter className="w-4 h-4 mr-2" />
-                  Inventory
-                </Link>
-                <Link
-                  href="/inventory/new"
-                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                >
-                  <PlusCircle className="w-4 h-4 mr-2" />
-                  Add Asset
-                </Link>
+                {(role === "ADMIN" || role === "OPERATOR") && (
+                  <>
+                    <Link
+                      href="/inventory"
+                      className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
+                    >
+                      <ListFilter className="w-4 h-4 mr-2" />
+                      Inventory
+                    </Link>
+                    <Link
+                      href="/inventory/new"
+                      className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
+                    >
+                      <PlusCircle className="w-4 h-4 mr-2" />
+                      Add Asset
+                    </Link>
+                  </>
+                )}
+                {role === "ADMIN" && (
+                  <Link
+                    href="/users"
+                    className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
+                  >
+                    <User className="w-4 h-4 mr-2" />
+                    Users
+                  </Link>
+                )}
               </div>
             )}
           </div>

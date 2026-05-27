@@ -13,6 +13,7 @@ datasource db {
 model Asset {
   id              String   @id @default(cuid())
   imageUrl        String?  @map("image_url")
+  imagePosition   String?  @default("50% 50%") @map("image_position")
   name            String
   category        String?
   modelOrSize     String   @map("model_or_size")
@@ -30,8 +31,22 @@ model User {
   id        String   @id @default(cuid())
   username  String   @unique
   password  String
+  fullName  String?  @map("full_name")
+  role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  logs      ActivityLog[]
 
   @@map("users")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String   // e.g., 'CREATE_ASSET', 'UPDATE_ASSET', 'DELETE_ASSET', 'UPDATE_QUANTITY'
+  details   String?  // JSON string or descriptive text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("activity_logs")
 }

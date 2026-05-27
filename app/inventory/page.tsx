@@ -4,10 +4,12 @@ import Link from "next/link";
 import { Plus, Edit } from "lucide-react";
 import Search from "@/components/Search";
 import DeleteAssetButton from "@/components/DeleteAssetButton";
+import QuantityEdit from "@/components/QuantityEdit";
 
 interface Asset {
   id: string;
   imageUrl: string | null;
+  imagePosition: string | null;
   name: string;
   category: string | null;
   modelOrSize: string;
@@ -38,8 +40,8 @@ export default async function InventoryPage({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
-          <p className="text-gray-700">Manage and view your engineering assets</p>
+          <h1 className="text-2xl font-bold text-blue-700">Inventory</h1>
+          <p className="text-gray-500">Manage and view your engineering assets</p>
         </div>
         <Link
           href="/inventory/new"
@@ -104,7 +106,9 @@ export default async function InventoryPage({
                           src={asset.imageUrl}
                           alt={asset.name}
                           fill
+                          sizes="40px"
                           className="object-cover"
+                          style={{ objectPosition: asset.imagePosition || "50% 50%" }}
                         />
                       </div>
                     ) : (
@@ -123,7 +127,7 @@ export default async function InventoryPage({
                     {asset.modelOrSize}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {asset.quantity}
+                    <QuantityEdit id={asset.id} initialQuantity={asset.quantity} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                     {asset.unit}

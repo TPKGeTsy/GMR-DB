@@ -7,6 +7,7 @@ import { ArrowLeft, Save, Upload } from "lucide-react";
 import Link from "next/link";
 import CreatableSelect from "react-select/creatable";
 import { StylesConfig, SingleValue } from "react-select";
+import ImagePositioner from "@/components/ImagePositioner";
 
 interface Suggestions {
   names: string[];
@@ -37,6 +38,16 @@ export default function NewAssetPage() {
     unit: "",
   });
 
+  const [inputValues, setInputValues] = useState({
+    name: "",
+    category: "",
+    modelOrSize: "",
+    unit: "",
+  });
+
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imagePosition, setImagePosition] = useState("50% 50%");
+
   const router = useRouter();
 
   useEffect(() => {
@@ -49,6 +60,25 @@ export default function NewAssetPage() {
     fetchSuggestions();
   }, []);
 
+  const handleBlur = (field: keyof typeof formData) => {
+    if (inputValues[field] && inputValues[field] !== formData[field]) {
+      setFormData(prev => ({ ...prev, [field]: inputValues[field] }));
+    }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImagePreview(null);
+    }
+  };
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsPending(true);
@@ -57,11 +87,16 @@ export default function NewAssetPage() {
     const form = event.currentTarget;
     const data = new FormData(form);
     
-    // Add the values from our custom state (React Select)
-    data.set("name", formData.name);
-    data.set("category", formData.category);
-    data.set("modelOrSize", formData.modelOrSize);
-    data.set("unit", formData.unit);
+    // Use the latest input values if they haven't been committed by blur yet
+    const finalName = inputValues.name || formData.name;
+    const finalCategory = inputValues.category || formData.category;
+    const finalModel = inputValues.modelOrSize || formData.modelOrSize;
+    const finalUnit = inputValues.unit || formData.unit;
+
+    data.set("name", finalName);
+    data.set("category", finalCategory);
+    data.set("modelOrSize", finalModel);
+    data.set("unit", finalUnit);
 
     const result = await createAsset(data);
 
@@ -103,7 +138,7 @@ export default function NewAssetPage() {
         <Link href="/inventory" className="text-gray-700 hover:text-gray-900">
           <ArrowLeft className="h-6 w-6" />
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">Add New Asset</h1>
+        <h1 className="text-2xl font-bold text-blue-500">Add New Asset</h1>
       </div>
 
       <div className="bg-white shadow sm:rounded-lg">
@@ -124,10 +159,17 @@ export default function NewAssetPage() {
                 หมวดหมู่ (Category)
               </label>
               <CreatableSelect<SelectOption>
+                instanceId="category-select"
                 isClearable
                 styles={selectStyles}
                 options={suggestions.categories.map(c => ({ value: String(c || ""), label: String(c || "") }))}
-                onChange={(newValue: SingleValue<SelectOption>) => setFormData({ ...formData, category: newValue?.value || "" })}
+                value={formData.category ? { value: formData.category, label: formData.category } : null}
+                onChange={(newValue: SingleValue<SelectOption>) => {
+                  setFormData({ ...formData, category: newValue?.value || "" });
+                  setInputValues({ ...inputValues, category: "" });
+                }}
+                onInputChange={(value) => setInputValues({ ...inputValues, category: value })}
+                onBlur={() => handleBlur("category")}
                 placeholder="เลือกหรือพิมพ์หมวดหมู่..."
               />
             </div>
@@ -137,10 +179,17 @@ export default function NewAssetPage() {
                 ชื่ออุปกรณ์ (Asset Name)
               </label>
               <CreatableSelect<SelectOption>
+                instanceId="name-select"
                 isClearable
                 styles={selectStyles}
                 options={suggestions.names.map(n => ({ value: n, label: n }))}
-                onChange={(newValue: SingleValue<SelectOption>) => setFormData({ ...formData, name: newValue?.value || "" })}
+                value={formData.name ? { value: formData.name, label: formData.name } : null}
+                onChange={(newValue: SingleValue<SelectOption>) => {
+                  setFormData({ ...formData, name: newValue?.value || "" });
+                  setInputValues({ ...inputValues, name: "" });
+                }}
+                onInputChange={(value) => setInputValues({ ...inputValues, name: value })}
+                onBlur={() => handleBlur("name")}
                 placeholder="เลือกหรือพิมพ์ชื่ออุปกรณ์..."
                 required
               />
@@ -151,10 +200,17 @@ export default function NewAssetPage() {
                 รหัส/รุ่น/ขนาด (Model/Size)
               </label>
               <CreatableSelect<SelectOption>
+                instanceId="model-select"
                 isClearable
                 styles={selectStyles}
                 options={suggestions.models.map(m => ({ value: m, label: m }))}
-                onChange={(newValue: SingleValue<SelectOption>) => setFormData({ ...formData, modelOrSize: newValue?.value || "" })}
+                value={formData.modelOrSize ? { value: formData.modelOrSize, label: formData.modelOrSize } : null}
+                onChange={(newValue: SingleValue<SelectOption>) => {
+                  setFormData({ ...formData, modelOrSize: newValue?.value || "" });
+                  setInputValues({ ...inputValues, modelOrSize: "" });
+                }}
+                onInputChange={(value) => setInputValues({ ...inputValues, modelOrSize: value })}
+                onBlur={() => handleBlur("modelOrSize")}
                 placeholder="เลือกหรือพิมพ์รุ่น..."
                 required
               />
@@ -182,10 +238,17 @@ export default function NewAssetPage() {
                 หน่วย (Unit)
               </label>
               <CreatableSelect<SelectOption>
+                instanceId="unit-select"
                 isClearable
                 styles={selectStyles}
                 options={suggestions.units.map(u => ({ value: u, label: u }))}
-                onChange={(newValue: SingleValue<SelectOption>) => setFormData({ ...formData, unit: newValue?.value || "" })}
+                value={formData.unit ? { value: formData.unit, label: formData.unit } : null}
+                onChange={(newValue: SingleValue<SelectOption>) => {
+                  setFormData({ ...formData, unit: newValue?.value || "" });
+                  setInputValues({ ...inputValues, unit: "" });
+                }}
+                onInputChange={(value) => setInputValues({ ...inputValues, unit: value })}
+                onBlur={() => handleBlur("unit")}
                 placeholder="หน่วย..."
                 required
               />
@@ -217,7 +280,7 @@ export default function NewAssetPage() {
                   id="categoryStatus"
                   name="categoryStatus"
                   required
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px]"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] placeholder-gray-500 text-gray-900"
                 >
                   <option value="R">R (Red)</option>
                   <option value="Y">Y (Yellow)</option>
@@ -232,21 +295,53 @@ export default function NewAssetPage() {
               <label htmlFor="imageFile" className="block text-sm font-medium text-gray-900">
                 รูปภาพอุปกรณ์ (Upload Image)
               </label>
-              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-indigo-400 transition-colors">
-                <div className="space-y-1 text-center">
-                  <Upload className="mx-auto h-12 w-12 text-gray-600" />
-                  <div className="flex text-sm text-gray-800">
-                    <label
-                      htmlFor="imageFile"
-                      className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
+              <div className="mt-1">
+                {imagePreview ? (
+                  <div className="flex flex-col items-center">
+                    <input
+                      id="imageFile"
+                      name="imageFile"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageChange}
+                    />
+                    <ImagePositioner 
+                      src={imagePreview} 
+                      onChange={setImagePosition} 
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImagePreview(null);
+                        const fileInput = document.getElementById('imageFile') as HTMLInputElement;
+                        if (fileInput) fileInput.value = '';
+                      }}
+                      className="mt-2 text-xs text-red-600 hover:text-red-500 font-medium"
                     >
-                      <span>Upload a file</span>
-                      <input id="imageFile" name="imageFile" type="file" accept="image/*" className="sr-only" />
-                    </label>
-                    <p className="pl-1">or drag and drop</p>
+                      ยกเลิกรูปนี้
+                    </button>
                   </div>
-                  <p className="text-xs text-gray-700">PNG, JPG, GIF up to 10MB</p>
-                </div>
+                ) : (
+                  <div className="relative w-full flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-indigo-400 transition-colors cursor-pointer">
+                    <input
+                      id="imageFile"
+                      name="imageFile"
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                      onChange={handleImageChange}
+                    />
+                    <div className="space-y-1 text-center">
+                      <Upload className="mx-auto h-12 w-12 text-gray-600" />
+                      <div className="flex text-sm text-gray-800">
+                        <span className="font-medium text-indigo-600">Upload a file</span>
+                        <p className="pl-1">or drag and drop</p>
+                      </div>
+                      <p className="text-xs text-gray-700">PNG, JPG, GIF up to 10MB</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

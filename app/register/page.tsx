@@ -17,6 +17,22 @@ export default function RegisterPage() {
         <form action={dispatch} className="space-y-4">
           <div>
             <label
+              htmlFor="fullName"
+              className="block text-sm font-medium text-gray-900"
+            >
+              Full Name
+            </label>
+            <input
+              id="fullName"
+              name="fullName"
+              type="text"
+              required
+              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm placeholder-gray-500 text-gray-900"
+              placeholder="Your full name"
+            />
+          </div>
+          <div>
+            <label
               htmlFor="username"
               className="block text-sm font-medium text-gray-900"
             >

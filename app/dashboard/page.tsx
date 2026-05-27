@@ -14,8 +14,8 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-700">Summary of your inventory and budget</p>
+        <h1 className="text-2xl font-bold text-blue-700">Dashboard</h1>
+        <p className="text-gray-500">Summary of GMR inventory and budget</p>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -84,7 +84,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="bg-white p-6 shadow rounded-lg">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Budget Distribution by Status (R vs Y)</h2>
+        <h2 className="text-lg font-medium text-gray-900 mb-4">Budget Distribution by Status (R B G Y)</h2>
         <div className="h-80">
           <DashboardCharts data={chartData} />
         </div>
