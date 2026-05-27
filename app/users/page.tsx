@@ -3,6 +3,8 @@ import RoleSelect from "@/components/RoleSelect";
 import { User, Shield, Activity, Calendar } from "lucide-react";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 export default async function UsersPage() {
   const result = await getUsers();
 

@@ -3,6 +3,8 @@ import prisma from "@/lib/prisma";
 import { User, Activity, Clock, FileText } from "lucide-react";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 export default async function UserProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();

@@ -4,6 +4,8 @@ import Pagination from "@/components/Pagination";
 import Search from "@/components/Search";
 import { ShoppingBag } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function CatalogPage({
   searchParams,
 }: {
