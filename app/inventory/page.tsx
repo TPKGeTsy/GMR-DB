@@ -5,6 +5,7 @@ import { Plus, Edit } from "lucide-react";
 import Search from "@/components/Search";
 import DeleteAssetButton from "@/components/DeleteAssetButton";
 import QuantityEdit from "@/components/QuantityEdit";
+import StatusEdit from "@/components/StatusEdit";
 
 interface Asset {
   id: string;
@@ -136,26 +137,7 @@ export default async function InventoryPage({
                     ฿{Number(asset.unitPrice).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
-                    {asset.categoryStatus === "R" && (
-                      <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-600 text-white">
-                        R
-                      </span>
-                    )}
-                    {asset.categoryStatus === "Y" && (
-                      <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-400 text-black">
-                        Y
-                      </span>
-                    )}
-                    {asset.categoryStatus === "G" && (
-                      <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-500 text-white">
-                        G
-                      </span>
-                    )}
-                    {asset.categoryStatus === "B" && (
-                      <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-500 text-white">
-                        B
-                      </span>
-                    )}
+                    <StatusEdit id={asset.id} initialStatus={asset.categoryStatus} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <Link

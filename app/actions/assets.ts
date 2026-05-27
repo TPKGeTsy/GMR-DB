@@ -214,6 +214,24 @@ export async function updateAssetQuantity(id: string, quantity: number) {
   }
 }
 
+export async function updateAssetStatus(id: string, status: string) {
+  try {
+    const asset = await prisma.asset.update({
+      where: { id },
+      data: { categoryStatus: status },
+    });
+
+    await createActivityLog("UPDATE_STATUS", `Updated status of ${asset.name} to ${status}`);
+
+    revalidatePath("/inventory");
+    revalidatePath("/dashboard");
+    return { success: true, data: JSON.parse(JSON.stringify(asset)) };
+  } catch (error) {
+    console.error("Error updating status:", error);
+    return { success: false, error: "Failed to update status" };
+  }
+}
+
 export async function deleteAsset(id: string) {
   try {
     const asset = await prisma.asset.delete({
