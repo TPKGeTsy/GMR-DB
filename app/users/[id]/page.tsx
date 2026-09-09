@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { User, Activity, Clock, FileText, MapPin, CalendarClock } from "lucide-react";
 import Link from "next/link";
 import RegisterFacePanel from "@/components/RegisterFacePanel";
+import ChangePasswordPanel from "@/components/ChangePasswordPanel";
 import { buildDailySummary } from "@/lib/attendance";
 
 export const dynamic = "force-dynamic";
@@ -98,7 +99,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                       </span>
                     )}
                     <span className="text-[10px] text-gray-400">
-                      since {new Date(latestCheckIn.createdAt).toLocaleString()}
+                      since {new Date(latestCheckIn.createdAt).toLocaleString("th-TH")}
                     </span>
                   </div>
                 )}
@@ -111,6 +112,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
             initialRegistered={user.faceDescriptor.length > 0}
             initialRegisteredAt={user.faceRegisteredAt ? user.faceRegisteredAt.toISOString() : null}
           />
+
+          <ChangePasswordPanel userId={user.id} isSelf={isOwnProfile} />
         </div>
 
         <div className="md:col-span-2 space-y-6">
@@ -142,7 +145,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                     dailyRows.map((row) => (
                       <tr key={row.dateKey} className="hover:bg-gray-50">
                         <td className="px-4 py-2 whitespace-nowrap text-xs font-medium text-gray-900">
-                          {new Date(row.dateKey).toLocaleDateString(undefined, {
+                          {new Date(row.dateKey).toLocaleDateString("th-TH", {
                             weekday: "short",
                             year: "numeric",
                             month: "short",
@@ -150,7 +153,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                           })}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
-                          {row.startTime ? row.startTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
+                          {row.startTime ? row.startTime.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
                           {row.stillWorking ? (
@@ -158,7 +161,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                               Still working
                             </span>
                           ) : row.endTime ? (
-                            row.endTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                            row.endTime.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })
                           ) : (
                             "-"
                           )}
@@ -214,7 +217,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                         <div className="text-right">
                           <p className="text-[10px] text-gray-400 flex items-center justify-end">
                             <Clock className="h-3 w-3 mr-1" />
-                            {new Date(log.createdAt).toLocaleString()}
+                            {new Date(log.createdAt).toLocaleString("th-TH")}
                           </p>
                         </div>
                       </div>

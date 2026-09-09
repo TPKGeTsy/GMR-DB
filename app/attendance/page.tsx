@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { getAttendanceLogs, getDailyAttendanceSummary } from "@/app/actions/checkin";
+import Pagination from "@/components/Pagination";
 import { ClipboardList, Download, LogIn, LogOut, MapPin, CalendarClock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -14,17 +15,25 @@ interface AttendanceLog {
   user: { username: string; fullName: string | null };
 }
 
-export default async function AttendancePage() {
+export default async function AttendancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ summaryPage?: string; logPage?: string }>;
+}) {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
 
+  const { summaryPage, logPage } = await searchParams;
+  const currentSummaryPage = Number(summaryPage) || 1;
+  const currentLogPage = Number(logPage) || 1;
+
   const [result, summaryResult] = await Promise.all([
-    getAttendanceLogs(),
-    getDailyAttendanceSummary(),
+    getAttendanceLogs({ page: currentLogPage, limit: 50 }),
+    getDailyAttendanceSummary({ page: currentSummaryPage, limit: 50 }),
   ]);
-  const logs: AttendanceLog[] = result.success && result.data ? result.data : [];
+  const logs: AttendanceLog[] = result.success && result.data ? (result.data as AttendanceLog[]) : [];
   const dailyRows = summaryResult.success && summaryResult.data ? summaryResult.data : [];
 
   return (
@@ -78,7 +87,7 @@ export default async function AttendancePage() {
                   dailyRows.map((row) => (
                     <tr key={`${row.userId}-${row.dateKey}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {new Date(row.dateKey).toLocaleDateString(undefined, {
+                        {new Date(row.dateKey).toLocaleDateString("th-TH", {
                           weekday: "short",
                           year: "numeric",
                           month: "short",
@@ -87,7 +96,7 @@ export default async function AttendancePage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{row.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {row.startTime ? new Date(row.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
+                        {row.startTime ? new Date(row.startTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         {row.stillWorking ? (
@@ -95,7 +104,7 @@ export default async function AttendancePage() {
                             Still working
                           </span>
                         ) : row.endTime ? (
-                          new Date(row.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                          new Date(row.endTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })
                         ) : (
                           "-"
                         )}
@@ -127,6 +136,13 @@ export default async function AttendancePage() {
             </table>
           </div>
         </div>
+        {summaryResult.success && (
+          <Pagination
+            totalPages={summaryResult.totalPages}
+            currentPage={currentSummaryPage}
+            paramName="summaryPage"
+          />
+        )}
       </div>
 
       {/* Raw scan log */}
@@ -191,7 +207,7 @@ export default async function AttendancePage() {
                         {Math.round(log.confidence * 100)}%
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(log.createdAt).toLocaleString()}
+                        {new Date(log.createdAt).toLocaleString("th-TH")}
                       </td>
                     </tr>
                   ))
@@ -200,6 +216,13 @@ export default async function AttendancePage() {
             </table>
           </div>
         </div>
+        {result.success && (
+          <Pagination
+            totalPages={result.totalPages}
+            currentPage={currentLogPage}
+            paramName="logPage"
+          />
+        )}
       </div>
     </div>
   );

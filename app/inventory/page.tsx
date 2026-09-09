@@ -134,7 +134,7 @@ export default async function InventoryPage({
                     {asset.unit}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    ฿{Number(asset.unitPrice).toLocaleString()}
+                    ฿{Number(asset.unitPrice).toLocaleString("th-TH")}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <StatusEdit id={asset.id} initialStatus={asset.categoryStatus} />

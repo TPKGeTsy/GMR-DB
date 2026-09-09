@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
 
-export async function registerFace(userId: string, descriptor: number[]) {
+export async function registerFace(userId: string, descriptor: number[], consented: boolean) {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
@@ -17,9 +17,13 @@ export async function registerFace(userId: string, descriptor: number[]) {
       return { success: false, error: "Invalid face data" };
     }
 
+    if (!consented) {
+      return { success: false, error: "ต้องยืนยันความยินยอมในการเก็บข้อมูลใบหน้าก่อน" };
+    }
+
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { faceDescriptor: descriptor, faceRegisteredAt: new Date() },
+      data: { faceDescriptor: descriptor, faceRegisteredAt: new Date(), faceConsentAt: new Date() },
     });
 
     await prisma.activityLog.create({
@@ -48,7 +52,7 @@ export async function removeFace(userId: string) {
 
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { faceDescriptor: [], faceRegisteredAt: null },
+      data: { faceDescriptor: [], faceRegisteredAt: null, faceConsentAt: null },
     });
 
     await prisma.activityLog.create({
@@ -131,71 +135,115 @@ export interface DailyAttendanceSummaryRow {
   otHours: number;
 }
 
+/** Builds the full daily summary (every employee, every day) — used as the
+ *  source for both the paginated on-page table and the CSV export, so the
+ *  two always agree. */
+async function buildFullDailyAttendanceSummary(): Promise<DailyAttendanceSummaryRow[]> {
+  const checkIns = await prisma.checkIn.findMany({
+    orderBy: { createdAt: "asc" },
+    include: { user: { select: { id: true, username: true, fullName: true } } },
+  });
+
+  const byUser = new Map<
+    string,
+    { name: string; events: { type: string; location: string; createdAt: Date }[] }
+  >();
+  for (const c of checkIns) {
+    if (!byUser.has(c.userId)) {
+      byUser.set(c.userId, { name: c.user.fullName || c.user.username, events: [] });
+    }
+    byUser.get(c.userId)!.events.push({ type: c.type, location: c.location, createdAt: c.createdAt });
+  }
+
+  const rows: DailyAttendanceSummaryRow[] = [];
+  for (const [userId, { name, events }] of byUser) {
+    for (const day of buildDailySummary(events)) {
+      rows.push({
+        userId,
+        name,
+        dateKey: day.dateKey,
+        startTime: day.startTime ? day.startTime.toISOString() : null,
+        endTime: day.endTime ? day.endTime.toISOString() : null,
+        location: day.location,
+        stillWorking: day.stillWorking,
+        totalHours: day.totalHours,
+        regularHours: day.regularHours,
+        otHours: day.otHours,
+      });
+    }
+  }
+
+  rows.sort((a, b) => b.dateKey.localeCompare(a.dateKey) || a.name.localeCompare(b.name));
+  return rows;
+}
+
 /** Full history, grouped by employee + calendar day, with worked/OT hours.
  *  Always derived fresh from every CheckIn record, so it naturally keeps
  *  growing with past data instead of resetting each time it's requested. */
-export async function getDailyAttendanceSummary(): Promise<
-  { success: true; data: DailyAttendanceSummaryRow[] } | { success: false; error: string }
+export async function getDailyAttendanceSummary({
+  page = 1,
+  limit = 50,
+}: { page?: number; limit?: number } = {}): Promise<
+  | { success: true; data: DailyAttendanceSummaryRow[]; totalPages: number }
+  | { success: false; error: string }
 > {
   try {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
-    const checkIns = await prisma.checkIn.findMany({
-      orderBy: { createdAt: "asc" },
-      include: { user: { select: { id: true, username: true, fullName: true } } },
-    });
+    const rows = await buildFullDailyAttendanceSummary();
+    const totalPages = Math.max(1, Math.ceil(rows.length / limit));
+    const paged = rows.slice((page - 1) * limit, page * limit);
 
-    const byUser = new Map<
-      string,
-      { name: string; events: { type: string; location: string; createdAt: Date }[] }
-    >();
-    for (const c of checkIns) {
-      if (!byUser.has(c.userId)) {
-        byUser.set(c.userId, { name: c.user.fullName || c.user.username, events: [] });
-      }
-      byUser.get(c.userId)!.events.push({ type: c.type, location: c.location, createdAt: c.createdAt });
-    }
-
-    const rows: DailyAttendanceSummaryRow[] = [];
-    for (const [userId, { name, events }] of byUser) {
-      for (const day of buildDailySummary(events)) {
-        rows.push({
-          userId,
-          name,
-          dateKey: day.dateKey,
-          startTime: day.startTime ? day.startTime.toISOString() : null,
-          endTime: day.endTime ? day.endTime.toISOString() : null,
-          location: day.location,
-          stillWorking: day.stillWorking,
-          totalHours: day.totalHours,
-          regularHours: day.regularHours,
-          otHours: day.otHours,
-        });
-      }
-    }
-
-    rows.sort((a, b) => b.dateKey.localeCompare(a.dateKey) || a.name.localeCompare(b.name));
-
-    return { success: true, data: rows };
+    return { success: true, data: paged, totalPages };
   } catch (error) {
     console.error("Error building daily attendance summary:", error);
     return { success: false, error: "Failed to build daily attendance summary" };
   }
 }
 
-export async function getAttendanceLogs(limit = 500) {
+/** Same data as getDailyAttendanceSummary but unpaginated, for CSV export. */
+export async function getFullDailyAttendanceSummary(): Promise<
+  { success: true; data: DailyAttendanceSummaryRow[] } | { success: false; error: string }
+> {
   try {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
-    const logs = await prisma.checkIn.findMany({
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      include: { user: { select: { username: true, fullName: true } } },
-    });
+    return { success: true, data: await buildFullDailyAttendanceSummary() };
+  } catch (error) {
+    console.error("Error building daily attendance summary:", error);
+    return { success: false, error: "Failed to build daily attendance summary" };
+  }
+}
 
-    return { success: true, data: JSON.parse(JSON.stringify(logs)) };
+export async function getAttendanceLogs({
+  page = 1,
+  limit = 50,
+}: { page?: number; limit?: number } = {}): Promise<
+  | { success: true; data: unknown[]; totalPages: number }
+  | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const skip = (page - 1) * limit;
+    const [logs, totalCount] = await Promise.all([
+      prisma.checkIn.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: { user: { select: { username: true, fullName: true } } },
+      }),
+      prisma.checkIn.count(),
+    ]);
+
+    return {
+      success: true,
+      data: JSON.parse(JSON.stringify(logs)),
+      totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+    };
   } catch (error) {
     console.error("Error fetching attendance logs:", error);
     return { success: false, error: "Failed to load attendance logs" };

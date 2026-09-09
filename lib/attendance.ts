@@ -30,8 +30,10 @@ export function toCsv(header: string[], rows: string[][]): string {
     .join("\r\n");
 }
 
-/** Groups check-in/out events by local calendar day and computes worked hours,
- *  splitting anything past REGULAR_HOURS_CAP into overtime. */
+/** Groups check-in/out events by local calendar day and computes worked hours.
+ *  Sums every completed IN→OUT session that day (so a lunch break or a
+ *  second check-in/out cycle is counted correctly, not just first-in to
+ *  last-out), then splits anything past REGULAR_HOURS_CAP into overtime. */
 export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
   const byDate = new Map<string, CheckInEvent[]>();
 
@@ -48,22 +50,27 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
     const lastOut = [...events].reverse().find((e) => e.type === "OUT");
     const lastEvent = events[events.length - 1];
 
-    const startTime = firstIn?.createdAt || null;
-    const endTime = lastOut?.createdAt || null;
-
-    let totalHours = 0;
-    if (startTime && endTime && endTime.getTime() > startTime.getTime()) {
-      totalHours = (endTime.getTime() - startTime.getTime()) / 3_600_000;
+    let totalMs = 0;
+    let openIn: Date | null = null;
+    for (const event of events) {
+      if (event.type === "IN") {
+        if (!openIn) openIn = event.createdAt;
+      } else if (event.type === "OUT" && openIn) {
+        totalMs += event.createdAt.getTime() - openIn.getTime();
+        openIn = null;
+      }
     }
+
+    const totalHours = totalMs / 3_600_000;
     const regularHours = Math.min(totalHours, REGULAR_HOURS_CAP);
     const otHours = Math.max(0, totalHours - REGULAR_HOURS_CAP);
 
     rows.push({
       dateKey,
-      startTime,
-      endTime,
+      startTime: firstIn?.createdAt || null,
+      endTime: lastOut?.createdAt || null,
       location: firstIn?.location || lastEvent.location,
-      stillWorking: lastEvent.type === "IN",
+      stillWorking: openIn !== null,
       totalHours,
       regularHours,
       otHours,

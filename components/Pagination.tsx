@@ -6,15 +6,16 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 interface PaginationProps {
   totalPages: number;
   currentPage: number;
+  paramName?: string;
 }
 
-export default function Pagination({ totalPages, currentPage }: PaginationProps) {
+export default function Pagination({ totalPages, currentPage, paramName = "page" }: PaginationProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const handlePageChange = (page: number) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("page", page.toString());
+    params.set(paramName, page.toString());
     router.push(`?${params.toString()}`);
   };
 

@@ -1,0 +1,130 @@
+import { auth } from "@/auth";
+import { getMySchedule, getAllSchedules } from "@/app/actions/workschedule";
+import { getMyProjects } from "@/app/actions/projects";
+import AddScheduleEntryForm from "@/components/AddScheduleEntryForm";
+import DeleteScheduleEntryButton from "@/components/DeleteScheduleEntryButton";
+import { CalendarRange, Clock, Briefcase } from "lucide-react";
+
+export const dynamic = "force-dynamic";
+
+interface ScheduleEntry {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  note: string | null;
+  project: { id: string; name: string } | null;
+}
+
+interface AllScheduleEntry extends ScheduleEntry {
+  user: { username: string; fullName: string | null };
+}
+
+export default async function WorkSchedulePage() {
+  const session = await auth();
+  const isAdmin = session?.user?.role === "ADMIN";
+
+  const [myScheduleResult, myProjectsResult, allSchedulesResult] = await Promise.all([
+    getMySchedule(),
+    getMyProjects(),
+    isAdmin ? getAllSchedules() : Promise.resolve({ success: false as const, data: undefined }),
+  ]);
+
+  const mySchedule: ScheduleEntry[] = myScheduleResult.success && myScheduleResult.data ? myScheduleResult.data : [];
+  const myProjects = myProjectsResult.success && myProjectsResult.data ? myProjectsResult.data : [];
+  const allSchedules: AllScheduleEntry[] = allSchedulesResult.success && allSchedulesResult.data ? allSchedulesResult.data : [];
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+            <CalendarRange className="mr-2 h-6 w-6 text-orange-600" />
+            Work Schedule
+          </h1>
+          <p className="text-gray-500">ตารางงานของฉัน — ผูกกับโปรเจกต์ที่เข้าร่วมได้</p>
+        </div>
+        <AddScheduleEntryForm myProjects={myProjects} />
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">ตารางงานของฉัน</h2>
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+          <ul className="divide-y divide-gray-100">
+            {mySchedule.length === 0 ? (
+              <li className="px-6 py-10 text-center text-sm text-gray-500 italic">
+                ยังไม่มีตารางงาน — กด &quot;เพิ่มตารางงาน&quot; เพื่อเริ่มบันทึก
+              </li>
+            ) : (
+              mySchedule.map((entry) => (
+                <li key={entry.id} className="px-6 py-4 flex items-start justify-between hover:bg-gray-50 transition-colors">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{entry.title}</p>
+                    <div className="flex items-center flex-wrap gap-2 mt-1">
+                      <span className="text-xs text-gray-500 flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {new Date(entry.startAt).toLocaleString("th-TH")} — {new Date(entry.endAt).toLocaleString("th-TH")}
+                      </span>
+                      {entry.project && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-700 text-[10px] font-semibold">
+                          <Briefcase className="w-2.5 h-2.5 mr-1" />
+                          {entry.project.name}
+                        </span>
+                      )}
+                    </div>
+                    {entry.note && <p className="text-xs text-gray-500 mt-1">{entry.note}</p>}
+                  </div>
+                  <DeleteScheduleEntryButton id={entry.id} />
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">ตารางงานพนักงานทั้งหมด</h2>
+          <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">พนักงาน</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">งาน</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">โปรเจกต์</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">ช่วงเวลา</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allSchedules.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-10 text-center text-sm text-gray-500 italic">
+                        ยังไม่มีตารางงานในระบบ
+                      </td>
+                    </tr>
+                  ) : (
+                    allSchedules.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {entry.user.fullName || entry.user.username}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-700">{entry.title}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {entry.project?.name || "-"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
+                          {new Date(entry.startAt).toLocaleString("th-TH")} — {new Date(entry.endAt).toLocaleString("th-TH")}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

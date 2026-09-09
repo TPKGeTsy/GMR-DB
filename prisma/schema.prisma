@@ -36,6 +36,7 @@ model Loan {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   quantity   Int       @default(1)
   borrowedAt DateTime  @default(now()) @map("borrowed_at")
+  dueDate    DateTime? @map("due_date")
   returnedAt DateTime? @map("returned_at")
 
   @@map("loans")
@@ -49,6 +50,9 @@ model User {
   role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
   faceDescriptor   Float[]   @map("face_descriptor")
   faceRegisteredAt DateTime? @map("face_registered_at")
+  faceConsentAt    DateTime? @map("face_consent_at")
+  failedLoginAttempts Int    @default(0) @map("failed_login_attempts")
+  lockedUntil      DateTime? @map("locked_until")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   logs      ActivityLog[]
@@ -56,8 +60,87 @@ model User {
   wiringDiagrams     WiringDiagram[]
   checkIns  CheckIn[]
   loans     Loan[]
+  bookings  Booking[] @relation("BookingRequester")
+  approvedBookings Booking[] @relation("BookingApprover")
+  createdProjects  Project[] @relation("ProjectCreator")
+  projectMemberships ProjectMember[]
+  workSchedules    WorkSchedule[]
 
   @@map("users")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  client      String?
+  status      String   @default("ACTIVE") // 'ACTIVE', 'COMPLETED', 'ON_HOLD'
+  startDate   DateTime? @map("start_date")
+  endDate     DateTime? @map("end_date")
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation("ProjectCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  members     ProjectMember[]
+  schedules   WorkSchedule[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model WorkSchedule {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title     String
+  startAt   DateTime @map("start_at")
+  endAt     DateTime @map("end_at")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("work_schedules")
+}
+
+model Vehicle {
+  id           String    @id @default(cuid())
+  name         String
+  licensePlate String    @map("license_plate")
+  imageUrl     String?   @map("image_url")
+  status       String    @default("AVAILABLE") // 'AVAILABLE' or 'MAINTENANCE'
+  createdAt    DateTime  @default(now()) @map("created_at")
+  bookings     Booking[]
+
+  @@map("vehicles")
+}
+
+model Booking {
+  id           String    @id @default(cuid())
+  vehicleId    String    @map("vehicle_id")
+  vehicle      Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  userId       String    @map("user_id")
+  user         User      @relation("BookingRequester", fields: [userId], references: [id], onDelete: Cascade)
+  purpose      String?
+  startAt      DateTime  @map("start_at")
+  endAt        DateTime  @map("end_at")
+  status       String    @default("PENDING") // 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'
+  approvedById String?   @map("approved_by_id")
+  approvedBy   User?     @relation("BookingApprover", fields: [approvedById], references: [id])
+  decidedAt    DateTime? @map("decided_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("bookings")
 }
 
 model CheckIn {

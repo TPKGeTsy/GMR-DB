@@ -23,6 +23,7 @@ export default function RegisterFacePanel({
   const [statusText, setStatusText] = useState("Loading face recognition models...");
   const [registered, setRegistered] = useState(initialRegistered);
   const [registeredAt, setRegisteredAt] = useState(initialRegisteredAt);
+  const [consented, setConsented] = useState(initialRegistered);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -58,6 +59,10 @@ export default function RegisterFacePanel({
   };
 
   const handleCapture = async () => {
+    if (!consented) {
+      setStatusText("กรุณายืนยันความยินยอมในการเก็บข้อมูลใบหน้าก่อน");
+      return;
+    }
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -90,7 +95,7 @@ export default function RegisterFacePanel({
     }).draw(canvas);
 
     const descriptor = Array.from(detection.descriptor);
-    const result = await registerFace(userId, descriptor);
+    const result = await registerFace(userId, descriptor, consented);
 
     if (result.success) {
       setRegistered(true);
@@ -131,6 +136,21 @@ export default function RegisterFacePanel({
 
       <p className="text-xs text-gray-500 mb-3">{statusText}</p>
 
+      {!registered && (
+        <label className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-md p-2.5 mb-3">
+          <input
+            type="checkbox"
+            checked={consented}
+            onChange={(e) => setConsented(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+          />
+          <span>
+            ฉันยินยอมให้บริษัทเก็บและใช้ข้อมูลใบหน้าของฉัน (biometric data) เพื่อวัตถุประสงค์การเช็คอิน-เช็คเอาท์เท่านั้น
+            ตามนโยบายคุ้มครองข้อมูลส่วนบุคคล (PDPA)
+          </span>
+        </label>
+      )}
+
       <div className="relative w-full aspect-[4/3] bg-black rounded-lg overflow-hidden border border-gray-200 mb-3">
         <video
           ref={videoRef}
@@ -161,7 +181,7 @@ export default function RegisterFacePanel({
         ) : (
           <button
             onClick={handleCapture}
-            disabled={isSaving}
+            disabled={isSaving || !consented}
             className="inline-flex items-center px-3 py-2 rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-medium text-xs"
           >
             <ScanFace className="w-3.5 h-3.5 mr-1.5" />

@@ -1,6 +1,7 @@
 import { getUsers } from "@/app/actions/auth";
 import { getUserStatuses } from "@/app/actions/checkin";
 import RoleSelect from "@/components/RoleSelect";
+import Pagination from "@/components/Pagination";
 import { User, Shield, Activity, Calendar, MapPin } from "lucide-react";
 import Link from "next/link";
 
@@ -15,8 +16,18 @@ interface UserRow {
   _count: { logs: number };
 }
 
-export default async function UsersPage() {
-  const [result, statusResult] = await Promise.all([getUsers(), getUserStatuses()]);
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page } = await searchParams;
+  const currentPage = Number(page) || 1;
+
+  const [result, statusResult] = await Promise.all([
+    getUsers({ page: currentPage, limit: 20 }),
+    getUserStatuses(),
+  ]);
 
   if (!result.success || !result.data) {
     return (
@@ -91,7 +102,7 @@ export default async function UsersPage() {
                             </span>
                           )}
                           <span className="text-[10px] text-gray-400">
-                            since {new Date(status.since).toLocaleString()}
+                            since {new Date(status.since).toLocaleString("th-TH")}
                           </span>
                         </div>
                       )}
@@ -104,7 +115,7 @@ export default async function UsersPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <div className="flex items-center">
                         <Calendar className="mr-1.5 h-4 w-4 text-gray-400" />
-                        {new Date(user.createdAt).toLocaleDateString()}
+                        {new Date(user.createdAt).toLocaleDateString("th-TH")}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -121,6 +132,8 @@ export default async function UsersPage() {
           </table>
         </div>
       </div>
+
+      <Pagination totalPages={result.totalPages || 1} currentPage={currentPage} />
     </div>
   );
 }

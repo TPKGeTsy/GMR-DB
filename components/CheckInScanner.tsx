@@ -48,6 +48,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
         await faceapi.nets.ssdMobilenetv1.loadFromUri("/models");
         await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
         await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
+        await faceapi.nets.faceExpressionNet.loadFromUri("/models");
         setModelsLoading(false);
         setStatusText(
           initialRoster.length === 0
@@ -99,7 +100,8 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
     const detection = await faceapi
       .detectSingleFace(video)
       .withFaceLandmarks()
-      .withFaceDescriptor();
+      .withFaceDescriptor()
+      .withFaceExpressions();
 
     const ctx = canvas.getContext("2d");
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -129,6 +131,16 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
 
     if (isUnknown) {
       setStatusText("Face not recognized.");
+      return;
+    }
+
+    // Basic liveness check: require a smile so a printed/static photo of
+    // someone's face can't be used to check in on their behalf. Not
+    // foolproof (a photo of a smiling face still passes), but it stops the
+    // trivial "hold up a neutral ID photo" case.
+    const isSmiling = (detection.expressions.happy || 0) >= 0.4;
+    if (!isSmiling) {
+      setStatusText("ตรวจพบใบหน้าแล้ว กรุณายิ้ม 🙂 แล้วกดสแกนอีกครั้งเพื่อยืนยันตัวตน (liveness check)");
       return;
     }
 
@@ -292,7 +304,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">
-                      {new Date(c.createdAt).toLocaleTimeString()}
+                      {new Date(c.createdAt).toLocaleTimeString("th-TH")}
                     </p>
                     <p className="text-[10px] text-gray-400">
                       {Math.round(c.confidence * 100)}% match

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { LayoutDashboard, ListFilter, LogOut, User, ShoppingBag, Cpu, Share2, ScanFace, ClipboardList, PackageCheck } from "lucide-react";
+import { LayoutDashboard, ListFilter, LogOut, User, ShoppingBag, Cpu, Share2, ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange } from "lucide-react";
 import { auth, signOut } from "@/auth";
+import { getPendingBookingsCount } from "@/app/actions/carbooking";
 
 const linkClass =
   "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
@@ -8,6 +9,9 @@ const linkClass =
 export default async function Navbar() {
   const session = await auth();
   const role = session?.user?.role;
+  const isApprover = role === "ADMIN" || role === "OPERATOR";
+  const pendingCountResult = isApprover ? await getPendingBookingsCount() : null;
+  const pendingCount = pendingCountResult?.success ? pendingCountResult.data : 0;
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
@@ -33,6 +37,23 @@ export default async function Navbar() {
                 <Link href="/my-loans" className={linkClass}>
                   <PackageCheck className="w-4 h-4 mr-1" />
                   My Loans
+                </Link>
+                <Link href="/carbook" className={`${linkClass} relative`}>
+                  <Car className="w-4 h-4 mr-1" />
+                  Car Booking
+                  {isApprover && pendingCount > 0 && (
+                    <span className="absolute -top-1.5 -right-2.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                      {pendingCount}
+                    </span>
+                  )}
+                </Link>
+                <Link href="/projects" className={linkClass}>
+                  <Briefcase className="w-4 h-4 mr-1" />
+                  Projects
+                </Link>
+                <Link href="/work-schedule" className={linkClass}>
+                  <CalendarRange className="w-4 h-4 mr-1" />
+                  Work Schedule
                 </Link>
                 <Link href="/dashboard" className={linkClass}>
                   <LayoutDashboard className="w-4 h-4 mr-1" />

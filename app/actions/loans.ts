@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 
+const DEFAULT_LOAN_DAYS = 7;
+
 export async function borrowAsset(assetId: string, quantity: number) {
   try {
     const session = await auth();
@@ -24,8 +26,9 @@ export async function borrowAsset(assetId: string, quantity: number) {
         data: { quantity: asset.quantity - quantity },
       });
 
+      const dueDate = new Date(Date.now() + DEFAULT_LOAN_DAYS * 24 * 60 * 60 * 1000);
       const loan = await tx.loan.create({
-        data: { assetId, userId: session.user.id!, quantity },
+        data: { assetId, userId: session.user.id!, quantity, dueDate },
       });
 
       return { asset, loan };

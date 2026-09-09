@@ -5,7 +5,10 @@ import {
   ShieldCheck, 
   BarChart3, 
   Database,
-  ArrowRight
+  ArrowRight,
+  Car,
+  ScanFace,
+  Grid2x2
 } from "lucide-react";
 
 export default function Home() {
@@ -18,7 +21,7 @@ export default function Home() {
           Engineering Asset Management System
         </div>
         <h1 className="text-5xl font-extrabold text-gray-900 tracking-tight sm:text-6xl">
-          Group maker robotic <br />
+          Group Maker Robotic <br />
           <span className="text-orange-600">Stock</span>
         </h1>
         {/* <p className="max-w-2xl mx-auto text-xl text-gray-700">
@@ -45,9 +48,11 @@ export default function Home() {
       {/* Feature Grid */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-6">
-            <ListFilter className="w-6 h-6 text-blue-600" />
-          </div>
+          <Link href="/inventory">
+            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-6">
+              <ListFilter className="w-6 h-6 text-blue-600" />
+            </div>
+          </Link>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Inventory Control</h3>
           <p className="text-gray-800 leading-relaxed">
             บันทึกข้อมูลอุปกรณ์ละเอียดครบถ้วน ทั้งรหัส รุ่น จำนวน และหน่วยนับ พร้อมระบบแยกประเภทสถานะ R/Y
@@ -55,9 +60,11 @@ export default function Home() {
         </div>
 
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-6">
-            <BarChart3 className="w-6 h-6 text-green-600" />
-          </div>
+          <Link href="/dashboard">
+            <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-6">
+              <BarChart3 className="w-6 h-6 text-green-600" />
+            </div>
+          </Link>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Budget Analytics</h3>
           <p className="text-gray-800 leading-relaxed">
             Dashboard สรุปงบประมาณที่ใช้ไปแบบ Real-time พร้อมกราฟวิเคราะห์สัดส่วนต้นทุนตามประเภทอุปกรณ์
@@ -65,21 +72,61 @@ export default function Home() {
         </div>
 
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-          <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-6">
-            <Database className="w-6 h-6 text-purple-600" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">Hybrid Ready</h3>
+          <Link href="/carbook">
+            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-6">
+              <Car className="w-6 h-6 text-purple-600" />
+            </div>
+          </Link>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Car Booking</h3>
           <p className="text-gray-800 leading-relaxed">
-            รองรับการใช้งานทั้ง Cloud Database (Neon) และการย้ายไปยัง On-Premise Server ในอนาคตได้ทันที
+            ระบบจองรถยนต์สำหรับออกหน้างาน ติดตามสถานะการจองแบบเรียลไทม์
           </p>
         </div>
+
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <Link href="/checkin">
+            <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center mb-6">
+              <ScanFace className="w-6 h-6 text-orange-600" />
+            </div>
+          </Link>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Face Scan Attendance</h3>
+          <p className="text-gray-800 leading-relaxed">
+            ระบบเช็คการเข้างานและเลิกงานด้วยการ scan หน้า
+          </p>
+        </div>
+
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <Link href="/schedule">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-6">
+              <BarChart3 className="w-6 h-6 text-red-600" />
+            </div>
+          </Link>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Work Schedule</h3>
+          <p className="text-gray-800 leading-relaxed">
+            ระบบเช็คการวางแผนและตารางงานพนักงาน GMR
+          </p>
+        </div>
+
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <Link href="/project">
+            <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+              <Grid2x2 className="w-6 h-6 text-gray-600" />
+            </div>
+          </Link>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Project Management</h3>
+          <p className="text-gray-800 leading-relaxed">
+            ระบบจัดการโครงการและติดตามความคืบหน้าของงาน
+          </p>
+        </div>
+
+
       </section>
 
       {/* Quick Action Banner */}
       <section className="bg-orange-900 rounded-3xl p-8 md:p-12 text-white overflow-hidden relative">
         <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="space-y-4">
-            <h2 className="text-3xl font-bold">เริ่มเพิ่มอุปกรณ์ชิ้นแรกของคุณ?</h2>
+            <h2 className="text-3xl font-bold">เริ่มต้นระบบการจัดการคลัง</h2>
             <p className="text-orange-100 text-lg opacity-90">
               กรอกข้อมูลเพียงไม่กี่ขั้นตอน เพื่อเริ่มติดตามสถานะและงบประมาณของโครงการ
             </p>

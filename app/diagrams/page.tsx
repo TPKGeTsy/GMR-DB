@@ -79,7 +79,7 @@ export default async function DiagramsListPage() {
               </div>
               <div className="flex items-center">
                 <Clock className="w-3 h-3 mr-1 text-gray-700" />
-                {new Date(diagram.createdAt).toLocaleDateString()}
+                {new Date(diagram.createdAt).toLocaleDateString("th-TH")}
               </div>
             </div>
           </Link>

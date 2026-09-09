@@ -1,7 +1,8 @@
 import { getMyLoans } from "@/app/actions/loans";
 import ReturnLoanButton from "@/components/ReturnLoanButton";
-import { PackageCheck, Clock } from "lucide-react";
+import { PackageCheck, Clock, AlertTriangle } from "lucide-react";
 import Image from "next/image";
+import { isLoanOverdue } from "@/lib/loans";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ interface LoanRow {
   id: string;
   quantity: number;
   borrowedAt: string;
+  dueDate: string | null;
   returnedAt: string | null;
   asset: {
     name: string;
@@ -45,28 +47,38 @@ export default async function MyLoansPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {active.map((loan) => (
-              <div key={loan.id} className="bg-white border border-gray-100 rounded-lg shadow-sm p-4 flex gap-3">
-                <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-md overflow-hidden flex items-center justify-center">
-                  {loan.asset.imageUrl ? (
-                    <Image src={loan.asset.imageUrl} alt={loan.asset.name} width={56} height={56} className="object-contain" />
-                  ) : (
-                    <PackageCheck className="w-6 h-6 text-gray-300" />
-                  )}
+            {active.map((loan) => {
+              const isOverdue = isLoanOverdue(loan.dueDate);
+              return (
+                <div key={loan.id} className={`bg-white border rounded-lg shadow-sm p-4 flex gap-3 ${isOverdue ? "border-red-200" : "border-gray-100"}`}>
+                  <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-md overflow-hidden flex items-center justify-center">
+                    {loan.asset.imageUrl ? (
+                      <Image src={loan.asset.imageUrl} alt={loan.asset.name} width={56} height={56} className="object-contain" />
+                    ) : (
+                      <PackageCheck className="w-6 h-6 text-gray-300" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{loan.asset.name}</p>
+                    <p className="text-xs text-gray-500 mb-1">
+                      {loan.quantity} {loan.asset.unit}
+                    </p>
+                    <p className="text-[10px] text-gray-400 flex items-center mb-1">
+                      <Clock className="w-3 h-3 mr-1" />
+                      ยืมเมื่อ {new Date(loan.borrowedAt).toLocaleString("th-TH")}
+                    </p>
+                    {loan.dueDate && (
+                      <p className={`text-[10px] flex items-center mb-2 ${isOverdue ? "text-red-600 font-semibold" : "text-gray-400"}`}>
+                        {isOverdue && <AlertTriangle className="w-3 h-3 mr-1" />}
+                        {isOverdue ? "เกินกำหนดคืนแล้ว: " : "กำหนดคืน: "}
+                        {new Date(loan.dueDate).toLocaleDateString("th-TH")}
+                      </p>
+                    )}
+                    <ReturnLoanButton loanId={loan.id} />
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{loan.asset.name}</p>
-                  <p className="text-xs text-gray-500 mb-1">
-                    {loan.quantity} {loan.asset.unit}
-                  </p>
-                  <p className="text-[10px] text-gray-400 flex items-center mb-2">
-                    <Clock className="w-3 h-3 mr-1" />
-                    ยืมเมื่อ {new Date(loan.borrowedAt).toLocaleString()}
-                  </p>
-                  <ReturnLoanButton loanId={loan.id} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -98,8 +110,8 @@ export default async function MyLoansPage() {
                     <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.asset.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.quantity} {loan.asset.unit}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.borrowedAt).toLocaleString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnedAt && new Date(loan.returnedAt).toLocaleString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.borrowedAt).toLocaleString("th-TH")}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnedAt && new Date(loan.returnedAt).toLocaleString("th-TH")}</td>
                     </tr>
                   ))
                 )}

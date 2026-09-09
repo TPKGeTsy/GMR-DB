@@ -11,6 +11,19 @@ export async function authenticate(
   prevState: string | undefined,
   formData: FormData,
 ) {
+  const username = formData.get("username") as string;
+
+  if (username) {
+    const user = await prisma.user.findUnique({
+      where: { username },
+      select: { lockedUntil: true },
+    });
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
+      return `บัญชีถูกล็อกชั่วคราวจากการใส่รหัสผ่านผิดหลายครั้ง กรุณาลองใหม่ในอีก ${minutesLeft} นาที`;
+    }
+  }
+
   try {
     await signIn("credentials", formData);
   } catch (error) {
@@ -47,21 +60,31 @@ export async function createActivityLog(action: string, details?: string) {
   }
 }
 
-export async function getUsers() {
+export async function getUsers({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
   try {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
-    const users = await prisma.user.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        _count: {
-          select: { logs: true }
+    const skip = (page - 1) * limit;
+    const [users, totalCount] = await Promise.all([
+      prisma.user.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          _count: {
+            select: { logs: true }
+          }
         }
-      }
-    });
+      }),
+      prisma.user.count(),
+    ]);
 
-    return { success: true, data: JSON.parse(JSON.stringify(users)) };
+    return {
+      success: true,
+      data: JSON.parse(JSON.stringify(users)),
+      totalPages: Math.ceil(totalCount / limit),
+    };
   } catch (error) {
     console.error("Error fetching users:", error);
     return { success: false, error: "Failed to fetch users" };
@@ -134,4 +157,47 @@ export async function registerUser(
   }
 
   redirect("/login");
+}
+
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const isSelf = session.user.id === userId;
+    const isAdmin = session.user.role === "ADMIN";
+    if (!isSelf && !isAdmin) return { success: false, error: "Unauthorized" };
+
+    if (newPassword.length < 6) {
+      return { success: false, error: "Password must be at least 6 characters long." };
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found" };
+
+    if (isSelf) {
+      const currentMatches = await bcrypt.compare(currentPassword, user.password);
+      if (!currentMatches) return { success: false, error: "Current password is incorrect." };
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword, failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    await createActivityLog(
+      isSelf ? "CHANGE_PASSWORD" : "ADMIN_RESET_PASSWORD",
+      isSelf ? "Changed own password" : `Reset password for ${user.username}`
+    );
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error changing password:", error);
+    return { success: false, error: "Failed to change password" };
+  }
 }
