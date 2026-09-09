@@ -1,22 +1,34 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Package, Tag } from "lucide-react";
+import Link from "next/link";
+import { Package, Tag, HandHelping } from "lucide-react";
+import { Asset } from "@prisma/client";
+import { borrowAsset } from "@/app/actions/loans";
 
-interface Asset {
-  id: string;
-  name: string;
-  imageUrl: string | null;
-  imagePosition: string | null;
-  category: string | null;
-  modelOrSize: string;
-  quantity: number;
-  unit: string;
-  categoryStatus: string;
-  unitPrice: number;
-}
+export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLoggedIn: boolean }) {
+  const router = useRouter();
+  const [showForm, setShowForm] = useState(false);
+  const [qty, setQty] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-export default function CatalogCard({ asset }: { asset: Asset }) {
+  const handleBorrow = async () => {
+    setIsSubmitting(true);
+    setMessage(null);
+    const result = await borrowAsset(asset.id, qty);
+    if (result.success) {
+      setShowForm(false);
+      setQty(1);
+      router.refresh();
+    } else {
+      setMessage(result.error || "ยืมของไม่สำเร็จ");
+    }
+    setIsSubmitting(false);
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow flex flex-col h-full group">
       {/* Image Area */}
@@ -35,7 +47,7 @@ export default function CatalogCard({ asset }: { asset: Asset }) {
             <Package size={64} />
           </div>
         )}
-        
+
         {/* Category Badge */}
         {asset.category && (
           <div className="absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur-sm rounded text-[10px] font-bold text-gray-600 shadow-sm flex items-center z-10">
@@ -55,18 +67,18 @@ export default function CatalogCard({ asset }: { asset: Asset }) {
 
       {/* Content Area */}
       <div className="p-3 flex flex-col flex-grow">
-        <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 min-h-[2.5rem] mb-1 group-hover:text-indigo-600 transition-colors">
+        <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 min-h-[2.5rem] mb-1 group-hover:text-orange-600 transition-colors">
           {asset.name}
         </h3>
         <p className="text-[11px] text-gray-500 mb-2 truncate">
           {asset.modelOrSize}
         </p>
-        
-        <div className="mt-auto pt-2 flex items-center justify-between border-t border-gray-50">
+
+        <div className="mt-auto pt-2 flex items-center justify-between border-t border-gray-50 mb-2">
           <div className="flex flex-col">
             <span className="text-[10px] text-gray-400">ราคาประมาณการ</span>
-            <span className="text-sm font-bold text-indigo-600">
-              ฿{Number(asset.unitPrice).toLocaleString()}
+            <span className="text-sm font-bold text-orange-600">
+              ฿{Number(asset.unitPrice).toLocaleString("th-TH")}
             </span>
           </div>
           <div className="text-right">
@@ -76,6 +88,57 @@ export default function CatalogCard({ asset }: { asset: Asset }) {
             </span>
           </div>
         </div>
+
+        {/* Borrow Action */}
+        {!isLoggedIn ? (
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 text-xs font-medium transition-colors"
+          >
+            <HandHelping className="w-3.5 h-3.5" />
+            เข้าสู่ระบบเพื่อยืม
+          </Link>
+        ) : asset.quantity <= 0 ? (
+          <span className="inline-flex items-center justify-center px-2 py-1.5 rounded-md bg-gray-100 text-gray-400 text-xs font-medium">
+            ของหมดสต๊อก
+          </span>
+        ) : !showForm ? (
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-orange-600 text-white hover:bg-orange-700 text-xs font-semibold transition-colors"
+          >
+            <HandHelping className="w-3.5 h-3.5" />
+            ยืมของ
+          </button>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={1}
+                max={asset.quantity}
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, Math.min(asset.quantity, Number(e.target.value))))}
+                className="w-14 rounded-md border border-gray-300 px-1.5 py-1 text-xs focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+              <button
+                onClick={handleBorrow}
+                disabled={isSubmitting}
+                className="flex-1 px-2 py-1 rounded-md bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 text-xs font-semibold transition-colors"
+              >
+                {isSubmitting ? "กำลังยืม..." : "ยืนยันยืม"}
+              </button>
+              <button
+                onClick={() => { setShowForm(false); setMessage(null); }}
+                disabled={isSubmitting}
+                className="px-2 py-1 rounded-md bg-gray-100 text-gray-500 hover:bg-gray-200 text-xs"
+              >
+                ยกเลิก
+              </button>
+            </div>
+            {message && <p className="text-[10px] text-red-600">{message}</p>}
+          </div>
+        )}
       </div>
     </div>
   );

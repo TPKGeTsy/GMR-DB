@@ -1,61 +1,68 @@
 import Link from "next/link";
-import { LayoutDashboard, ListFilter, PlusCircle, LogOut, User, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, ListFilter, LogOut, User, ShoppingBag, Cpu, Share2, ScanFace, ClipboardList, PackageCheck } from "lucide-react";
 import { auth, signOut } from "@/auth";
+
+const linkClass =
+  "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
 
 export default async function Navbar() {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-10">
+    <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex">
             <Link href="/" className="flex-shrink-0 flex items-center">
-              <span className="text-xl font-bold text-indigo-600">AssetManager</span>
+              <span className="text-xl font-bold text-orange-500">GMR</span>
+              <span className="text-xl font-bold text-white">AssetManager</span>
             </Link>
+            <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-4">
+              <Link href="/checkin" className={linkClass}>
+                <ScanFace className="w-4 h-4 mr-1" />
+                Check-In
+              </Link>
+            </div>
             {session && (
-              <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-8">
-                <Link
-                  href="/catalog"
-                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                >
-                  <ShoppingBag className="w-4 h-4 mr-2" />
+              <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-4">
+                <Link href="/catalog" className={linkClass}>
+                  <ShoppingBag className="w-4 h-4 mr-1" />
                   Catalog
                 </Link>
-                <Link
-                  href="/dashboard"
-                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                >
-                  <LayoutDashboard className="w-4 h-4 mr-2" />
+                <Link href="/my-loans" className={linkClass}>
+                  <PackageCheck className="w-4 h-4 mr-1" />
+                  My Loans
+                </Link>
+                <Link href="/dashboard" className={linkClass}>
+                  <LayoutDashboard className="w-4 h-4 mr-1" />
                   Dashboard
                 </Link>
+                <Link href="/circuit" className={linkClass}>
+                  <Cpu className="w-4 h-4 mr-1" />
+                  Circuit
+                </Link>
+                <Link href="/diagrams" className={linkClass}>
+                  <Share2 className="w-4 h-4 mr-1" />
+                  Wiring
+                </Link>
                 {(role === "ADMIN" || role === "OPERATOR") && (
-                  <>
-                    <Link
-                      href="/inventory"
-                      className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                    >
-                      <ListFilter className="w-4 h-4 mr-2" />
-                      Inventory
-                    </Link>
-                    <Link
-                      href="/inventory/new"
-                      className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                    >
-                      <PlusCircle className="w-4 h-4 mr-2" />
-                      Add Asset
-                    </Link>
-                  </>
+                  <Link href="/inventory" className={linkClass}>
+                    <ListFilter className="w-4 h-4 mr-1" />
+                    Inventory
+                  </Link>
                 )}
                 {role === "ADMIN" && (
-                  <Link
-                    href="/users"
-                    className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300"
-                  >
-                    <User className="w-4 h-4 mr-2" />
-                    Users
-                  </Link>
+                  <>
+                    <Link href="/users" className={linkClass}>
+                      <User className="w-4 h-4 mr-1" />
+                      Users
+                    </Link>
+                    <Link href="/attendance" className={linkClass}>
+                      <ClipboardList className="w-4 h-4 mr-1" />
+                      Attendance
+                    </Link>
+                  </>
                 )}
               </div>
             )}
@@ -63,10 +70,13 @@ export default async function Navbar() {
           <div className="flex items-center">
             {session ? (
               <div className="flex items-center space-x-4">
-                <div className="flex items-center text-sm font-medium text-gray-900">
-                  <User className="w-4 h-4 mr-1 text-gray-600" />
+                <Link
+                  href={`/users/${session.user?.id}`}
+                  className="flex items-center text-sm font-medium text-gray-200 hover:text-orange-400 transition-colors"
+                >
+                  <User className="w-4 h-4 mr-1 text-orange-500" />
                   {session.user?.name || session.user?.username || "User"}
-                </div>
+                </Link>
                 <form
                   action={async () => {
                     "use server";
@@ -75,7 +85,7 @@ export default async function Navbar() {
                 >
                   <button
                     type="submit"
-                    className="flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-100"
+                    className="flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
                   >
                     <LogOut className="w-4 h-4 mr-2" />
                     Logout
@@ -86,13 +96,13 @@ export default async function Navbar() {
               <div className="flex items-center space-x-4">
                 <Link
                   href="/login"
-                  className="text-sm font-medium text-gray-700 hover:text-indigo-600"
+                  className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors"
                 >
                   Sign In
                 </Link>
                 <Link
                   href="/register"
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors"
                 >
                   Register
                 </Link>

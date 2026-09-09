@@ -23,8 +23,22 @@ model Asset {
   unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
+  loans           Loan[]
 
   @@map("assets")
+}
+
+model Loan {
+  id         String    @id @default(cuid())
+  assetId    String    @map("asset_id")
+  asset      Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quantity   Int       @default(1)
+  borrowedAt DateTime  @default(now()) @map("borrowed_at")
+  returnedAt DateTime? @map("returned_at")
+
+  @@map("loans")
 }
 
 model User {
@@ -33,11 +47,104 @@ model User {
   password  String
   fullName  String?  @map("full_name")
   role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
+  faceDescriptor   Float[]   @map("face_descriptor")
+  faceRegisteredAt DateTime? @map("face_registered_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   logs      ActivityLog[]
+  equipmentTemplates EquipmentTemplate[]
+  wiringDiagrams     WiringDiagram[]
+  checkIns  CheckIn[]
+  loans     Loan[]
 
   @@map("users")
+}
+
+model CheckIn {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String   @default("IN") // 'IN' (start work) or 'OUT' (finish work)
+  location   String   @default("OFFICE") // 'OFFICE' or 'OUTSIDE'
+  note       String? // detail when working outside the office
+  confidence Float    // similarity score (0-1) from the face match
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("check_ins")
+}
+
+model EquipmentTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String   @map("image_url")
+  ownerId     String   @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id])
+  pins        PinTemplate[]
+  instances   EquipmentInstance[]
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("equipment_templates")
+}
+
+model PinTemplate {
+  id          String   @id @default(cuid())
+  equipmentId String   @map("equipment_id")
+  equipment   EquipmentTemplate @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  name        String
+  type        String   // e.g., "POWER", "DATA", "GND"
+  xPos        Float    @map("x_pos") // Percentage (0-100)
+  yPos        Float    @map("y_pos") // Percentage (0-100)
+
+  @@map("pin_templates")
+}
+
+model WiringDiagram {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String   @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id])
+  isPublic    Boolean  @default(true) @map("is_public")
+  equipments  EquipmentInstance[]
+  wires       WireConnection[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("wiring_diagrams")
+}
+
+model EquipmentInstance {
+  id          String   @id @default(cuid())
+  diagramId   String   @map("diagram_id")
+  diagram     WiringDiagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  templateId  String   @map("template_id")
+  template    EquipmentTemplate @relation(fields: [templateId], references: [id])
+  xPos        Float    @map("x_pos") // Canvas X position
+  yPos        Float    @map("y_pos") // Canvas Y position
+  
+  sourceConnections WireConnection[] @relation("SourceConnection")
+  targetConnections WireConnection[] @relation("TargetConnection")
+
+  @@map("equipment_instances")
+}
+
+model WireConnection {
+  id               String   @id @default(cuid())
+  diagramId        String   @map("diagram_id")
+  diagram          WiringDiagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  
+  sourceInstanceId String   @map("source_instance_id")
+  sourceInstance   EquipmentInstance @relation("SourceConnection", fields: [sourceInstanceId], references: [id])
+  sourcePinId      String   @map("source_pin_id") // References PinTemplate.id
+  
+  targetInstanceId String   @map("target_instance_id")
+  targetInstance   EquipmentInstance @relation("TargetConnection", fields: [targetInstanceId], references: [id])
+  targetPinId      String   @map("target_pin_id") // References PinTemplate.id
+  
+  wireType         String   @map("wire_type") // Inherited from pin type for validation
+
+  @@map("wire_connections")
 }
 
 model ActivityLog {

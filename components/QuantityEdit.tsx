@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Minus, Loader2 } from "lucide-react";
 import { updateAssetQuantity } from "@/app/actions/assets";
 
@@ -11,11 +11,13 @@ interface QuantityEditProps {
 
 export default function QuantityEdit({ id, initialQuantity }: QuantityEditProps) {
   const [quantity, setQuantity] = useState(initialQuantity);
+  const [prevInitialQuantity, setPrevInitialQuantity] = useState(initialQuantity);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  useEffect(() => {
+  if (initialQuantity !== prevInitialQuantity) {
+    setPrevInitialQuantity(initialQuantity);
     setQuantity(initialQuantity);
-  }, [initialQuantity]);
+  }
 
   const handleUpdate = async (newQuantity: number) => {
     if (newQuantity < 0 || isUpdating) return;
@@ -50,7 +52,7 @@ export default function QuantityEdit({ id, initialQuantity }: QuantityEditProps)
       <div className="w-8 text-center font-medium text-gray-900 relative">
         {isUpdating ? (
           <div className="absolute inset-0 flex items-center justify-center bg-white">
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+            <Loader2 className="w-4 h-4 animate-spin text-orange-600" />
           </div>
         ) : null}
         <span className={isUpdating ? "opacity-0" : ""}>{quantity}</span>

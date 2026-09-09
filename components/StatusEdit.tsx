@@ -41,7 +41,7 @@ export default function StatusEdit({ id, initialStatus }: StatusEditProps) {
         value={status}
         disabled={isUpdating}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className={`px-3 py-1 text-xs leading-5 font-semibold rounded-full border-none cursor-pointer focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 appearance-none text-center transition-colors ${getStatusColorClass(status)} ${isUpdating ? "opacity-50" : ""}`}
+        className={`px-3 py-1 text-xs leading-5 font-semibold rounded-full border-none cursor-pointer focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 appearance-none text-center transition-colors ${getStatusColorClass(status)} ${isUpdating ? "opacity-50" : ""}`}
         title="เปลี่ยนสถานะ"
       >
         <option value="R">R</option>

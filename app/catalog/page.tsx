@@ -1,8 +1,10 @@
 import { getCatalogAssets } from "@/app/actions/assets";
+import { auth } from "@/auth";
 import CatalogCard from "@/components/CatalogCard";
 import Pagination from "@/components/Pagination";
 import Search from "@/components/Search";
 import { ShoppingBag } from "lucide-react";
+import { Asset } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +21,11 @@ export default async function CatalogPage({
   const query = params.query || "";
   const limit = 12;
 
-  const result = await getCatalogAssets({
-    page: currentPage,
-    limit,
-    query,
-  });
+  const [result, session] = await Promise.all([
+    getCatalogAssets({ page: currentPage, limit, query }),
+    auth(),
+  ]);
+  const isLoggedIn = !!session?.user;
 
   if (!result.success || !result.data) {
     return (
@@ -41,8 +43,8 @@ export default async function CatalogPage({
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-blue-500 flex items-center">
-            <ShoppingBag className="mr-3 text-indigo-600" size={32} />
+          <h1 className="text-3xl font-extrabold text-gray-900 flex items-center">
+            <ShoppingBag className="mr-3 text-orange-600" size={32} />
             Asset Catalog
           </h1>
           <p className="mt-1 text-sm text-gray-500 font-medium">
@@ -58,8 +60,8 @@ export default async function CatalogPage({
       {assets.length > 0 ? (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 md:gap-6">
-            {assets.map((asset: any) => (
-              <CatalogCard key={asset.id} asset={asset} />
+            {assets.map((asset: Asset) => (
+              <CatalogCard key={asset.id} asset={asset} isLoggedIn={isLoggedIn} />
             ))}
           </div>
           

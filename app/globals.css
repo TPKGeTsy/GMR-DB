@@ -8,19 +8,17 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-kanit);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* This app is light-themed only — every component uses hardcoded light
+   Tailwind colors (bg-white, text-gray-900, etc). Letting the OS dark-mode
+   preference flip just the <body> background left a black void behind every
+   page (see the light cards floating on black), so it's intentionally not
+   wired up here. */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-kanit), Arial, Helvetica, sans-serif;
 }

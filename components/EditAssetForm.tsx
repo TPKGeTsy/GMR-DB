@@ -153,7 +153,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
         <Link href="/inventory" className="text-gray-700 hover:text-gray-900">
           <ArrowLeft className="h-6 w-6" />
         </Link>
-        <h1 className="text-2xl font-bold text-blue-500">Edit Asset</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Edit Asset</h1>
       </div>
 
       <div className="bg-white shadow sm:rounded-lg">
@@ -243,7 +243,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                   defaultValue={asset.quantity}
                   required
                   min="0"
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] text-gray-900"
+                  className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] text-gray-900"
                 />
               </div>
             </div>
@@ -281,7 +281,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                   id="unitPrice"
                   defaultValue={asset.unitPrice}
                   required
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] text-gray-900"
+                  className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] text-gray-900"
                 />
               </div>
             </div>
@@ -296,7 +296,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                   name="categoryStatus"
                   defaultValue={asset.categoryStatus}
                   required
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-700 rounded-md p-2 border h-[42px] text-gray-500"
+                  className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-700 rounded-md p-2 border h-[42px] text-gray-500"
                 >
                   <option value="R">R (Red)</option>
                   <option value="Y">Y (Yellow)</option>
@@ -340,7 +340,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative w-full flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-indigo-400 transition-colors cursor-pointer">
+                  <div className="relative w-full flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-orange-400 transition-colors cursor-pointer">
                     <input
                       id="imageFile"
                       name="imageFile"
@@ -352,7 +352,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                     <div className="space-y-1 text-center">
                       <Upload className="mx-auto h-12 w-12 text-gray-600" />
                       <div className="flex text-sm text-gray-800">
-                        <span className="font-medium text-indigo-600">Upload a file</span>
+                        <span className="font-medium text-orange-600">Upload a file</span>
                         <p className="pl-1">or drag and drop</p>
                       </div>
                       <p className="text-xs text-gray-700">PNG, JPG, GIF up to 10MB</p>
@@ -370,14 +370,14 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
             <div className="flex justify-end">
               <Link
                 href="/inventory"
-                className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
               >
                 Cancel
               </Link>
               <button
                 type="submit"
                 disabled={isPending}
-                className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50"
               >
                 {isPending ? "Updating..." : (
                   <>

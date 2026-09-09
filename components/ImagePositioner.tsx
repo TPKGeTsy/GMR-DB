@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Move } from "lucide-react";
 
 interface ImagePositionerProps {
@@ -14,7 +14,7 @@ export default function ImagePositioner({ src, initialPosition = "50% 50%", onCh
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
-  const updatePosition = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+  const updatePosition = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
     if (!containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -34,7 +34,7 @@ export default function ImagePositioner({ src, initialPosition = "50% 50%", onCh
     const newPosition = `${x.toFixed(2)}% ${y.toFixed(2)}%`;
     setPosition(newPosition);
     onChange(newPosition);
-  };
+  }, [onChange]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
@@ -71,7 +71,7 @@ export default function ImagePositioner({ src, initialPosition = "50% 50%", onCh
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleMouseUp);
     };
-  }, []);
+  }, [updatePosition]);
 
   return (
     <div className="flex flex-col items-center space-y-2 w-full">
@@ -80,7 +80,7 @@ export default function ImagePositioner({ src, initialPosition = "50% 50%", onCh
       </p>
       <div
         ref={containerRef}
-        className="relative w-full max-w-xs h-64 border-2 border-indigo-500 rounded-lg overflow-hidden cursor-crosshair select-none bg-white flex items-center justify-center"
+        className="relative w-full max-w-xs h-64 border-2 border-orange-500 rounded-lg overflow-hidden cursor-crosshair select-none bg-white flex items-center justify-center"
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       >
@@ -93,7 +93,7 @@ export default function ImagePositioner({ src, initialPosition = "50% 50%", onCh
 
         {/* จุด Focus ที่ลอยทับอยู่บนกรอบ */}
         <div 
-          className="absolute w-8 h-8 border-4 border-white bg-indigo-600 rounded-full shadow-[0_0_15px_rgba(0,0,0,0.6)] transform -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center"
+          className="absolute w-8 h-8 border-4 border-white bg-orange-600 rounded-full shadow-[0_0_15px_rgba(0,0,0,0.6)] transform -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center"
           style={{ 
             left: position.split(" ")[0], 
             top: position.split(" ")[1] 

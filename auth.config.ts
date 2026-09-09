@@ -9,11 +9,18 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isOnInventory = nextUrl.pathname.startsWith("/inventory");
       const isOnUsers = nextUrl.pathname.startsWith("/users");
+      const isOnAttendance = nextUrl.pathname.startsWith("/attendance");
       const isOnLoginPage = nextUrl.pathname.startsWith("/login");
       const isOnRegisterPage = nextUrl.pathname.startsWith("/register");
+      const isOnCheckInPage = nextUrl.pathname.startsWith("/checkin");
 
       if (isOnLoginPage || isOnRegisterPage) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
+        return true;
+      }
+
+      // /checkin is a public kiosk page — no login required, that's the point of face check-in
+      if (isOnCheckInPage) {
         return true;
       }
 
@@ -21,16 +28,21 @@ export const authConfig = {
         return false;
       }
 
-      const user = auth.user as any;
-      const role = user?.role;
+      const role = auth.user?.role;
+      const isOwnProfile = isOnUsers && nextUrl.pathname === `/users/${auth.user?.id}`;
 
-      // /users is ADMIN only
-      if (isOnUsers && role !== "ADMIN") {
+      // /users is ADMIN only, except a user's own profile page (e.g. to register their own face)
+      if (isOnUsers && role !== "ADMIN" && !isOwnProfile) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
       // /inventory is ADMIN or OPERATOR
       if (isOnInventory && role !== "ADMIN" && role !== "OPERATOR") {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      }
+
+      // /attendance is ADMIN only (HR data across all employees)
+      if (isOnAttendance && role !== "ADMIN") {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
@@ -44,14 +56,14 @@ export const authConfig = {
         session.user.username = token.username as string;
       }
       if (session.user && token.role) {
-        (session.user as any).role = token.role as string;
+        session.user.role = token.role as string;
       }
       return session;
     },
     jwt({ token, user }) {
       if (user) {
-        token.username = (user as any).username;
-        token.role = (user as any).role;
+        token.username = user.username;
+        token.role = user.role;
       }
       return token;
     },

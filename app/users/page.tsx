@@ -1,12 +1,22 @@
 import { getUsers } from "@/app/actions/auth";
+import { getUserStatuses } from "@/app/actions/checkin";
 import RoleSelect from "@/components/RoleSelect";
-import { User, Shield, Activity, Calendar } from "lucide-react";
+import { User, Shield, Activity, Calendar, MapPin } from "lucide-react";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+interface UserRow {
+  id: string;
+  username: string;
+  fullName: string | null;
+  role: string;
+  createdAt: string;
+  _count: { logs: number };
+}
+
 export default async function UsersPage() {
-  const result = await getUsers();
+  const [result, statusResult] = await Promise.all([getUsers(), getUserStatuses()]);
 
   if (!result.success || !result.data) {
     return (
@@ -16,13 +26,15 @@ export default async function UsersPage() {
     );
   }
 
-  const users = result.data;
+  const users: UserRow[] = result.data;
+  const statuses: Record<string, { online: boolean; location: string; since: string }> =
+    statusResult.success && statusResult.data ? statusResult.data : {};
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-          <Shield className="mr-2 h-6 w-6 text-indigo-600" />
+          <Shield className="mr-2 h-6 w-6 text-orange-600" />
           User Management
         </h1>
         <p className="text-gray-500">Manage user roles and monitor their activity logs</p>
@@ -34,45 +46,77 @@ export default async function UsersPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Role</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Joined</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Activity</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {users.map((user: any) => (
-                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Link href={`/users/${user.id}`} className="flex items-center group">
-                      <div className="h-10 w-10 flex-shrink-0 bg-indigo-100 rounded-full flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-                        <User className="h-6 w-6 text-indigo-600" />
+              {users.map((user) => {
+                const status = statuses[user.id];
+                return (
+                  <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Link href={`/users/${user.id}`} className="flex items-center group">
+                        <div className="h-10 w-10 flex-shrink-0 bg-orange-100 rounded-full flex items-center justify-center group-hover:bg-orange-200 transition-colors">
+                          <User className="h-6 w-6 text-orange-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900 group-hover:text-orange-600 transition-colors">{user.username}</div>
+                          <div className="text-xs text-gray-500">{user.fullName || "No full name"}</div>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {!status ? (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500">
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1.5" />
+                          No check-in yet
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center w-fit px-2 py-0.5 text-xs font-semibold rounded-full ${
+                            status.online ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${status.online ? "bg-green-500" : "bg-gray-400"}`} />
+                            {status.online ? "Online" : "Offline"}
+                          </span>
+                          {status.online && (
+                            <span className={`inline-flex items-center w-fit px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                              status.location === "OUTSIDE" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-700"
+                            }`}>
+                              <MapPin className="w-2.5 h-2.5 mr-1" />
+                              {status.location === "OUTSIDE" ? "Outside Office" : "Onsite"}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400">
+                            since {new Date(status.since).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="w-32">
+                        <RoleSelect userId={user.id} initialRole={user.role} />
                       </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900 group-hover:text-indigo-600 transition-colors">{user.username}</div>
-                        <div className="text-xs text-gray-500">{user.fullName || "No full name"}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <div className="flex items-center">
+                        <Calendar className="mr-1.5 h-4 w-4 text-gray-400" />
+                        {new Date(user.createdAt).toLocaleDateString()}
                       </div>
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="w-32">
-                      <RoleSelect userId={user.id} initialRole={user.role} />
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div className="flex items-center">
-                      <Calendar className="mr-1.5 h-4 w-4 text-gray-400" />
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center text-sm text-gray-900">
-                      <Activity className="mr-1.5 h-4 w-4 text-green-500" />
-                      <span className="font-semibold">{user._count.logs}</span>
-                      <span className="ml-1 text-gray-500 text-xs">actions</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center text-sm text-gray-900">
+                        <Activity className="mr-1.5 h-4 w-4 text-green-500" />
+                        <span className="font-semibold">{user._count.logs}</span>
+                        <span className="ml-1 text-gray-500 text-xs">actions</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

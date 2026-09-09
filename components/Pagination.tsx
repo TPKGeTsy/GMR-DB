@@ -23,7 +23,7 @@ export default function Pagination({ totalPages, currentPage }: PaginationProps)
   // Logic to show a limited number of page buttons
   const maxButtons = 5;
   let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
-  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  const endPage = Math.min(totalPages, startPage + maxButtons - 1);
 
   if (endPage - startPage + 1 < maxButtons) {
     startPage = Math.max(1, endPage - maxButtons + 1);
@@ -60,7 +60,7 @@ export default function Pagination({ totalPages, currentPage }: PaginationProps)
           onClick={() => handlePageChange(page)}
           className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${
             currentPage === page
-              ? "bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-200"
+              ? "bg-orange-600 text-white shadow-sm ring-2 ring-orange-200"
               : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-50 hover:border-gray-400"
           }`}
         >

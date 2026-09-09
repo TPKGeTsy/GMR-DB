@@ -50,8 +50,7 @@ export async function createActivityLog(action: string, details?: string) {
 export async function getUsers() {
   try {
     const session = await auth();
-    const user = session?.user as any;
-    if (user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
@@ -72,8 +71,7 @@ export async function getUsers() {
 export async function updateUserRole(userId: string, role: string) {
   try {
     const session = await auth();
-    const currentUser = session?.user as any;
-    if (currentUser?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
     const user = await prisma.user.update({
       where: { id: userId },

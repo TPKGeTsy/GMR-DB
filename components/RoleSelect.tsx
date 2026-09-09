@@ -31,7 +31,7 @@ export default function RoleSelect({ userId, initialRole }: RoleSelectProps) {
       value={role}
       onChange={(e) => handleRoleChange(e.target.value)}
       disabled={isPending}
-      className="block w-full rounded-md border-gray-300 py-1 pl-3 pr-10 text-base focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
+      className="block w-full rounded-md border-gray-300 py-1 pl-3 pr-10 text-base focus:border-orange-500 focus:outline-none focus:ring-orange-500 sm:text-sm disabled:opacity-50"
     >
       <option value="USER">USER</option>
       <option value="OPERATOR">OPERATOR</option>

@@ -41,12 +41,12 @@ export default async function InventoryPage({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-blue-700">Inventory</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
           <p className="text-gray-500">Manage and view your engineering assets</p>
         </div>
         <Link
           href="/inventory/new"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
         >
           <Plus className="-ml-1 mr-2 h-5 w-5" />
           Add Asset
@@ -142,7 +142,7 @@ export default async function InventoryPage({
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <Link
                       href={`/inventory/${asset.id}/edit`}
-                      className="text-indigo-600 hover:text-indigo-900 inline-block p-2 rounded-md hover:bg-indigo-50 transition-colors"
+                      className="text-orange-600 hover:text-orange-900 inline-block p-2 rounded-md hover:bg-orange-50 transition-colors"
                       title="Edit Asset"
                     >
                       <Edit className="w-4 h-4" />

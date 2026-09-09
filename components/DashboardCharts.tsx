@@ -40,7 +40,7 @@ export default function DashboardCharts({ data }: DashboardChartsProps) {
             <XAxis dataKey="status" />
             <YAxis />
             <Tooltip
-              formatter={(value: any) => `฿${Number(value || 0).toLocaleString()}`}
+              formatter={(value: string | number | null | undefined | readonly (string | number)[]) => `฿${Number(value || 0).toLocaleString()}`}
             />
             <Legend />
             <Bar dataKey="totalValue" name="Total Value">
