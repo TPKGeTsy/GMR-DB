@@ -2,6 +2,7 @@ import Link from "next/link";
 import { LayoutDashboard, ListFilter, LogOut, User, ShoppingBag, Cpu, Share2, ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange } from "lucide-react";
 import { auth, signOut } from "@/auth";
 import { getPendingBookingsCount } from "@/app/actions/carbooking";
+import MobileNavMenu from "./MobileNavMenu";
 
 const linkClass =
   "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
@@ -14,14 +15,20 @@ export default async function Navbar() {
   const pendingCount = pendingCountResult?.success ? pendingCountResult.data : 0;
 
   return (
-    <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-10">
+    <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-10 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
-          <div className="flex">
+          <div className="flex items-center">
             <Link href="/" className="flex-shrink-0 flex items-center">
               <span className="text-xl font-bold text-orange-500">GMR</span>
               <span className="text-xl font-bold text-white">AssetManager</span>
             </Link>
+            <MobileNavMenu
+              isLoggedIn={!!session}
+              role={role}
+              isApprover={isApprover}
+              pendingCount={pendingCount}
+            />
             <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-4">
               <Link href="/checkin" className={linkClass}>
                 <ScanFace className="w-4 h-4 mr-1" />
@@ -88,15 +95,17 @@ export default async function Navbar() {
               </div>
             )}
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center flex-shrink-0">
             {session ? (
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 sm:gap-4">
                 <Link
                   href={`/users/${session.user?.id}`}
                   className="flex items-center text-sm font-medium text-gray-200 hover:text-orange-400 transition-colors"
                 >
-                  <User className="w-4 h-4 mr-1 text-orange-500" />
-                  {session.user?.name || session.user?.username || "User"}
+                  <User className="w-4 h-4 sm:mr-1 text-orange-500" />
+                  <span className="hidden sm:inline">
+                    {session.user?.name || session.user?.username || "User"}
+                  </span>
                 </Link>
                 <form
                   action={async () => {
@@ -106,15 +115,16 @@ export default async function Navbar() {
                 >
                   <button
                     type="submit"
-                    className="flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                    className="flex items-center px-2 sm:px-3 py-2 border border-transparent text-sm font-medium rounded-md text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                    aria-label="Logout"
                   >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Logout
+                    <LogOut className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Logout</span>
                   </button>
                 </form>
               </div>
             ) : (
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 sm:gap-4">
                 <Link
                   href="/login"
                   className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors"
@@ -123,7 +133,7 @@ export default async function Navbar() {
                 </Link>
                 <Link
                   href="/register"
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors"
+                  className="inline-flex items-center px-3 sm:px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors"
                 >
                   Register
                 </Link>
