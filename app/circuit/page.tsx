@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -11,7 +12,7 @@ const CircuitSandbox = dynamic(
   { ssr: false }
 );
 
-export default function SimulatorPage() {
+function CircuitPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get('projectId') || undefined;
 
@@ -42,5 +43,13 @@ export default function SimulatorPage() {
         <CircuitSandbox projectId={projectId} />
       </div>
     </div>
+  );
+}
+
+export default function SimulatorPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-gray-400">Loading...</div>}>
+      <CircuitPageContent />
+    </Suspense>
   );
 }
