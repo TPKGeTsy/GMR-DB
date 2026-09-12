@@ -1,6 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
@@ -50,7 +51,7 @@ export async function createScheduleEntry(
     revalidatePath("/work-schedule");
     return { success: true, data: JSON.parse(JSON.stringify(entry)) };
   } catch (error) {
-    console.error("Error creating schedule entry:", error);
+    logError("Error creating schedule entry:", error);
     return { success: false, error: "บันทึกตารางงานไม่สำเร็จ" };
   }
 }
@@ -71,7 +72,7 @@ export async function deleteScheduleEntry(id: string) {
     revalidatePath("/work-schedule");
     return { success: true };
   } catch (error) {
-    console.error("Error deleting schedule entry:", error);
+    logError("Error deleting schedule entry:", error);
     return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
@@ -89,7 +90,7 @@ export async function getMySchedule() {
 
     return { success: true, data: JSON.parse(JSON.stringify(entries)) };
   } catch (error) {
-    console.error("Error fetching my schedule:", error);
+    logError("Error fetching my schedule:", error);
     return { success: false, error: "Failed to load schedule" };
   }
 }
@@ -110,7 +111,7 @@ export async function getAllSchedules(limit = 200) {
 
     return { success: true, data: JSON.parse(JSON.stringify(entries)) };
   } catch (error) {
-    console.error("Error fetching all schedules:", error);
+    logError("Error fetching all schedules:", error);
     return { success: false, error: "Failed to load schedules" };
   }
 }

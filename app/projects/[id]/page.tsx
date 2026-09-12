@@ -1,10 +1,13 @@
 import { getProjectById, getUserOptions } from "@/app/actions/projects";
+import { getSandboxDiagramsForProject, getUnlinkedSandboxDiagrams } from "@/app/actions/wiring";
 import { auth } from "@/auth";
 import ProjectMemberManager from "@/components/ProjectMemberManager";
 import ProjectStatusSelect from "@/components/ProjectStatusSelect";
+import ProjectCircuitManager from "@/components/ProjectCircuitManager";
+import DeadlineBadge from "@/components/DeadlineBadge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Users, Calendar, Briefcase } from "lucide-react";
+import { ArrowLeft, Users, Calendar, Briefcase, Cpu } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -22,16 +25,26 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const allUsers = usersResult.success && usersResult.data ? usersResult.data : [];
   const canManage = session?.user?.role === "ADMIN" || session?.user?.id === project.createdById;
 
+  const [circuitsResult, unlinkedResult] = await Promise.all([
+    getSandboxDiagramsForProject(id),
+    canManage ? getUnlinkedSandboxDiagrams() : Promise.resolve({ success: true, data: [] }),
+  ]);
+  const circuits = circuitsResult.success && circuitsResult.data ? circuitsResult.data : [];
+  const unlinkedCircuits = unlinkedResult.success && unlinkedResult.data ? unlinkedResult.data : [];
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center space-x-4">
-        <Link href="/projects" className="text-gray-700 hover:text-gray-900">
-          <ArrowLeft className="h-6 w-6" />
-        </Link>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-          <Briefcase className="mr-2 h-6 w-6 text-orange-600" />
-          {project.name}
-        </h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center space-x-4">
+          <Link href="/projects" className="text-gray-700 hover:text-gray-900">
+            <ArrowLeft className="h-6 w-6" />
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+            <Briefcase className="mr-2 h-6 w-6 text-orange-600" />
+            {project.name}
+          </h1>
+        </div>
+        <DeadlineBadge endDate={project.endDate} status={project.status} className="text-sm px-3 py-1" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -75,6 +88,21 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             allUsers={allUsers}
             ownerId={project.createdById}
             canManage={canManage}
+          />
+        </div>
+
+        <div className="bg-white p-6 shadow rounded-lg border border-gray-100 md:col-span-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+            <Cpu className="w-4 h-4 mr-1.5" />
+            วงจร (Circuit Diagrams) ({circuits.length})
+          </h2>
+          <ProjectCircuitManager
+            projectId={project.id}
+            circuits={circuits}
+            unlinkedCircuits={unlinkedCircuits}
+            canManage={canManage}
+            currentUserId={session?.user?.id}
+            isAdmin={session?.user?.role === "ADMIN"}
           />
         </div>
       </div>

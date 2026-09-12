@@ -1,9 +1,11 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const DEFAULT_LOAN_DAYS = 7;
 
@@ -11,6 +13,11 @@ export async function borrowAsset(assetId: string, quantity: number) {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "กรุณาเข้าสู่ระบบก่อนยืมของ" };
+
+    const rateLimit = await checkRateLimit(`borrowAsset:${session.user.id}`, { maxAttempts: 20, windowMs: 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `ยืมของถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
 
     if (!Number.isInteger(quantity) || quantity < 1) {
       return { success: false, error: "จำนวนไม่ถูกต้อง" };
@@ -46,7 +53,7 @@ export async function borrowAsset(assetId: string, quantity: number) {
 
     return { success: true, data: JSON.parse(JSON.stringify(result.loan)) };
   } catch (error) {
-    console.error("Error borrowing asset:", error);
+    logError("Error borrowing asset:", error);
     const message = error instanceof Error ? error.message : "ยืมของไม่สำเร็จ";
     return { success: false, error: message };
   }
@@ -87,7 +94,7 @@ export async function returnLoan(loanId: string) {
 
     return { success: true };
   } catch (error) {
-    console.error("Error returning loan:", error);
+    logError("Error returning loan:", error);
     const message = error instanceof Error ? error.message : "คืนของไม่สำเร็จ";
     return { success: false, error: message };
   }
@@ -109,7 +116,7 @@ export async function getActiveLoans() {
 
     return { success: true, data: JSON.parse(JSON.stringify(loans)) };
   } catch (error) {
-    console.error("Error fetching active loans:", error);
+    logError("Error fetching active loans:", error);
     return { success: false, error: "Failed to load active loans" };
   }
 }
@@ -127,7 +134,7 @@ export async function getMyLoans() {
 
     return { success: true, data: JSON.parse(JSON.stringify(loans)) };
   } catch (error) {
-    console.error("Error fetching loans:", error);
+    logError("Error fetching loans:", error);
     return { success: false, error: "Failed to load loans" };
   }
 }

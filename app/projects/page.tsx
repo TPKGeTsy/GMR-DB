@@ -1,6 +1,7 @@
 import { getProjects } from "@/app/actions/projects";
 import Link from "next/link";
 import { Briefcase, Plus, Users, User, Calendar } from "lucide-react";
+import DeadlineBadge from "@/components/DeadlineBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -63,16 +64,19 @@ export default async function ProjectsPage() {
               href={`/projects/${p.id}`}
               className="bg-white rounded-lg shadow-sm border border-gray-100 p-5 hover:shadow-md hover:border-orange-200 transition-all"
             >
-              <div className="flex items-start justify-between mb-2">
+              <div className="flex items-start justify-between mb-2 gap-2">
                 <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${statusBadge[p.status] || "bg-gray-100 text-gray-500"}`}>
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full whitespace-nowrap ${statusBadge[p.status] || "bg-gray-100 text-gray-500"}`}>
                   {statusLabel[p.status] || p.status}
                 </span>
               </div>
               {p.client && <p className="text-xs text-gray-500 mb-1">ลูกค้า: {p.client}</p>}
-              <p className="text-sm text-gray-600 line-clamp-2 mb-4 min-h-[2.5rem]">
+              <p className="text-sm text-gray-600 line-clamp-2 mb-3 min-h-[2.5rem]">
                 {p.description || "ไม่มีรายละเอียด"}
               </p>
+              <div className="mb-3">
+                <DeadlineBadge endDate={p.endDate} status={p.status} />
+              </div>
               <div className="flex items-center justify-between text-[11px] text-gray-500 border-t border-gray-50 pt-3">
                 <div className="flex items-center">
                   <User className="w-3 h-3 mr-1" />

@@ -122,7 +122,7 @@ export default function NewVehicleForm() {
                       <span className="font-medium text-orange-600">Upload a file</span>
                       <p className="pl-1">or drag and drop</p>
                     </div>
-                    <p className="text-xs text-gray-700">PNG, JPG up to 10MB (optional)</p>
+                    <p className="text-xs text-gray-700">PNG, JPG up to 8MB (optional)</p>
                   </div>
                 </div>
               )}

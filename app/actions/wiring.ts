@@ -1,14 +1,30 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { v4 as uuidv4 } from "uuid";
+import { validateImageFile } from "@/lib/uploads";
+import { saveUploadedFile } from "@/lib/storage";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { z } from "zod";
 
 // --- Equipment Templates ---
+
+const pinSchema = z.object({
+  name: z.string().trim().min(1, "กรุณาตั้งชื่อพิน"),
+  type: z.string().trim().min(1, "กรุณาเลือกประเภทพิน"),
+  xPos: z.number().min(0).max(100, "ตำแหน่งต้องอยู่ระหว่าง 0-100%"),
+  yPos: z.number().min(0).max(100, "ตำแหน่งต้องอยู่ระหว่าง 0-100%"),
+});
+
+const equipmentTemplateSchema = z.object({
+  name: z.string().trim().min(1, "กรุณากรอกชื่ออุปกรณ์"),
+  description: z.string().trim().optional(),
+  pins: z.array(pinSchema).default([]),
+});
 
 export async function getEquipmentTemplates() {
   try {
@@ -22,16 +38,9 @@ export async function getEquipmentTemplates() {
 
     return { success: true, data: JSON.parse(JSON.stringify(templates)) };
   } catch (error) {
-    console.error("Error fetching templates:", error);
+    logError("Error fetching templates:", error);
     return { success: false, error: "Failed to fetch templates" };
   }
-}
-
-interface PinInput {
-  name: string;
-  type: string;
-  xPos: number;
-  yPos: number;
 }
 
 export async function createEquipmentTemplate(formData: FormData) {
@@ -39,27 +48,34 @@ export async function createEquipmentTemplate(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
-    const name = formData.get("name") as string;
-    const description = formData.get("description") as string;
     const imageFile = formData.get("imageFile") as File;
-    const pinsJson = formData.get("pins") as string; // Expecting JSON array of pins
-
-    if (!name || !imageFile) return { success: false, error: "Missing required fields" };
-
-    // Handle image upload
-    let imageUrl = "";
-    if (imageFile && imageFile.size > 0) {
-      const bytes = await imageFile.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-      const uploadDir = join(process.cwd(), "public", "uploads", "templates");
-      await mkdir(uploadDir, { recursive: true });
-      const fileName = `${uuidv4()}-${imageFile.name.replace(/\s+/g, "-")}`;
-      const path = join(uploadDir, fileName);
-      await writeFile(path, buffer);
-      imageUrl = `/uploads/templates/${fileName}`;
+    if (!imageFile || imageFile.size === 0) {
+      return { success: false, error: "กรุณาอัปโหลดรูปอุปกรณ์" };
     }
 
-    const pins: PinInput[] = pinsJson ? JSON.parse(pinsJson) : [];
+    const pinsJson = formData.get("pins") as string | null; // Expecting JSON array of pins
+    let pinsRaw: unknown = [];
+    if (pinsJson) {
+      try {
+        pinsRaw = JSON.parse(pinsJson);
+      } catch {
+        return { success: false, error: "ข้อมูลพินไม่ถูกต้อง" };
+      }
+    }
+
+    const parsed = equipmentTemplateSchema.safeParse({
+      name: formData.get("name"),
+      description: (formData.get("description") as string | null) || undefined,
+      pins: pinsRaw,
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
+    }
+    const { name, description, pins } = parsed.data;
+
+    const validation = validateImageFile(imageFile);
+    if (!validation.valid) return { success: false, error: validation.error };
+    const imageUrl = await saveUploadedFile(imageFile, "templates");
 
     const template = await prisma.equipmentTemplate.create({
       data: {
@@ -82,7 +98,7 @@ export async function createEquipmentTemplate(formData: FormData) {
     revalidatePath("/templates");
     return { success: true, data: JSON.parse(JSON.stringify(template)) };
   } catch (error) {
-    console.error("Error creating template:", error);
+    logError("Error creating template:", error);
     return { success: false, error: "Failed to create template" };
   }
 }
@@ -97,7 +113,7 @@ export async function getWiringDiagrams() {
     });
     return { success: true, data: JSON.parse(JSON.stringify(diagrams)) };
   } catch (error) {
-    console.error("Error fetching diagrams:", error);
+    logError("Error fetching diagrams:", error);
     return { success: false, error: "Failed to fetch diagrams" };
   }
 }
@@ -122,7 +138,7 @@ export async function getWiringDiagramById(id: string) {
 
     return { success: true, data: JSON.parse(JSON.stringify(diagram)) };
   } catch (error) {
-    console.error("Error fetching diagram:", error);
+    logError("Error fetching diagram:", error);
     return { success: false, error: "Failed to fetch diagram" };
   }
 }
@@ -144,7 +160,7 @@ export async function createWiringDiagram(name: string, description?: string) {
     revalidatePath("/diagrams");
     return { success: true, data: JSON.parse(JSON.stringify(diagram)) };
   } catch (error) {
-    console.error("Error creating diagram:", error);
+    logError("Error creating diagram:", error);
     return { success: false, error: "Failed to create diagram" };
   }
 }
@@ -212,7 +228,191 @@ export async function saveDiagramState(id: string, state: {
     revalidatePath(`/diagrams/${id}`);
     return { success: true };
   } catch (error) {
-    console.error("Error saving diagram state:", error);
+    logError("Error saving diagram state:", error);
     return { success: false, error: "Failed to save diagram state" };
+  }
+}
+
+// --- Circuit Sandbox (free-form, saved as a raw React Flow snapshot) ---
+
+interface SandboxCanvasData {
+  nodes: unknown[];
+  edges: unknown[];
+}
+
+export async function createSandboxDiagram(name: string, canvasData: SandboxCanvasData, projectId?: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (!name.trim()) return { success: false, error: "กรุณาตั้งชื่อวงจร" };
+
+    const rateLimit = await checkRateLimit(`createSandboxDiagram:${session.user.id}`, { maxAttempts: 20, windowMs: 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `สร้างวงจรถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
+
+    let linkProjectId: string | undefined;
+    if (projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        include: { members: { where: { userId: session.user.id } } },
+      });
+      const canAttach = !!project && (
+        session.user.role === "ADMIN" ||
+        project.createdById === session.user.id ||
+        project.members.length > 0
+      );
+      if (canAttach) linkProjectId = projectId;
+    }
+
+    const diagram = await prisma.wiringDiagram.create({
+      data: {
+        name: name.trim(),
+        ownerId: session.user.id,
+        kind: "SANDBOX",
+        canvasData: canvasData as unknown as Prisma.InputJsonValue,
+        projectId: linkProjectId,
+      },
+    });
+
+    await createActivityLog("CREATE_DIAGRAM", `Created circuit sandbox "${name.trim()}"`);
+    revalidatePath("/diagrams");
+    if (linkProjectId) revalidatePath(`/projects/${linkProjectId}`);
+    return { success: true, data: { id: diagram.id } };
+  } catch (error) {
+    logError("Error creating sandbox diagram:", error);
+    return { success: false, error: "Failed to save circuit" };
+  }
+}
+
+export async function updateSandboxDiagram(id: string, name: string, canvasData: SandboxCanvasData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (!name.trim()) return { success: false, error: "กรุณาตั้งชื่อวงจร" };
+
+    const diagram = await prisma.wiringDiagram.findUnique({ where: { id } });
+    if (!diagram) return { success: false, error: "Diagram not found" };
+    const canEdit = diagram.ownerId === session.user.id || session.user.role === "ADMIN";
+    if (!canEdit) return { success: false, error: "Unauthorized" };
+    if (diagram.kind !== "SANDBOX") return { success: false, error: "Invalid diagram type" };
+
+    await prisma.wiringDiagram.update({
+      where: { id },
+      data: { name: name.trim(), canvasData: canvasData as unknown as Prisma.InputJsonValue },
+    });
+
+    revalidatePath(`/diagrams/${id}`);
+    revalidatePath("/diagrams");
+    return { success: true };
+  } catch (error) {
+    logError("Error updating sandbox diagram:", error);
+    return { success: false, error: "Failed to save circuit" };
+  }
+}
+
+export async function deleteSandboxDiagram(id: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const diagram = await prisma.wiringDiagram.findUnique({ where: { id } });
+    if (!diagram) return { success: false, error: "Diagram not found" };
+    const canDelete = diagram.ownerId === session.user.id || session.user.role === "ADMIN";
+    if (!canDelete) return { success: false, error: "Unauthorized" };
+
+    await prisma.wiringDiagram.delete({ where: { id } });
+
+    await createActivityLog("DELETE_DIAGRAM", `Deleted circuit sandbox "${diagram.name}"`);
+    revalidatePath("/diagrams");
+    if (diagram.projectId) revalidatePath(`/projects/${diagram.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting sandbox diagram:", error);
+    return { success: false, error: "Failed to delete circuit" };
+  }
+}
+
+// --- Project <-> Circuit linking ---
+
+export async function getSandboxDiagramsForProject(projectId: string) {
+  try {
+    const diagrams = await prisma.wiringDiagram.findMany({
+      where: { projectId, kind: "SANDBOX" },
+      include: { owner: { select: { username: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return { success: true, data: JSON.parse(JSON.stringify(diagrams)) };
+  } catch (error) {
+    logError("Error fetching project circuits:", error);
+    return { success: false, error: "Failed to fetch circuits" };
+  }
+}
+
+export async function getUnlinkedSandboxDiagrams() {
+  try {
+    const diagrams = await prisma.wiringDiagram.findMany({
+      where: { projectId: null, kind: "SANDBOX" },
+      include: { owner: { select: { username: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    return { success: true, data: JSON.parse(JSON.stringify(diagrams)) };
+  } catch (error) {
+    logError("Error fetching unlinked circuits:", error);
+    return { success: false, error: "Failed to fetch circuits" };
+  }
+}
+
+async function canManageProject(projectId: string, userId: string, role?: string | null) {
+  if (role === "ADMIN") return true;
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  return !!project && project.createdById === userId;
+}
+
+export async function linkSandboxDiagramToProject(diagramId: string, projectId: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const allowed = await canManageProject(projectId, session.user.id, session.user.role);
+    if (!allowed) return { success: false, error: "Unauthorized" };
+
+    const diagram = await prisma.wiringDiagram.findUnique({ where: { id: diagramId } });
+    if (!diagram || diagram.kind !== "SANDBOX") return { success: false, error: "Circuit not found" };
+
+    await prisma.wiringDiagram.update({ where: { id: diagramId }, data: { projectId } });
+
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/diagrams");
+    return { success: true };
+  } catch (error) {
+    logError("Error linking circuit to project:", error);
+    return { success: false, error: "Failed to link circuit" };
+  }
+}
+
+export async function unlinkSandboxDiagramFromProject(diagramId: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const diagram = await prisma.wiringDiagram.findUnique({ where: { id: diagramId } });
+    if (!diagram || !diagram.projectId) return { success: false, error: "Circuit not found" };
+
+    const allowed =
+      diagram.ownerId === session.user.id ||
+      (await canManageProject(diagram.projectId, session.user.id, session.user.role));
+    if (!allowed) return { success: false, error: "Unauthorized" };
+
+    const projectId = diagram.projectId;
+    await prisma.wiringDiagram.update({ where: { id: diagramId }, data: { projectId: null } });
+
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/diagrams");
+    return { success: true };
+  } catch (error) {
+    logError("Error unlinking circuit from project:", error);
+    return { success: false, error: "Failed to unlink circuit" };
   }
 }

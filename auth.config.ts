@@ -4,6 +4,13 @@ export const authConfig = {
   pages: {
     signIn: "/login",
   },
+  // Default (no config) is a 30-day rolling session — too long for a company
+  // tool where a lost/shared device would stay logged in for a month.
+  // 7 days, refreshed on activity, so active users aren't logged out mid-use.
+  session: {
+    maxAge: 7 * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
+  },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;

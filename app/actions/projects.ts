@@ -1,9 +1,25 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { z } from "zod";
+
+const createProjectSchema = z
+  .object({
+    name: z.string().trim().min(1, "กรุณากรอกชื่อโปรเจกต์"),
+    description: z.string().trim().optional(),
+    client: z.string().trim().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+  })
+  .refine(
+    (data) => !data.startDate || !data.endDate || new Date(data.endDate) >= new Date(data.startDate),
+    { message: "วันสิ้นสุด (Deadline) ต้องไม่ก่อนวันเริ่มต้น", path: ["endDate"] }
+  );
 
 async function canManageProject(projectId: string, userId: string, role: string | undefined) {
   if (role === "ADMIN") return true;
@@ -28,7 +44,7 @@ export async function getUserOptions() {
       data: users.map((u) => ({ id: u.id, name: u.fullName || u.username })),
     };
   } catch (error) {
-    console.error("Error fetching user options:", error);
+    logError("Error fetching user options:", error);
     return { success: false, error: "Failed to load users" };
   }
 }
@@ -38,19 +54,28 @@ export async function createProject(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "กรุณาเข้าสู่ระบบก่อน" };
 
-    const name = formData.get("name") as string;
-    const description = (formData.get("description") as string) || null;
-    const client = (formData.get("client") as string) || null;
-    const startDateStr = formData.get("startDate") as string;
-    const endDateStr = formData.get("endDate") as string;
+    const rateLimit = await checkRateLimit(`createProject:${session.user.id}`, { maxAttempts: 10, windowMs: 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `สร้างโปรเจกต์ถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
 
-    if (!name?.trim()) return { success: false, error: "กรุณากรอกชื่อโปรเจกต์" };
+    const parsed = createProjectSchema.safeParse({
+      name: formData.get("name") as string | null,
+      description: (formData.get("description") as string | null) || undefined,
+      client: (formData.get("client") as string | null) || undefined,
+      startDate: (formData.get("startDate") as string | null) || undefined,
+      endDate: (formData.get("endDate") as string | null) || undefined,
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
+    }
+    const { name, description, client, startDate: startDateStr, endDate: endDateStr } = parsed.data;
 
     const project = await prisma.project.create({
       data: {
-        name: name.trim(),
-        description,
-        client,
+        name,
+        description: description || null,
+        client: client || null,
         startDate: startDateStr ? new Date(startDateStr) : null,
         endDate: endDateStr ? new Date(endDateStr) : null,
         createdById: session.user.id,
@@ -65,7 +90,7 @@ export async function createProject(formData: FormData) {
     revalidatePath("/projects");
     return { success: true, data: JSON.parse(JSON.stringify(project)) };
   } catch (error) {
-    console.error("Error creating project:", error);
+    logError("Error creating project:", error);
     return { success: false, error: "สร้างโปรเจกต์ไม่สำเร็จ" };
   }
 }
@@ -81,7 +106,7 @@ export async function getProjects() {
     });
     return { success: true, data: JSON.parse(JSON.stringify(projects)) };
   } catch (error) {
-    console.error("Error fetching projects:", error);
+    logError("Error fetching projects:", error);
     return { success: false, error: "Failed to load projects" };
   }
 }
@@ -99,7 +124,7 @@ export async function getMyProjects() {
 
     return { success: true, data: JSON.parse(JSON.stringify(projects)) };
   } catch (error) {
-    console.error("Error fetching my projects:", error);
+    logError("Error fetching my projects:", error);
     return { success: false, error: "Failed to load your projects" };
   }
 }
@@ -120,7 +145,7 @@ export async function getProjectById(id: string) {
     if (!project) return { success: false, error: "ไม่พบโปรเจกต์นี้" };
     return { success: true, data: JSON.parse(JSON.stringify(project)) };
   } catch (error) {
-    console.error("Error fetching project:", error);
+    logError("Error fetching project:", error);
     return { success: false, error: "Failed to load project" };
   }
 }
@@ -152,7 +177,7 @@ export async function addProjectMember(projectId: string, userId: string) {
     revalidatePath(`/projects/${projectId}`);
     return { success: true };
   } catch (error) {
-    console.error("Error adding project member:", error);
+    logError("Error adding project member:", error);
     return { success: false, error: "เพิ่มพนักงานไม่สำเร็จ" };
   }
 }
@@ -177,7 +202,7 @@ export async function removeProjectMember(projectId: string, userId: string) {
     revalidatePath(`/projects/${projectId}`);
     return { success: true };
   } catch (error) {
-    console.error("Error removing project member:", error);
+    logError("Error removing project member:", error);
     return { success: false, error: "นำพนักงานออกไม่สำเร็จ" };
   }
 }
@@ -196,7 +221,7 @@ export async function updateProjectStatus(projectId: string, status: "ACTIVE" | 
     revalidatePath("/projects");
     return { success: true };
   } catch (error) {
-    console.error("Error updating project status:", error);
+    logError("Error updating project status:", error);
     return { success: false, error: "อัพเดทสถานะไม่สำเร็จ" };
   }
 }

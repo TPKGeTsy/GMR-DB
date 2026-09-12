@@ -1,9 +1,12 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
+import { saveDataUrlImage } from "@/lib/storage";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function registerFace(userId: string, descriptor: number[], consented: boolean) {
   try {
@@ -37,7 +40,7 @@ export async function registerFace(userId: string, descriptor: number[], consent
     revalidatePath(`/users/${userId}`);
     return { success: true };
   } catch (error) {
-    console.error("Error registering face:", error);
+    logError("Error registering face:", error);
     return { success: false, error: "Failed to register face" };
   }
 }
@@ -66,7 +69,7 @@ export async function removeFace(userId: string) {
     revalidatePath(`/users/${userId}`);
     return { success: true };
   } catch (error) {
-    console.error("Error removing face:", error);
+    logError("Error removing face:", error);
     return { success: false, error: "Failed to remove face" };
   }
 }
@@ -87,7 +90,7 @@ export async function getFaceRoster() {
       })),
     };
   } catch (error) {
-    console.error("Error fetching face roster:", error);
+    logError("Error fetching face roster:", error);
     return { success: false, error: "Failed to load roster" };
   }
 }
@@ -117,7 +120,7 @@ export async function getUserStatuses() {
 
     return { success: true, data: statuses };
   } catch (error) {
-    console.error("Error fetching user statuses:", error);
+    logError("Error fetching user statuses:", error);
     return { success: false, error: "Failed to load user statuses" };
   }
 }
@@ -197,7 +200,7 @@ export async function getDailyAttendanceSummary({
 
     return { success: true, data: paged, totalPages };
   } catch (error) {
-    console.error("Error building daily attendance summary:", error);
+    logError("Error building daily attendance summary:", error);
     return { success: false, error: "Failed to build daily attendance summary" };
   }
 }
@@ -212,7 +215,7 @@ export async function getFullDailyAttendanceSummary(): Promise<
 
     return { success: true, data: await buildFullDailyAttendanceSummary() };
   } catch (error) {
-    console.error("Error building daily attendance summary:", error);
+    logError("Error building daily attendance summary:", error);
     return { success: false, error: "Failed to build daily attendance summary" };
   }
 }
@@ -245,7 +248,7 @@ export async function getAttendanceLogs({
       totalPages: Math.max(1, Math.ceil(totalCount / limit)),
     };
   } catch (error) {
-    console.error("Error fetching attendance logs:", error);
+    logError("Error fetching attendance logs:", error);
     return { success: false, error: "Failed to load attendance logs" };
   }
 }
@@ -255,7 +258,8 @@ export async function recordCheckIn(
   confidence: number,
   type: "IN" | "OUT",
   location: "OFFICE" | "OUTSIDE",
-  note?: string
+  note?: string,
+  photoDataUrl?: string
 ) {
   try {
     if (type !== "IN" && type !== "OUT") {
@@ -265,13 +269,28 @@ export async function recordCheckIn(
       return { success: false, error: "Invalid location" };
     }
 
+    const rateLimit = await checkRateLimit(`checkin:${userId}`, { maxAttempts: 10, windowMs: 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `แสกนถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
+
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return { success: false, error: "Unknown user" };
 
     const trimmedNote = note?.trim() || null;
 
+    let photoUrl: string | null = null;
+    if (photoDataUrl) {
+      try {
+        photoUrl = await saveDataUrlImage(photoDataUrl, "checkins");
+      } catch (photoError) {
+        // A failed snapshot upload shouldn't block the check-in itself.
+        logError("Error saving check-in photo:", photoError, { userId });
+      }
+    }
+
     const checkIn = await prisma.checkIn.create({
-      data: { userId, confidence, type, location, note: trimmedNote },
+      data: { userId, confidence, type, location, note: trimmedNote, photoUrl },
     });
 
     const actionLabel = type === "IN" ? "Started work" : "Finished work";
@@ -301,7 +320,7 @@ export async function recordCheckIn(
       },
     };
   } catch (error) {
-    console.error("Error recording check-in:", error);
+    logError("Error recording check-in:", error);
     return { success: false, error: "Failed to record check-in" };
   }
 }

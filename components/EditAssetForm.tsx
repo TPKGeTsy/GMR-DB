@@ -355,7 +355,7 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                         <span className="font-medium text-orange-600">Upload a file</span>
                         <p className="pl-1">or drag and drop</p>
                       </div>
-                      <p className="text-xs text-gray-700">PNG, JPG, GIF up to 10MB</p>
+                      <p className="text-xs text-gray-700">PNG, JPG, GIF up to 8MB</p>
                     </div>
                   </div>
                 )}

@@ -1,6 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
@@ -70,7 +71,7 @@ export async function createBooking(
     revalidatePath("/carbook");
     return { success: true, data: JSON.parse(JSON.stringify(booking)) };
   } catch (error) {
-    console.error("Error creating booking:", error);
+    logError("Error creating booking:", error);
     return { success: false, error: "จองรถไม่สำเร็จ" };
   }
 }
@@ -111,7 +112,7 @@ export async function approveBooking(bookingId: string) {
     revalidatePath("/carbook");
     return { success: true };
   } catch (error) {
-    console.error("Error approving booking:", error);
+    logError("Error approving booking:", error);
     const message = error instanceof Error ? error.message : "อนุมัติไม่สำเร็จ";
     return { success: false, error: message };
   }
@@ -136,7 +137,7 @@ export async function rejectBooking(bookingId: string) {
     revalidatePath("/carbook");
     return { success: true };
   } catch (error) {
-    console.error("Error rejecting booking:", error);
+    logError("Error rejecting booking:", error);
     return { success: false, error: "ปฏิเสธไม่สำเร็จ" };
   }
 }
@@ -165,7 +166,7 @@ export async function cancelBooking(bookingId: string) {
     revalidatePath("/carbook");
     return { success: true };
   } catch (error) {
-    console.error("Error cancelling booking:", error);
+    logError("Error cancelling booking:", error);
     return { success: false, error: "ยกเลิกไม่สำเร็จ" };
   }
 }
@@ -183,7 +184,7 @@ export async function getMyBookings() {
 
     return { success: true, data: JSON.parse(JSON.stringify(bookings)) };
   } catch (error) {
-    console.error("Error fetching my bookings:", error);
+    logError("Error fetching my bookings:", error);
     return { success: false, error: "Failed to load bookings" };
   }
 }
@@ -201,7 +202,7 @@ export async function getPendingBookings() {
 
     return { success: true, data: JSON.parse(JSON.stringify(bookings)) };
   } catch (error) {
-    console.error("Error fetching pending bookings:", error);
+    logError("Error fetching pending bookings:", error);
     return { success: false, error: "Failed to load pending bookings" };
   }
 }
@@ -214,7 +215,7 @@ export async function getPendingBookingsCount() {
     const count = await prisma.booking.count({ where: { status: "PENDING" } });
     return { success: true, data: count };
   } catch (error) {
-    console.error("Error counting pending bookings:", error);
+    logError("Error counting pending bookings:", error);
     return { success: true, data: 0 };
   }
 }
@@ -235,7 +236,7 @@ export async function getUpcomingBookings(limit = 10) {
 
     return { success: true, data: JSON.parse(JSON.stringify(bookings)) };
   } catch (error) {
-    console.error("Error fetching upcoming bookings:", error);
+    logError("Error fetching upcoming bookings:", error);
     return { success: false, error: "Failed to load upcoming bookings" };
   }
 }

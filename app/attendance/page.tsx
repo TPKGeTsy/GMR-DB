@@ -11,6 +11,7 @@ interface AttendanceLog {
   location: string;
   note: string | null;
   confidence: number;
+  photoUrl: string | null;
   createdAt: string;
   user: { username: string; fullName: string | null };
 }
@@ -163,6 +164,7 @@ export default async function AttendancePage({
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Photo</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Employee</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location</th>
@@ -174,13 +176,25 @@ export default async function AttendancePage({
               <tbody className="bg-white divide-y divide-gray-200">
                 {logs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500 italic">
+                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500 italic">
                       No attendance records yet.
                     </td>
                   </tr>
                 ) : (
                   logs.map((log) => (
                     <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {log.photoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- external Blob URL, not a local /public asset
+                          <img
+                            src={log.photoUrl}
+                            alt={`${log.user.fullName || log.user.username} check-in photo`}
+                            className="w-10 h-10 rounded-full object-cover border border-gray-200"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-100 border border-gray-200" />
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {log.user.fullName || log.user.username}
                       </td>

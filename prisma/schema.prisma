@@ -82,6 +82,7 @@ model Project {
   createdAt   DateTime @default(now()) @map("created_at")
   members     ProjectMember[]
   schedules   WorkSchedule[]
+  circuits    WiringDiagram[] @relation("ProjectCircuits")
 
   @@map("projects")
 }
@@ -151,6 +152,7 @@ model CheckIn {
   location   String   @default("OFFICE") // 'OFFICE' or 'OUTSIDE'
   note       String? // detail when working outside the office
   confidence Float    // similarity score (0-1) from the face match
+  photoUrl   String?  @map("photo_url") // webcam snapshot at check-in time; purged daily at midnight
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("check_ins")
@@ -189,6 +191,10 @@ model WiringDiagram {
   ownerId     String   @map("owner_id")
   owner       User     @relation(fields: [ownerId], references: [id])
   isPublic    Boolean  @default(true) @map("is_public")
+  kind        String   @default("TEMPLATE") @map("kind") // "TEMPLATE" (image-based equipment wiring) | "SANDBOX" (free-form Circuit Sandbox)
+  canvasData  Json?    @map("canvas_data") // React Flow nodes/edges snapshot, only set when kind = "SANDBOX"
+  projectId   String?  @map("project_id")
+  project     Project? @relation("ProjectCircuits", fields: [projectId], references: [id], onDelete: SetNull)
   equipments  EquipmentInstance[]
   wires       WireConnection[]
   createdAt   DateTime @default(now()) @map("created_at")
@@ -239,4 +245,14 @@ model ActivityLog {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("activity_logs")
+}
+
+// Generic DB-backed rate limiter (Vercel's serverless functions are stateless,
+// so in-memory counters won't work across requests/instances).
+model RateLimitBucket {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now()) @map("window_start")
+
+  @@map("rate_limit_buckets")
 }

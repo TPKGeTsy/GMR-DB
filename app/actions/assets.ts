@@ -1,12 +1,24 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { v4 as uuidv4 } from "uuid";
 import { createActivityLog } from "./auth";
+import { validateImageFile } from "@/lib/uploads";
+import { saveUploadedFile } from "@/lib/storage";
+import { z } from "zod";
+
+const assetFormSchema = z.object({
+  name: z.string().trim().min(1, "กรุณากรอกชื่ออุปกรณ์"),
+  category: z.string().trim().optional(),
+  modelOrSize: z.string().trim().min(1, "กรุณากรอกรุ่น/ขนาด"),
+  quantity: z.coerce.number().int("จำนวนต้องเป็นเลขจำนวนเต็ม").min(0, "จำนวนต้องไม่ติดลบ"),
+  unit: z.string().trim().min(1, "กรุณากรอกหน่วย"),
+  categoryStatus: z.enum(["R", "Y", "G", "B"], { message: "สถานะไม่ถูกต้อง" }),
+  unitPrice: z.coerce.number().min(0, "ราคาต้องไม่ติดลบ"),
+  imagePosition: z.string().trim().optional(),
+});
 
 export async function getAssets(query?: string) {
   try {
@@ -30,7 +42,7 @@ export async function getAssets(query?: string) {
 
     return { success: true, data: sanitizedAssets };
   } catch (error) {
-    console.error("Error fetching assets:", error);
+    logError("Error fetching assets:", error);
     return { success: false, error: "Failed to fetch assets" };
   }
 }
@@ -47,7 +59,7 @@ export async function getAssetById(id: string) {
 
     return { success: true, data: JSON.parse(JSON.stringify(asset)) };
   } catch (error) {
-    console.error("Error fetching asset by id:", error);
+    logError("Error fetching asset by id:", error);
     return { success: false, error: "Failed to fetch asset" };
   }
 }
@@ -72,53 +84,48 @@ export async function getAssetSuggestions() {
 
     return { success: true, data: suggestions };
   } catch (error) {
-    console.error("Error fetching suggestions:", error);
+    logError("Error fetching suggestions:", error);
     return { success: false, error: "Failed to fetch suggestions" };
   }
 }
 
 export async function createAsset(formData: FormData) {
   try {
-    const name = formData.get("name") as string;
-    const category = formData.get("category") as string || null;
-    const modelOrSize = formData.get("modelOrSize") as string;
-    const quantity = parseInt(formData.get("quantity") as string);
-    const unit = formData.get("unit") as string;
-    const categoryStatus = formData.get("categoryStatus") as string;
-    const unitPrice = parseFloat(formData.get("unitPrice") as string);
-    const imagePosition = formData.get("imagePosition") as string || "50% 50%";
-    
+    const parsed = assetFormSchema.safeParse({
+      name: formData.get("name"),
+      category: (formData.get("category") as string | null) || undefined,
+      modelOrSize: formData.get("modelOrSize"),
+      quantity: formData.get("quantity"),
+      unit: formData.get("unit"),
+      categoryStatus: formData.get("categoryStatus"),
+      unitPrice: formData.get("unitPrice"),
+      imagePosition: (formData.get("imagePosition") as string | null) || undefined,
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
+    }
+    const { name, category, modelOrSize, quantity, unit, categoryStatus, unitPrice, imagePosition } = parsed.data;
+
     let imageUrl: string | null = null;
     const imageFile = formData.get("imageFile") as File;
 
     if (imageFile && imageFile.name && imageFile.size > 0) {
-      const bytes = await imageFile.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-
-      const uploadDir = join(process.cwd(), "public", "uploads");
-      await mkdir(uploadDir, { recursive: true });
-
-      const fileName = `${uuidv4()}-${imageFile.name.replace(/\s+/g, "-")}`;
-      const path = join(uploadDir, fileName);
-      await writeFile(path, buffer);
-      imageUrl = `/uploads/${fileName}`;
-    }
-
-    if (!name || !modelOrSize || isNaN(quantity) || !unit || !categoryStatus || isNaN(unitPrice)) {
-      return { success: false, error: "Missing or invalid fields" };
+      const validation = validateImageFile(imageFile);
+      if (!validation.valid) return { success: false, error: validation.error };
+      imageUrl = await saveUploadedFile(imageFile, "assets");
     }
 
     const asset = await prisma.asset.create({
       data: {
         name,
-        category,
+        category: category || null,
         modelOrSize,
         quantity,
         unit,
         categoryStatus,
         unitPrice,
         imageUrl,
-        imagePosition,
+        imagePosition: imagePosition || "50% 50%",
       },
     });
 
@@ -130,47 +137,42 @@ export async function createAsset(formData: FormData) {
     revalidatePath("/dashboard");
     return { success: true, data: sanitizedAsset };
   } catch (error) {
-    console.error("Error creating asset:", error);
+    logError("Error creating asset:", error);
     return { success: false, error: "Failed to create asset" };
   }
 }
 
 export async function updateAsset(id: string, formData: FormData) {
   try {
-    const name = formData.get("name") as string;
-    const category = formData.get("category") as string || null;
-    const modelOrSize = formData.get("modelOrSize") as string;
-    const quantity = parseInt(formData.get("quantity") as string);
-    const unit = formData.get("unit") as string;
-    const categoryStatus = formData.get("categoryStatus") as string;
-    const unitPrice = parseFloat(formData.get("unitPrice") as string);
-    const imagePosition = formData.get("imagePosition") as string;
-    
+    const parsed = assetFormSchema.safeParse({
+      name: formData.get("name"),
+      category: (formData.get("category") as string | null) || undefined,
+      modelOrSize: formData.get("modelOrSize"),
+      quantity: formData.get("quantity"),
+      unit: formData.get("unit"),
+      categoryStatus: formData.get("categoryStatus"),
+      unitPrice: formData.get("unitPrice"),
+      imagePosition: (formData.get("imagePosition") as string | null) || undefined,
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
+    }
+    const { name, category, modelOrSize, quantity, unit, categoryStatus, unitPrice, imagePosition } = parsed.data;
+
     let imageUrl: string | undefined = undefined;
     const imageFile = formData.get("imageFile") as File;
 
     if (imageFile && imageFile.name && imageFile.size > 0) {
-      const bytes = await imageFile.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-
-      const uploadDir = join(process.cwd(), "public", "uploads");
-      await mkdir(uploadDir, { recursive: true });
-
-      const fileName = `${uuidv4()}-${imageFile.name.replace(/\s+/g, "-")}`;
-      const path = join(uploadDir, fileName);
-      await writeFile(path, buffer);
-      imageUrl = `/uploads/${fileName}`;
-    }
-
-    if (!name || !modelOrSize || isNaN(quantity) || !unit || !categoryStatus || isNaN(unitPrice)) {
-      return { success: false, error: "Missing or invalid fields" };
+      const validation = validateImageFile(imageFile);
+      if (!validation.valid) return { success: false, error: validation.error };
+      imageUrl = await saveUploadedFile(imageFile, "assets");
     }
 
     const asset = await prisma.asset.update({
       where: { id },
       data: {
         name,
-        category,
+        category: category || null,
         modelOrSize,
         quantity,
         unit,
@@ -187,7 +189,7 @@ export async function updateAsset(id: string, formData: FormData) {
     revalidatePath("/dashboard");
     return { success: true, data: JSON.parse(JSON.stringify(asset)) };
   } catch (error) {
-    console.error("Error updating asset:", error);
+    logError("Error updating asset:", error);
     return { success: false, error: "Failed to update asset" };
   }
 }
@@ -209,7 +211,7 @@ export async function updateAssetQuantity(id: string, quantity: number) {
     revalidatePath("/dashboard");
     return { success: true, data: JSON.parse(JSON.stringify(asset)) };
   } catch (error) {
-    console.error("Error updating quantity:", error);
+    logError("Error updating quantity:", error);
     return { success: false, error: "Failed to update quantity" };
   }
 }
@@ -227,7 +229,7 @@ export async function updateAssetStatus(id: string, status: string) {
     revalidatePath("/dashboard");
     return { success: true, data: JSON.parse(JSON.stringify(asset)) };
   } catch (error) {
-    console.error("Error updating status:", error);
+    logError("Error updating status:", error);
     return { success: false, error: "Failed to update status" };
   }
 }
@@ -244,7 +246,7 @@ export async function deleteAsset(id: string) {
     revalidatePath("/dashboard");
     return { success: true };
   } catch (error) {
-    console.error("Error deleting asset:", error);
+    logError("Error deleting asset:", error);
     return { success: false, error: "Failed to delete asset" };
   }
 }
@@ -276,7 +278,7 @@ export async function getDashboardStats() {
       },
     };
   } catch (error) {
-    console.error("Error fetching dashboard stats:", error);
+    logError("Error fetching dashboard stats:", error);
     return { success: false, error: "Failed to fetch dashboard stats" };
   }
 }
@@ -323,7 +325,7 @@ export async function getCatalogAssets({
       },
     };
   } catch (error) {
-    console.error("Error fetching catalog assets:", error);
+    logError("Error fetching catalog assets:", error);
     return { success: false, error: "Failed to fetch catalog assets" };
   }
 }

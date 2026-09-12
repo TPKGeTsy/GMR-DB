@@ -27,6 +27,51 @@ interface PendingMatch {
   confidence: number;
 }
 
+// Eye Aspect Ratio: distance between the eyelids relative to eye width.
+// Drops sharply when the eye closes, then recovers when it opens again —
+// used to detect a genuine blink instead of a single static frame.
+function getEAR(eye: faceapi.Point[]): number {
+  const dist = (a: faceapi.Point, b: faceapi.Point) => Math.hypot(a.x - b.x, a.y - b.y);
+  const [p1, p2, p3, p4, p5, p6] = eye;
+  return (dist(p2, p6) + dist(p3, p5)) / (2 * dist(p1, p4));
+}
+
+const EAR_OPEN_THRESHOLD = 0.28;
+const EAR_CLOSED_THRESHOLD = 0.21;
+const BLINK_SAMPLE_COUNT = 15;
+const BLINK_SAMPLE_INTERVAL_MS = 150;
+
+/**
+ * Liveness check: watches the video for ~2 seconds and requires a full
+ * open -> closed -> open eye cycle (a blink). A printed photo or a frozen
+ * frame can never blink, which is what the previous single-frame "smile"
+ * check couldn't rule out.
+ */
+async function detectBlink(video: HTMLVideoElement, onSample?: (i: number, total: number) => void): Promise<boolean> {
+  let sawOpen = false;
+  let sawClosed = false;
+
+  for (let i = 0; i < BLINK_SAMPLE_COUNT; i++) {
+    onSample?.(i, BLINK_SAMPLE_COUNT);
+    const detection = await faceapi.detectSingleFace(video).withFaceLandmarks();
+
+    if (detection) {
+      const avgEAR = (getEAR(detection.landmarks.getLeftEye()) + getEAR(detection.landmarks.getRightEye())) / 2;
+
+      if (avgEAR >= EAR_OPEN_THRESHOLD) {
+        if (sawClosed) return true; // closed -> open again = blink complete
+        sawOpen = true;
+      } else if (avgEAR <= EAR_CLOSED_THRESHOLD && sawOpen) {
+        sawClosed = true;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, BLINK_SAMPLE_INTERVAL_MS));
+  }
+
+  return false;
+}
+
 export default function CheckInScanner({ initialRoster }: { initialRoster: RosterEntry[] }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -100,8 +145,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
     const detection = await faceapi
       .detectSingleFace(video)
       .withFaceLandmarks()
-      .withFaceDescriptor()
-      .withFaceExpressions();
+      .withFaceDescriptor();
 
     const ctx = canvas.getContext("2d");
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -127,40 +171,63 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
       boxColor: isUnknown ? "#ef4444" : "#22c55e",
     }).draw(canvas);
 
-    setIsScanning(false);
-
     if (isUnknown) {
+      setIsScanning(false);
       setStatusText("Face not recognized.");
       return;
     }
 
-    // Basic liveness check: require a smile so a printed/static photo of
-    // someone's face can't be used to check in on their behalf. Not
-    // foolproof (a photo of a smiling face still passes), but it stops the
-    // trivial "hold up a neutral ID photo" case.
-    const isSmiling = (detection.expressions.happy || 0) >= 0.4;
-    if (!isSmiling) {
-      setStatusText("ตรวจพบใบหน้าแล้ว กรุณายิ้ม 🙂 แล้วกดสแกนอีกครั้งเพื่อยืนยันตัวตน (liveness check)");
+    const rosterEntry = initialRoster.find((u) => u.id === bestMatch.label);
+
+    // Liveness check: require a real blink (open -> closed -> open), which a
+    // printed photo or a frozen video frame physically cannot do. Stronger
+    // than the old single-frame smile check, which a photo of a smiling
+    // face could pass trivially.
+    setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณากระพริบตา 1 ครั้งเพื่อยืนยันตัวตน...`);
+    const blinked = await detectBlink(video, (i, total) => {
+      setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณากระพริบตา (${i + 1}/${total})`);
+    });
+
+    setIsScanning(false);
+
+    if (!blinked) {
+      setStatusText("ไม่พบการกระพริบตา กรุณากดสแกนใหม่และกระพริบตาปกติเพื่อยืนยันว่าไม่ใช่รูปถ่าย (liveness check)");
       return;
     }
 
-    const rosterEntry = initialRoster.find((u) => u.id === bestMatch.label);
     setPendingMatch({ userId: bestMatch.label, name: rosterEntry?.name || "Unknown", confidence });
     setOutsideOffice(false);
     setNote("");
     setStatusText(`Recognized: ${rosterEntry?.name}. Choose an action below.`);
   };
 
+  const captureSnapshot = (): string | undefined => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0) return undefined;
+
+    const snapshotCanvas = document.createElement("canvas");
+    snapshotCanvas.width = video.videoWidth;
+    snapshotCanvas.height = video.videoHeight;
+    const ctx = snapshotCanvas.getContext("2d");
+    if (!ctx) return undefined;
+
+    ctx.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+    return snapshotCanvas.toDataURL("image/jpeg", 0.8);
+  };
+
   const handleConfirm = async (type: "IN" | "OUT") => {
     if (!pendingMatch) return;
     setIsSubmitting(true);
+
+    const photoDataUrl = captureSnapshot();
 
     const result = await recordCheckIn(
       pendingMatch.userId,
       pendingMatch.confidence,
       type,
       outsideOffice ? "OUTSIDE" : "OFFICE",
-      outsideOffice ? note : undefined
+      outsideOffice ? note : undefined,
+      photoDataUrl
     );
 
     if (result.success && result.data) {

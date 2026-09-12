@@ -1,7 +1,7 @@
 import { getWiringDiagrams, createWiringDiagram } from "@/app/actions/wiring";
 import { auth } from "@/auth";
 import Link from "next/link";
-import { Plus, Share2, User, Clock } from "lucide-react";
+import { Plus, Share2, Cpu, User, Clock } from "lucide-react";
 import { redirect } from "next/navigation";
 
 interface Diagram {
@@ -9,6 +9,7 @@ interface Diagram {
   name: string;
   description: string | null;
   isPublic: boolean;
+  kind: string;
   owner: { username: string };
   createdAt: Date;
 }
@@ -28,24 +29,33 @@ export default async function DiagramsListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-orange-600">Wiring Diagrams</h1>
         {session && (
-          <form action={handleCreate} className="flex gap-2">
-            <input
-              name="name"
-              placeholder="ชื่อไดอะแกรมใหม่..."
-              required
-              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none"
-            />
-            <button
-              type="submit"
-              className="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg shadow hover:bg-orange-700 text-sm font-medium"
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href="/circuit"
+              className="inline-flex items-center px-4 py-2 bg-gray-900 text-white rounded-lg shadow hover:bg-gray-800 text-sm font-medium"
             >
-              <Plus className="w-4 h-4 mr-2" />
-              New Diagram
-            </button>
-          </form>
+              <Cpu className="w-4 h-4 mr-2" />
+              Circuit Sandbox ใหม่
+            </Link>
+            <form action={handleCreate} className="flex gap-2">
+              <input
+                name="name"
+                placeholder="ชื่อไดอะแกรมใหม่..."
+                required
+                className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg shadow hover:bg-orange-700 text-sm font-medium"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Diagram
+              </button>
+            </form>
+          </div>
         )}
       </div>
 
@@ -58,13 +68,20 @@ export default async function DiagramsListPage() {
           >
             <div className="flex items-start justify-between mb-4">
               <div className="p-3 bg-gray-50 rounded-lg text-gray-700 group-hover:bg-orange-600 group-hover:text-white transition-colors">
-                <Share2 className="w-6 h-6" />
+                {diagram.kind === "SANDBOX" ? <Cpu className="w-6 h-6" /> : <Share2 className="w-6 h-6" />}
               </div>
-              {diagram.isPublic && (
-                <span className="px-2 py-1 bg-green-100 text-green-800 text-[10px] font-bold rounded-full uppercase">
-                  Public
-                </span>
-              )}
+              <div className="flex flex-col items-end gap-1">
+                {diagram.kind === "SANDBOX" && (
+                  <span className="px-2 py-1 bg-gray-900 text-white text-[10px] font-bold rounded-full uppercase">
+                    Sandbox
+                  </span>
+                )}
+                {diagram.isPublic && (
+                  <span className="px-2 py-1 bg-green-100 text-green-800 text-[10px] font-bold rounded-full uppercase">
+                    Public
+                  </span>
+                )}
+              </div>
             </div>
             <h3 className="font-bold text-gray-900 group-hover:text-orange-600 transition-colors mb-1">
               {diagram.name}

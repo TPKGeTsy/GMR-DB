@@ -3,6 +3,7 @@
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -55,7 +56,7 @@ export async function createActivityLog(action: string, details?: string) {
     });
     return { success: true };
   } catch (error) {
-    console.error("Error creating log:", error);
+    logError("Error creating log:", error);
     return { success: false };
   }
 }
@@ -86,7 +87,7 @@ export async function getUsers({ page = 1, limit = 20 }: { page?: number; limit?
       totalPages: Math.ceil(totalCount / limit),
     };
   } catch (error) {
-    console.error("Error fetching users:", error);
+    logError("Error fetching users:", error);
     return { success: false, error: "Failed to fetch users" };
   }
 }
@@ -106,7 +107,7 @@ export async function updateUserRole(userId: string, role: string) {
     revalidatePath("/users");
     return { success: true, data: JSON.parse(JSON.stringify(user)) };
   } catch (error) {
-    console.error("Error updating role:", error);
+    logError("Error updating role:", error);
     return { success: false, error: "Failed to update role" };
   }
 }
@@ -152,7 +153,7 @@ export async function registerUser(
       },
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    logError("Registration error:", error);
     return "Failed to register user.";
   }
 
@@ -197,7 +198,7 @@ export async function changePassword(
 
     return { success: true };
   } catch (error) {
-    console.error("Error changing password:", error);
+    logError("Error changing password:", error);
     return { success: false, error: "Failed to change password" };
   }
 }
