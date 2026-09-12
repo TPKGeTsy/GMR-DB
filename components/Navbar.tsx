@@ -97,10 +97,10 @@ export default async function Navbar() {
           </div>
           <div className="flex items-center flex-shrink-0">
             {session ? (
-              <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex items-center gap-1 sm:gap-4">
                 <Link
                   href={`/users/${session.user?.id}`}
-                  className="flex items-center text-sm font-medium text-gray-200 hover:text-orange-400 transition-colors"
+                  className="flex items-center px-2 sm:px-0 py-2 text-sm font-medium text-gray-200 hover:text-orange-400 transition-colors"
                 >
                   <User className="w-4 h-4 sm:mr-1 text-orange-500" />
                   <span className="hidden sm:inline">

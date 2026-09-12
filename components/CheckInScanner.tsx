@@ -36,16 +36,18 @@ function getEAR(eye: faceapi.Point[]): number {
   return (dist(p2, p6) + dist(p3, p5)) / (2 * dist(p1, p4));
 }
 
-const EAR_OPEN_THRESHOLD = 0.28;
-const EAR_CLOSED_THRESHOLD = 0.21;
-const BLINK_SAMPLE_COUNT = 15;
+const EAR_OPEN_THRESHOLD = 0.25;
+const EAR_CLOSED_THRESHOLD = 0.23;
+const BLINK_SAMPLE_COUNT = 25;
 const BLINK_SAMPLE_INTERVAL_MS = 150;
 
 /**
- * Liveness check: watches the video for ~2 seconds and requires a full
- * open -> closed -> open eye cycle (a blink). A printed photo or a frozen
- * frame can never blink, which is what the previous single-frame "smile"
- * check couldn't rule out.
+ * Liveness check: watches the video for ~4 seconds and requires the eyes to
+ * be seen both open and closed at some point (in either order). A printed
+ * photo or a frozen frame holds one fixed EAR and can never show both states,
+ * which is what the previous single-frame "smile" check couldn't rule out.
+ * Order isn't enforced (unlike a strict open->closed->open cycle) so a quick
+ * or partial blink still counts, since sampling can easily miss one edge of it.
  */
 async function detectBlink(video: HTMLVideoElement, onSample?: (i: number, total: number) => void): Promise<boolean> {
   let sawOpen = false;
@@ -58,12 +60,10 @@ async function detectBlink(video: HTMLVideoElement, onSample?: (i: number, total
     if (detection) {
       const avgEAR = (getEAR(detection.landmarks.getLeftEye()) + getEAR(detection.landmarks.getRightEye())) / 2;
 
-      if (avgEAR >= EAR_OPEN_THRESHOLD) {
-        if (sawClosed) return true; // closed -> open again = blink complete
-        sawOpen = true;
-      } else if (avgEAR <= EAR_CLOSED_THRESHOLD && sawOpen) {
-        sawClosed = true;
-      }
+      if (avgEAR >= EAR_OPEN_THRESHOLD) sawOpen = true;
+      else if (avgEAR <= EAR_CLOSED_THRESHOLD) sawClosed = true;
+
+      if (sawOpen && sawClosed) return true;
     }
 
     await new Promise((resolve) => setTimeout(resolve, BLINK_SAMPLE_INTERVAL_MS));
@@ -282,18 +282,18 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
               <button
                 onClick={startCamera}
                 disabled={modelsLoading}
-                className="inline-flex items-center px-4 py-2 rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-medium text-sm"
+                className="inline-flex items-center justify-center w-full sm:w-auto px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-semibold text-base"
               >
-                <Camera className="w-4 h-4 mr-2" />
+                <Camera className="w-5 h-5 mr-2" />
                 Start Camera
               </button>
             ) : (
               <button
                 onClick={handleScan}
                 disabled={isScanning}
-                className="inline-flex items-center px-4 py-2 rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-medium text-sm"
+                className="inline-flex items-center justify-center w-full sm:w-auto px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-semibold text-base"
               >
-                <ScanFace className="w-4 h-4 mr-2" />
+                <ScanFace className="w-5 h-5 mr-2" />
                 {isScanning ? "Scanning..." : "Scan & Check In"}
               </button>
             )}
@@ -323,27 +323,27 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
               />
             )}
 
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-3 pt-1">
               <button
                 onClick={() => handleConfirm("IN")}
                 disabled={isSubmitting}
-                className="inline-flex items-center px-3 py-2 rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 font-medium text-sm"
+                className="inline-flex items-center justify-center flex-1 sm:flex-none px-5 py-4 rounded-lg text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 font-semibold text-base"
               >
-                <LogIn className="w-4 h-4 mr-1.5" />
+                <LogIn className="w-5 h-5 mr-2" />
                 Start Work
               </button>
               <button
                 onClick={() => handleConfirm("OUT")}
                 disabled={isSubmitting}
-                className="inline-flex items-center px-3 py-2 rounded-md text-white bg-gray-700 hover:bg-gray-800 disabled:opacity-50 font-medium text-sm"
+                className="inline-flex items-center justify-center flex-1 sm:flex-none px-5 py-4 rounded-lg text-white bg-gray-700 hover:bg-gray-800 disabled:opacity-50 font-semibold text-base"
               >
-                <LogOut className="w-4 h-4 mr-1.5" />
+                <LogOut className="w-5 h-5 mr-2" />
                 Finish Work
               </button>
               <button
                 onClick={handleCancelMatch}
                 disabled={isSubmitting}
-                className="inline-flex items-center px-3 py-2 rounded-md text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 font-medium text-sm"
+                className="inline-flex items-center justify-center flex-1 sm:flex-none px-5 py-4 rounded-lg text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 font-semibold text-base"
               >
                 Cancel
               </button>
