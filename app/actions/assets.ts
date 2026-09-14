@@ -8,6 +8,15 @@ import { createActivityLog } from "./auth";
 import { validateImageFile } from "@/lib/uploads";
 import { saveUploadedFile } from "@/lib/storage";
 import { z } from "zod";
+import { auth } from "@/auth";
+
+async function requireInventoryManager() {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN" && session?.user?.role !== "OPERATOR") {
+    return false;
+  }
+  return true;
+}
 
 const assetFormSchema = z.object({
   name: z.string().trim().min(1, "กรุณากรอกชื่ออุปกรณ์"),
@@ -91,6 +100,10 @@ export async function getAssetSuggestions() {
 
 export async function createAsset(formData: FormData) {
   try {
+    if (!(await requireInventoryManager())) {
+      return { success: false, error: "Unauthorized" };
+    }
+
     const parsed = assetFormSchema.safeParse({
       name: formData.get("name"),
       category: (formData.get("category") as string | null) || undefined,
@@ -144,6 +157,10 @@ export async function createAsset(formData: FormData) {
 
 export async function updateAsset(id: string, formData: FormData) {
   try {
+    if (!(await requireInventoryManager())) {
+      return { success: false, error: "Unauthorized" };
+    }
+
     const parsed = assetFormSchema.safeParse({
       name: formData.get("name"),
       category: (formData.get("category") as string | null) || undefined,
@@ -196,6 +213,10 @@ export async function updateAsset(id: string, formData: FormData) {
 
 export async function updateAssetQuantity(id: string, quantity: number) {
   try {
+    if (!(await requireInventoryManager())) {
+      return { success: false, error: "Unauthorized" };
+    }
+
     if (isNaN(quantity) || quantity < 0) {
       return { success: false, error: "Invalid quantity" };
     }
@@ -218,6 +239,10 @@ export async function updateAssetQuantity(id: string, quantity: number) {
 
 export async function updateAssetStatus(id: string, status: string) {
   try {
+    if (!(await requireInventoryManager())) {
+      return { success: false, error: "Unauthorized" };
+    }
+
     const asset = await prisma.asset.update({
       where: { id },
       data: { categoryStatus: status },
@@ -236,6 +261,10 @@ export async function updateAssetStatus(id: string, status: string) {
 
 export async function deleteAsset(id: string) {
   try {
+    if (!(await requireInventoryManager())) {
+      return { success: false, error: "Unauthorized" };
+    }
+
     const asset = await prisma.asset.delete({
       where: { id },
     });
