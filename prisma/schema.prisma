@@ -29,6 +29,7 @@ model Asset {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   loans           Loan[]
+  linePendingBorrows LinePendingBorrow[]
 
   @@map("assets")
 }
@@ -53,6 +54,7 @@ model User {
   password  String
   fullName  String?  @map("full_name")
   role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
+  lineUserId String? @unique @map("line_user_id")
   faceDescriptor   Float[]   @map("face_descriptor")
   faceRegisteredAt DateTime? @map("face_registered_at")
   faceConsentAt    DateTime? @map("face_consent_at")
@@ -180,6 +182,20 @@ model LeaveRequest {
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@map("leave_requests")
+}
+
+// Holds the one unconfirmed "ยืม <ของ> <จำนวน>" command per LINE user while
+// they're asked to confirm it — LINE webhooks are stateless per-request, so
+// this is what lets the next message ("ยืนยัน"/"ยกเลิก") know what it refers to.
+model LinePendingBorrow {
+  id         String   @id @default(cuid())
+  lineUserId String   @unique @map("line_user_id")
+  assetId    String   @map("asset_id")
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  quantity   Int
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("line_pending_borrows")
 }
 
 model EquipmentTemplate {
