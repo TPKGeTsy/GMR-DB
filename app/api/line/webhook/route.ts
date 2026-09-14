@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
+import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -19,6 +20,8 @@ const CONFIRM_WORDS = new Set(["ยืนยัน", "yes", "y", "ใช่", "�
 const CANCEL_WORDS = new Set(["ยกเลิก", "no", "n", "cancel"]);
 // "ยืม <ชื่ออุปกรณ์> <จำนวน>" — e.g. "ยืม สว่านไฟฟ้า 2"
 const BORROW_COMMAND = /^ยืม\s+(.+?)\s+(\d+)\s*$/;
+const END_WORK_TEXT = "เลิกงานแล้ว";
+const CONTINUE_OT_TEXT = "ทำ OT ต่อ";
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -57,18 +60,38 @@ async function handleEvent(event: LineWebhookEvent) {
 
   const rateLimit = await checkRateLimit(`line:${lineUserId}`, { maxAttempts: 20, windowMs: 60_000 });
   if (!rateLimit.allowed) {
-    await replyLineMessage(replyToken, `ส่งข้อความถี่เกินไปครับ กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที`);
+    await replyLineMessage(replyToken, `ส่งข้อความถี่เกินไปค่ะ กรุณารออีก ${rateLimit.retryAfterSeconds} วินาทีนะคะ`);
     return;
   }
 
   const user = await prisma.user.findUnique({ where: { lineUserId } });
   if (!user) {
+    // Only allow the username+password link step in a private 1:1 chat —
+    // typing a password in a group would expose it to everyone in it.
+    if (event.source?.type !== "user") {
+      await replyLineMessage(replyToken, "กรุณาทักแชทส่วนตัวกับบอทเพื่อผูกบัญชีนะคะ 🙏");
+      return;
+    }
     await handleLinkAccount(lineUserId, text, replyToken);
     return;
   }
 
-  const pending = await prisma.linePendingBorrow.findUnique({ where: { lineUserId }, include: { asset: true } });
   const normalized = text.toLowerCase();
+
+  if (text === END_WORK_TEXT) {
+    await replyLineMessage(
+      replyToken,
+      "รับทราบค่ะ 😊 อย่าลืมไปสแกนหน้าที่ตู้ Check-In ด้วยนะคะ ระบบจะบันทึกเวลาเลิกงานจริงตอนสแกนค่ะ"
+    );
+    return;
+  }
+
+  if (text === CONTINUE_OT_TEXT) {
+    await replyLineMessage(replyToken, "โอเคค่ะ สู้ๆ นะคะ 💪 พอจะเลิกจริงๆ แล้วอย่าลืมไปสแกนหน้าที่ตู้ด้วยค่ะ");
+    return;
+  }
+
+  const pending = await prisma.linePendingBorrow.findUnique({ where: { lineUserId }, include: { asset: true } });
 
   if (pending) {
     const isExpired = Date.now() - pending.createdAt.getTime() > PENDING_EXPIRY_MS;
@@ -80,7 +103,7 @@ async function handleEvent(event: LineWebhookEvent) {
 
     if (CANCEL_WORDS.has(normalized)) {
       await prisma.linePendingBorrow.delete({ where: { lineUserId } }).catch(() => {});
-      await replyLineMessage(replyToken, "ยกเลิกคำสั่งยืมแล้วครับ");
+      await replyLineMessage(replyToken, "ยกเลิกคำสั่งยืมแล้วค่ะ");
       return;
     }
 
@@ -98,25 +121,37 @@ async function handleEvent(event: LineWebhookEvent) {
   await replyLineMessage(
     replyToken,
     pending
-      ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่ครับ พิมพ์ "ยืนยัน" หรือ "ยกเลิก"`
-      : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของครับ เช่น "ยืม สว่าน 2"`
+      ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่นะคะ พิมพ์ "ยืนยัน" หรือ "ยกเลิก" ได้เลยค่ะ`
+      : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`
   );
 }
 
 async function handleLinkAccount(lineUserId: string, text: string, replyToken: string) {
-  const username = text.trim();
-  const user = await prisma.user.findUnique({ where: { username } });
-
-  if (!user) {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length !== 2) {
     await replyLineMessage(
       replyToken,
-      `ไม่พบชื่อผู้ใช้ "${username}" ในระบบครับ กรุณาพิมพ์ username ที่ใช้ login เว็บ GMR AssetManager เพื่อผูกบัญชีก่อนครับ`
+      `สวัสดีค่ะ 👋 ก่อนใช้งานต้องผูกบัญชีก่อนนะคะ พิมพ์ username และ password ที่ใช้ล็อกอินเว็บ GMR AssetManager คั่นด้วยเว้นวรรค เช่น "gamer mypassword" ค่ะ`
     );
     return;
   }
 
+  const [username, password] = parts;
+  const user = await prisma.user.findUnique({ where: { username } });
+
+  if (!user) {
+    await replyLineMessage(replyToken, `ไม่พบชื่อผู้ใช้ "${username}" ในระบบค่ะ กรุณาตรวจสอบ username อีกครั้งนะคะ`);
+    return;
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.password);
+  if (!passwordMatches) {
+    await replyLineMessage(replyToken, "รหัสผ่านไม่ถูกต้องค่ะ กรุณาลองใหม่อีกครั้งนะคะ");
+    return;
+  }
+
   if (user.lineUserId && user.lineUserId !== lineUserId) {
-    await replyLineMessage(replyToken, "บัญชีนี้ถูกผูกกับ LINE อีกแอคเคาท์ไปแล้วครับ ถ้าต้องการเปลี่ยนกรุณาติดต่อแอดมิน");
+    await replyLineMessage(replyToken, "บัญชีนี้ถูกผูกกับ LINE อีกแอคเคาท์ไปแล้วค่ะ ถ้าต้องการเปลี่ยนกรุณาติดต่อแอดมินนะคะ");
     return;
   }
 
@@ -124,13 +159,13 @@ async function handleLinkAccount(lineUserId: string, text: string, replyToken: s
 
   await replyLineMessage(
     replyToken,
-    `ผูกบัญชีกับ "${user.fullName || user.username}" เรียบร้อยครับ ✅\nพิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลย เช่น "ยืม สว่าน 2"`
+    `ผูกบัญชีกับ "${user.fullName || user.username}" เรียบร้อยแล้วค่ะ ✅\nพิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`
   );
 }
 
 async function handleBorrowCommand(lineUserId: string, assetQuery: string, quantity: number, replyToken: string) {
   if (!Number.isInteger(quantity) || quantity < 1) {
-    await replyLineMessage(replyToken, "จำนวนไม่ถูกต้องครับ");
+    await replyLineMessage(replyToken, "จำนวนไม่ถูกต้องค่ะ");
     return;
   }
 
@@ -145,19 +180,19 @@ async function handleBorrowCommand(lineUserId: string, assetQuery: string, quant
   });
 
   if (matches.length === 0) {
-    await replyLineMessage(replyToken, `ไม่พบอุปกรณ์ชื่อ "${assetQuery}" ในระบบครับ ลองพิมพ์ชื่อให้ตรงกับในเว็บดูนะครับ`);
+    await replyLineMessage(replyToken, `ไม่พบอุปกรณ์ชื่อ "${assetQuery}" ในระบบค่ะ ลองพิมพ์ชื่อให้ตรงกับในเว็บดูนะคะ`);
     return;
   }
 
   if (matches.length > 1) {
     const list = matches.map((a: Asset) => `• ${a.name} (${a.modelOrSize})`).join("\n");
-    await replyLineMessage(replyToken, `พบหลายรายการที่ตรงกับ "${assetQuery}":\n${list}\n\nกรุณาพิมพ์ชื่อให้ตรงมากขึ้นครับ`);
+    await replyLineMessage(replyToken, `พบหลายรายการที่ตรงกับ "${assetQuery}" ค่ะ:\n${list}\n\nกรุณาพิมพ์ชื่อให้ตรงมากขึ้นนะคะ`);
     return;
   }
 
   const asset = matches[0];
   if (asset.quantity < quantity) {
-    await replyLineMessage(replyToken, `${asset.name} เหลือไม่พอครับ (คงเหลือ ${asset.quantity} ${asset.unit})`);
+    await replyLineMessage(replyToken, `${asset.name} เหลือไม่พอค่ะ (คงเหลือ ${asset.quantity} ${asset.unit})`);
     return;
   }
 
@@ -169,7 +204,7 @@ async function handleBorrowCommand(lineUserId: string, assetQuery: string, quant
 
   await replyLineMessage(
     replyToken,
-    `ยืม ${asset.name} (${asset.modelOrSize}) จำนวน ${quantity} ${asset.unit} ใช่ไหมครับ?\nพิมพ์ "ยืนยัน" เพื่อยืนยัน หรือ "ยกเลิก"`
+    `ยืม ${asset.name} (${asset.modelOrSize}) จำนวน ${quantity} ${asset.unit} ใช่ไหมคะ?\nพิมพ์ "ยืนยัน" เพื่อยืนยัน หรือ "ยกเลิก" ค่ะ`
   );
 }
 
@@ -181,9 +216,9 @@ async function confirmBorrow(
   try {
     const result = await prisma.$transaction(async (tx) => {
       const asset = await tx.asset.findUnique({ where: { id: pending.assetId } });
-      if (!asset) throw new Error("ไม่พบอุปกรณ์นี้แล้วครับ อาจถูกลบไปจากระบบ");
+      if (!asset) throw new Error("ไม่พบอุปกรณ์นี้แล้วค่ะ อาจถูกลบไปจากระบบ");
       if (asset.quantity < pending.quantity) {
-        throw new Error(`ของเหลือไม่พอแล้วครับ (คงเหลือ ${asset.quantity} ${asset.unit})`);
+        throw new Error(`ของเหลือไม่พอแล้วค่ะ (คงเหลือ ${asset.quantity} ${asset.unit})`);
       }
 
       await tx.asset.update({ where: { id: asset.id }, data: { quantity: asset.quantity - pending.quantity } });
@@ -213,11 +248,11 @@ async function confirmBorrow(
 
     await replyLineMessage(
       replyToken,
-      `บันทึกการยืม ${result.asset.name} x${pending.quantity} ${result.asset.unit} เรียบร้อยแล้วครับ ✅ กำหนดคืนภายใน ${DEFAULT_LOAN_DAYS} วัน`
+      `บันทึกการยืม ${result.asset.name} x${pending.quantity} ${result.asset.unit} เรียบร้อยแล้วค่ะ ✅ กำหนดคืนภายใน ${DEFAULT_LOAN_DAYS} วันนะคะ`
     );
   } catch (error) {
     logError("LINE confirmBorrow failed", error, { userId: user.id, assetId: pending.assetId });
-    const message = error instanceof Error ? error.message : "ยืมของไม่สำเร็จครับ";
+    const message = error instanceof Error ? error.message : "ยืมของไม่สำเร็จค่ะ";
     await replyLineMessage(replyToken, message);
     await prisma.linePendingBorrow.delete({ where: { lineUserId: pending.lineUserId } }).catch(() => {});
   }
