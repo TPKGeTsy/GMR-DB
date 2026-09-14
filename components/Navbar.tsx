@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { LayoutDashboard, ListFilter, LogOut, User, ShoppingBag, Cpu, Share2, ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange } from "lucide-react";
+import { LogOut, User, ScanFace } from "lucide-react";
 import { auth, signOut } from "@/auth";
 import { getPendingBookingsCount } from "@/app/actions/carbooking";
+import { getPendingLeaveRequestsCount } from "@/app/actions/leave";
 import MobileNavMenu from "./MobileNavMenu";
+import NavDropdown, { type NavDropdownItem } from "./NavDropdown";
 
 const linkClass =
   "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
@@ -11,8 +13,37 @@ export default async function Navbar() {
   const session = await auth();
   const role = session?.user?.role;
   const isApprover = role === "ADMIN" || role === "OPERATOR";
-  const pendingCountResult = isApprover ? await getPendingBookingsCount() : null;
-  const pendingCount = pendingCountResult?.success ? pendingCountResult.data : 0;
+  const [pendingBookingsResult, pendingLeaveResult] = isApprover
+    ? await Promise.all([getPendingBookingsCount(), getPendingLeaveRequestsCount()])
+    : [null, null];
+  const pendingBookingsCount = pendingBookingsResult?.success ? pendingBookingsResult.data : 0;
+  const pendingLeaveCount = pendingLeaveResult?.success ? pendingLeaveResult.data : 0;
+
+  const workItems: NavDropdownItem[] = [
+    { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
+    { href: "/work-schedule", label: "ตารางงาน", icon: "CalendarRange" },
+  ];
+
+  const resourceItems: NavDropdownItem[] = [
+    { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
+    { href: "/catalog", label: "Catalog", icon: "ShoppingBag" },
+    { href: "/my-loans", label: "My Loans", icon: "PackageCheck" },
+    { href: "/carbook", label: "Car Booking", icon: "Car", badge: pendingBookingsCount },
+    ...(role === "ADMIN" || role === "OPERATOR"
+      ? [{ href: "/inventory", label: "Inventory", icon: "ListFilter" } as NavDropdownItem]
+      : []),
+  ];
+
+  const projectItems: NavDropdownItem[] = [
+    { href: "/projects", label: "Projects", icon: "Briefcase" },
+    { href: "/circuit", label: "Circuit", icon: "Cpu" },
+    { href: "/diagrams", label: "Wiring", icon: "Share2" },
+  ];
+
+  const adminItems: NavDropdownItem[] = [
+    { href: "/users", label: "Users", icon: "User" },
+    { href: "/attendance", label: "Attendance Report", icon: "ClipboardList" },
+  ];
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-40 relative">
@@ -26,74 +57,25 @@ export default async function Navbar() {
             <MobileNavMenu
               isLoggedIn={!!session}
               role={role}
-              isApprover={isApprover}
-              pendingCount={pendingCount}
+              pendingBookingsCount={pendingBookingsCount}
+              pendingLeaveCount={pendingLeaveCount}
             />
-            <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-4">
+            <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:items-center sm:space-x-6">
               <Link href="/checkin" className={linkClass}>
                 <ScanFace className="w-4 h-4 mr-1" />
                 Check-In
               </Link>
-            </div>
-            {session && (
-              <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:space-x-4">
-                <Link href="/catalog" className={linkClass}>
-                  <ShoppingBag className="w-4 h-4 mr-1" />
-                  Catalog
-                </Link>
-                <Link href="/my-loans" className={linkClass}>
-                  <PackageCheck className="w-4 h-4 mr-1" />
-                  My Loans
-                </Link>
-                <Link href="/carbook" className={`${linkClass} relative`}>
-                  <Car className="w-4 h-4 mr-1" />
-                  Car Booking
-                  {isApprover && pendingCount > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                      {pendingCount}
-                    </span>
+              {session && (
+                <>
+                  <NavDropdown label="งาน" icon="Briefcase" items={workItems} badge={pendingLeaveCount} />
+                  <NavDropdown label="ทรัพยากร" icon="Boxes" items={resourceItems} badge={pendingBookingsCount} />
+                  <NavDropdown label="โปรเจกต์" icon="Cpu" items={projectItems} />
+                  {role === "ADMIN" && (
+                    <NavDropdown label="ผู้ดูแลระบบ" icon="ShieldCheck" items={adminItems} />
                   )}
-                </Link>
-                <Link href="/projects" className={linkClass}>
-                  <Briefcase className="w-4 h-4 mr-1" />
-                  Projects
-                </Link>
-                <Link href="/work-schedule" className={linkClass}>
-                  <CalendarRange className="w-4 h-4 mr-1" />
-                  Work Schedule
-                </Link>
-                <Link href="/dashboard" className={linkClass}>
-                  <LayoutDashboard className="w-4 h-4 mr-1" />
-                  Dashboard
-                </Link>
-                <Link href="/circuit" className={linkClass}>
-                  <Cpu className="w-4 h-4 mr-1" />
-                  Circuit
-                </Link>
-                <Link href="/diagrams" className={linkClass}>
-                  <Share2 className="w-4 h-4 mr-1" />
-                  Wiring
-                </Link>
-                {(role === "ADMIN" || role === "OPERATOR") && (
-                  <Link href="/inventory" className={linkClass}>
-                    <ListFilter className="w-4 h-4 mr-1" />
-                    Inventory
-                  </Link>
-                )}
-                {role === "ADMIN" && (
-                  <>
-                    <Link href="/users" className={linkClass}>
-                      <User className="w-4 h-4 mr-1" />
-                      Users
-                    </Link>
-                    <Link href="/attendance" className={linkClass}>
-                      <ClipboardList className="w-4 h-4 mr-1" />
-                      Attendance
-                    </Link>
-                  </>
-                )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
           <div className="flex items-center flex-shrink-0">
             {session ? (

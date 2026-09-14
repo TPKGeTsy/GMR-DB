@@ -4,22 +4,34 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
 } from "lucide-react";
 
 const linkClass =
   "flex items-center gap-2.5 px-3 py-3 rounded-md text-sm font-medium text-gray-200 hover:bg-gray-800 hover:text-orange-400 transition-colors";
 
+const sectionHeaderClass =
+  "px-3 pt-3 pb-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider";
+
+function Badge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+      {count}
+    </span>
+  );
+}
+
 export default function MobileNavMenu({
   isLoggedIn,
   role,
-  isApprover,
-  pendingCount,
+  pendingBookingsCount,
+  pendingLeaveCount,
 }: {
   isLoggedIn: boolean;
   role?: string;
-  isApprover: boolean;
-  pendingCount: number;
+  pendingBookingsCount: number;
+  pendingLeaveCount: number;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -43,6 +55,24 @@ export default function MobileNavMenu({
 
           {isLoggedIn && (
             <>
+              <p className={sectionHeaderClass}>งาน</p>
+              <Link href="/leave" className={`${linkClass} justify-between`} onClick={close}>
+                <span className="flex items-center gap-2.5">
+                  <CalendarHeart className="w-4 h-4" />
+                  การลา
+                </span>
+                <Badge count={pendingLeaveCount} />
+              </Link>
+              <Link href="/work-schedule" className={linkClass} onClick={close}>
+                <CalendarRange className="w-4 h-4" />
+                ตารางงาน
+              </Link>
+
+              <p className={sectionHeaderClass}>ทรัพยากร</p>
+              <Link href="/dashboard" className={linkClass} onClick={close}>
+                <LayoutDashboard className="w-4 h-4" />
+                Dashboard
+              </Link>
               <Link href="/catalog" className={linkClass} onClick={close}>
                 <ShoppingBag className="w-4 h-4" />
                 Catalog
@@ -56,23 +86,19 @@ export default function MobileNavMenu({
                   <Car className="w-4 h-4" />
                   Car Booking
                 </span>
-                {isApprover && pendingCount > 0 && (
-                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                    {pendingCount}
-                  </span>
-                )}
+                <Badge count={pendingBookingsCount} />
               </Link>
+              {(role === "ADMIN" || role === "OPERATOR") && (
+                <Link href="/inventory" className={linkClass} onClick={close}>
+                  <ListFilter className="w-4 h-4" />
+                  Inventory
+                </Link>
+              )}
+
+              <p className={sectionHeaderClass}>โปรเจกต์</p>
               <Link href="/projects" className={linkClass} onClick={close}>
                 <Briefcase className="w-4 h-4" />
                 Projects
-              </Link>
-              <Link href="/work-schedule" className={linkClass} onClick={close}>
-                <CalendarRange className="w-4 h-4" />
-                Work Schedule
-              </Link>
-              <Link href="/dashboard" className={linkClass} onClick={close}>
-                <LayoutDashboard className="w-4 h-4" />
-                Dashboard
               </Link>
               <Link href="/circuit" className={linkClass} onClick={close}>
                 <Cpu className="w-4 h-4" />
@@ -82,21 +108,17 @@ export default function MobileNavMenu({
                 <Share2 className="w-4 h-4" />
                 Wiring
               </Link>
-              {(role === "ADMIN" || role === "OPERATOR") && (
-                <Link href="/inventory" className={linkClass} onClick={close}>
-                  <ListFilter className="w-4 h-4" />
-                  Inventory
-                </Link>
-              )}
+
               {role === "ADMIN" && (
                 <>
+                  <p className={sectionHeaderClass}>ผู้ดูแลระบบ</p>
                   <Link href="/users" className={linkClass} onClick={close}>
                     <User className="w-4 h-4" />
                     Users
                   </Link>
                   <Link href="/attendance" className={linkClass} onClick={close}>
                     <ClipboardList className="w-4 h-4" />
-                    Attendance
+                    Attendance Report
                   </Link>
                 </>
               )}

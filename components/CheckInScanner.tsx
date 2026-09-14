@@ -27,46 +27,51 @@ interface PendingMatch {
   confidence: number;
 }
 
-// Eye Aspect Ratio: distance between the eyelids relative to eye width.
-// Drops sharply when the eye closes, then recovers when it opens again —
-// used to detect a genuine blink instead of a single static frame.
-function getEAR(eye: faceapi.Point[]): number {
-  const dist = (a: faceapi.Point, b: faceapi.Point) => Math.hypot(a.x - b.x, a.y - b.y);
-  const [p1, p2, p3, p4, p5, p6] = eye;
-  return (dist(p2, p6) + dist(p3, p5)) / (2 * dist(p1, p4));
+// Horizontal position of the nose tip relative to the jawline's two edges,
+// as a 0-1 ratio. Near 0.5 when facing the camera; shifts toward 0 or 1 as
+// the head turns to either side (the near-side jaw edge foreshortens while
+// the nose stays roughly put). Robust to lighting/resolution noise since it
+// only depends on coarse landmark positions, not fine eyelid geometry.
+function getYawRatio(landmarks: faceapi.FaceLandmarks68): number {
+  const jaw = landmarks.getJawOutline();
+  const noseTip = landmarks.getNose()[3];
+  const [edgeA, edgeB] = [jaw[0], jaw[16]];
+  const faceWidth = edgeB.x - edgeA.x;
+  if (faceWidth === 0) return 0.5;
+  return (noseTip.x - edgeA.x) / faceWidth;
 }
 
-const EAR_OPEN_THRESHOLD = 0.25;
-const EAR_CLOSED_THRESHOLD = 0.23;
-const BLINK_SAMPLE_COUNT = 25;
-const BLINK_SAMPLE_INTERVAL_MS = 150;
+const YAW_CENTER_RATIO = 0.5;
+const YAW_TURN_OFFSET = 0.15;
+const TURN_SAMPLE_COUNT = 25;
+const TURN_SAMPLE_INTERVAL_MS = 150;
 
 /**
- * Liveness check: watches the video for ~4 seconds and requires the eyes to
- * be seen both open and closed at some point (in either order). A printed
- * photo or a frozen frame holds one fixed EAR and can never show both states,
- * which is what the previous single-frame "smile" check couldn't rule out.
- * Order isn't enforced (unlike a strict open->closed->open cycle) so a quick
- * or partial blink still counts, since sampling can easily miss one edge of it.
+ * Liveness check: watches the video for ~4 seconds and requires the head to
+ * be seen turned to both sides at some point (in either order). A printed
+ * photo or a frozen frame holds one fixed head angle and can never show
+ * both, which is what the previous single-frame "smile" check couldn't rule
+ * out. A deliberate head turn is also easier for people to perform on cue
+ * than a precisely-timed blink.
  */
-async function detectBlink(video: HTMLVideoElement, onSample?: (i: number, total: number) => void): Promise<boolean> {
-  let sawOpen = false;
-  let sawClosed = false;
+async function detectHeadTurn(video: HTMLVideoElement, onSample?: (i: number, total: number) => void): Promise<boolean> {
+  let sawLeft = false;
+  let sawRight = false;
 
-  for (let i = 0; i < BLINK_SAMPLE_COUNT; i++) {
-    onSample?.(i, BLINK_SAMPLE_COUNT);
+  for (let i = 0; i < TURN_SAMPLE_COUNT; i++) {
+    onSample?.(i, TURN_SAMPLE_COUNT);
     const detection = await faceapi.detectSingleFace(video).withFaceLandmarks();
 
     if (detection) {
-      const avgEAR = (getEAR(detection.landmarks.getLeftEye()) + getEAR(detection.landmarks.getRightEye())) / 2;
+      const yaw = getYawRatio(detection.landmarks);
 
-      if (avgEAR >= EAR_OPEN_THRESHOLD) sawOpen = true;
-      else if (avgEAR <= EAR_CLOSED_THRESHOLD) sawClosed = true;
+      if (yaw <= YAW_CENTER_RATIO - YAW_TURN_OFFSET) sawLeft = true;
+      else if (yaw >= YAW_CENTER_RATIO + YAW_TURN_OFFSET) sawRight = true;
 
-      if (sawOpen && sawClosed) return true;
+      if (sawLeft && sawRight) return true;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, BLINK_SAMPLE_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, TURN_SAMPLE_INTERVAL_MS));
   }
 
   return false;
@@ -125,6 +130,13 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
     }
   };
 
+  const stopCamera = () => {
+    const stream = videoRef.current?.srcObject as MediaStream | null;
+    stream?.getTracks().forEach((track) => track.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setIsCameraStarted(false);
+  };
+
   const handleScan = async () => {
     if (initialRoster.length === 0) {
       setStatusText("No faces registered yet.");
@@ -179,19 +191,19 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
 
     const rosterEntry = initialRoster.find((u) => u.id === bestMatch.label);
 
-    // Liveness check: require a real blink (open -> closed -> open), which a
+    // Liveness check: require the head to turn to both sides, which a
     // printed photo or a frozen video frame physically cannot do. Stronger
     // than the old single-frame smile check, which a photo of a smiling
     // face could pass trivially.
-    setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณากระพริบตา 1 ครั้งเพื่อยืนยันตัวตน...`);
-    const blinked = await detectBlink(video, (i, total) => {
-      setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณากระพริบตา (${i + 1}/${total})`);
+    setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณาหันหน้าช้าๆ ไปทางซ้ายและขวาเพื่อยืนยันตัวตน...`);
+    const turned = await detectHeadTurn(video, (i, total) => {
+      setStatusText(`ตรวจพบใบหน้า: ${rosterEntry?.name} — กรุณาหันหน้าซ้าย-ขวา (${i + 1}/${total})`);
     });
 
     setIsScanning(false);
 
-    if (!blinked) {
-      setStatusText("ไม่พบการกระพริบตา กรุณากดสแกนใหม่และกระพริบตาปกติเพื่อยืนยันว่าไม่ใช่รูปถ่าย (liveness check)");
+    if (!turned) {
+      setStatusText("ไม่พบการหันหน้า กรุณากดสแกนใหม่และหันหน้าซ้าย-ขวาให้ชัดเจนเพื่อยืนยันว่าไม่ใช่รูปถ่าย (liveness check)");
       return;
     }
 
@@ -226,7 +238,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
       pendingMatch.confidence,
       type,
       outsideOffice ? "OUTSIDE" : "OFFICE",
-      outsideOffice ? note : undefined,
+      note.trim() || undefined,
       photoDataUrl
     );
 
@@ -238,6 +250,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
       setPendingMatch(null);
       setOutsideOffice(false);
       setNote("");
+      stopCamera();
     } else {
       setStatusText(result.error || "Failed to record check-in.");
     }
@@ -313,15 +326,17 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
               Working outside the office
             </label>
 
-            {outsideOffice && (
-              <input
-                type="text"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Details (e.g. client site, WFH, business trip)"
-                className="w-full rounded-md border-gray-300 text-sm focus:border-orange-500 focus:ring-orange-500"
-              />
-            )}
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={
+                outsideOffice
+                  ? "รายละเอียด (เช่น ออกไปหน้างาน, WFH, ธุระต่างจังหวัด)"
+                  : "หมายเหตุ (ถ้ามาสาย โปรดระบุเหตุผล) — ไม่บังคับ"
+              }
+              className="w-full rounded-md border-gray-300 text-sm focus:border-orange-500 focus:ring-orange-500"
+            />
 
             <div className="flex flex-wrap gap-3 pt-1">
               <button
