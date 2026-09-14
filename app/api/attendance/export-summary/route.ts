@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getFullDailyAttendanceSummary } from "@/app/actions/checkin";
 import { toCsv } from "@/lib/attendance";
+import { formatThaiTime } from "@/lib/datetime";
 
 export async function GET() {
   const result = await getFullDailyAttendanceSummary();
@@ -12,8 +13,8 @@ export async function GET() {
   const rows = result.data.map((row) => [
     row.dateKey,
     row.name,
-    row.startTime ? new Date(row.startTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "",
-    row.endTime ? new Date(row.endTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "",
+    row.startTime ? formatThaiTime(row.startTime) : "",
+    row.endTime ? formatThaiTime(row.endTime) : "",
     row.totalHours.toFixed(2),
     row.regularHours.toFixed(2),
     row.otHours.toFixed(2),

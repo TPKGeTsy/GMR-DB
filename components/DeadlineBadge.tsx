@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { getDeadlineStatus, DeadlineTone } from "@/lib/projects";
+import { formatThaiDate } from "@/lib/datetime";
 
 const toneClass: Record<DeadlineTone, string> = {
   done: "bg-blue-50 text-blue-700 border-blue-200",
@@ -34,7 +35,7 @@ export default function DeadlineBadge({
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold ${toneClass[deadline.tone]} ${className}`}
-      title={`กำหนดส่งงาน: ${new Date(endDate as string | Date).toLocaleDateString("th-TH")}`}
+      title={`กำหนดส่งงาน: ${formatThaiDate(endDate as string | Date)}`}
     >
       <Icon className="w-3 h-3" />
       {deadline.label}

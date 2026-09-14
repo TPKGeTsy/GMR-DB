@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
 import { recordCheckIn } from "@/app/actions/checkin";
 import { ScanFace, Camera, CheckCircle2, XCircle, LogIn, LogOut, MapPin } from "lucide-react";
+import { formatThaiTime } from "@/lib/datetime";
 
 interface RosterEntry {
   id: string;
@@ -386,7 +387,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">
-                      {new Date(c.createdAt).toLocaleTimeString("th-TH")}
+                      {formatThaiTime(c.createdAt)}
                     </p>
                     <p className="text-[10px] text-gray-400">
                       {Math.round(c.confidence * 100)}% match

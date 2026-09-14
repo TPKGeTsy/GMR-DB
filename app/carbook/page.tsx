@@ -6,6 +6,7 @@ import BookingApprovalButtons from "@/components/BookingApprovalButtons";
 import CancelBookingButton from "@/components/CancelBookingButton";
 import Link from "next/link";
 import { Car, Plus, Clock, CalendarClock, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +155,7 @@ export default async function CarBookingPage() {
                     </p>
                     <p className="text-[10px] text-gray-400 flex items-center mt-1">
                       <Clock className="w-3 h-3 mr-1" />
-                      {new Date(b.startAt).toLocaleString("th-TH")} — {new Date(b.endAt).toLocaleString("th-TH")}
+                      {formatThaiDateTime(b.startAt)} — {formatThaiDateTime(b.endAt)}
                     </p>
                   </div>
                   <BookingApprovalButtons bookingId={b.id} />
@@ -212,7 +213,7 @@ export default async function CarBookingPage() {
                           <div className="text-xs text-gray-500">{b.vehicle.licensePlate}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(b.startAt).toLocaleString("th-TH")} — {new Date(b.endAt).toLocaleString("th-TH")}
+                          {formatThaiDateTime(b.startAt)} — {formatThaiDateTime(b.endAt)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${statusBadge[b.status] || "bg-gray-100 text-gray-500"}`}>

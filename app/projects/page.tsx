@@ -2,6 +2,7 @@ import { getProjects } from "@/app/actions/projects";
 import Link from "next/link";
 import { Briefcase, Plus, Users, User, Calendar } from "lucide-react";
 import DeadlineBadge from "@/components/DeadlineBadge";
+import { formatThaiDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +91,9 @@ export default async function ProjectsPage() {
               {(p.startDate || p.endDate) && (
                 <div className="flex items-center text-[11px] text-gray-400 mt-1">
                   <Calendar className="w-3 h-3 mr-1" />
-                  {p.startDate ? new Date(p.startDate).toLocaleDateString("th-TH") : "?"}
+                  {p.startDate ? formatThaiDate(p.startDate) : "?"}
                   {" – "}
-                  {p.endDate ? new Date(p.endDate).toLocaleDateString("th-TH") : "?"}
+                  {p.endDate ? formatThaiDate(p.endDate) : "?"}
                 </div>
               )}
             </Link>

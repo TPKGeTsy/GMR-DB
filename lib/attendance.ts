@@ -1,3 +1,5 @@
+import { bangkokDateKey } from "./datetime";
+
 export interface CheckInEvent {
   type: string;
   location: string;
@@ -5,7 +7,7 @@ export interface CheckInEvent {
 }
 
 export interface DailySummaryRow {
-  dateKey: string; // YYYY-MM-DD, local time
+  dateKey: string; // YYYY-MM-DD, Asia/Bangkok calendar day
   startTime: Date | null;
   endTime: Date | null;
   location: string | null;
@@ -38,7 +40,7 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
   const byDate = new Map<string, CheckInEvent[]>();
 
   for (const c of checkIns) {
-    const dateKey = c.createdAt.toLocaleDateString("en-CA");
+    const dateKey = bangkokDateKey(c.createdAt);
     if (!byDate.has(dateKey)) byDate.set(dateKey, []);
     byDate.get(dateKey)!.push(c);
   }

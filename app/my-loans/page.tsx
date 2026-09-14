@@ -3,6 +3,7 @@ import ReturnLoanButton from "@/components/ReturnLoanButton";
 import { PackageCheck, Clock, AlertTriangle } from "lucide-react";
 import Image from "next/image";
 import { isLoanOverdue } from "@/lib/loans";
+import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -65,13 +66,13 @@ export default async function MyLoansPage() {
                     </p>
                     <p className="text-[10px] text-gray-400 flex items-center mb-1">
                       <Clock className="w-3 h-3 mr-1" />
-                      ยืมเมื่อ {new Date(loan.borrowedAt).toLocaleString("th-TH")}
+                      ยืมเมื่อ {formatThaiDateTime(loan.borrowedAt)}
                     </p>
                     {loan.dueDate && (
                       <p className={`text-[10px] flex items-center mb-2 ${isOverdue ? "text-red-600 font-semibold" : "text-gray-400"}`}>
                         {isOverdue && <AlertTriangle className="w-3 h-3 mr-1" />}
                         {isOverdue ? "เกินกำหนดคืนแล้ว: " : "กำหนดคืน: "}
-                        {new Date(loan.dueDate).toLocaleDateString("th-TH")}
+                        {formatThaiDate(loan.dueDate)}
                       </p>
                     )}
                     <ReturnLoanButton loanId={loan.id} />
@@ -110,8 +111,8 @@ export default async function MyLoansPage() {
                     <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.asset.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.quantity} {loan.asset.unit}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.borrowedAt).toLocaleString("th-TH")}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnedAt && new Date(loan.returnedAt).toLocaleString("th-TH")}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatThaiDateTime(loan.borrowedAt)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnedAt && formatThaiDateTime(loan.returnedAt)}</td>
                     </tr>
                   ))
                 )}

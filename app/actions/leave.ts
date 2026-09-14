@@ -5,6 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
+import { formatThaiDate } from "@/lib/datetime";
 
 const LEAVE_TYPES = ["SICK", "PERSONAL", "VACATION"] as const;
 type LeaveType = (typeof LEAVE_TYPES)[number];
@@ -48,7 +49,7 @@ export async function createLeaveRequest(
 
     await createActivityLog(
       "REQUEST_LEAVE",
-      `Requested ${type} leave from ${start.toLocaleDateString("th-TH")} to ${end.toLocaleDateString("th-TH")}`
+      `Requested ${type} leave from ${formatThaiDate(start)} to ${formatThaiDate(end)}`
     );
 
     revalidatePath("/leave");

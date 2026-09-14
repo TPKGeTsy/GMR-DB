@@ -4,6 +4,7 @@ import { getMyProjects } from "@/app/actions/projects";
 import AddScheduleEntryForm from "@/components/AddScheduleEntryForm";
 import DeleteScheduleEntryButton from "@/components/DeleteScheduleEntryButton";
 import { CalendarRange, Clock, Briefcase } from "lucide-react";
+import { formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export default async function WorkSchedulePage() {
                     <div className="flex items-center flex-wrap gap-2 mt-1">
                       <span className="text-xs text-gray-500 flex items-center">
                         <Clock className="w-3 h-3 mr-1" />
-                        {new Date(entry.startAt).toLocaleString("th-TH")} — {new Date(entry.endAt).toLocaleString("th-TH")}
+                        {formatThaiDateTime(entry.startAt)} — {formatThaiDateTime(entry.endAt)}
                       </span>
                       {entry.project && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-700 text-[10px] font-semibold">
@@ -114,7 +115,7 @@ export default async function WorkSchedulePage() {
                           {entry.project?.name || "-"}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                          {new Date(entry.startAt).toLocaleString("th-TH")} — {new Date(entry.endAt).toLocaleString("th-TH")}
+                          {formatThaiDateTime(entry.startAt)} — {formatThaiDateTime(entry.endAt)}
                         </td>
                       </tr>
                     ))

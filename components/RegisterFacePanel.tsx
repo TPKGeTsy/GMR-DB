@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
 import { registerFace, removeFace } from "@/app/actions/checkin";
 import { ScanFace, Camera, Trash2 } from "lucide-react";
+import { formatThaiDateTime } from "@/lib/datetime";
 
 export default function RegisterFacePanel({
   userId,
@@ -130,7 +131,7 @@ export default function RegisterFacePanel({
 
       {registered && (
         <p className="text-xs text-green-700 bg-green-50 rounded-md px-3 py-2 mb-3">
-          Registered{registeredAt ? ` on ${new Date(registeredAt).toLocaleString("th-TH")}` : ""}
+          Registered{registeredAt ? ` on ${formatThaiDateTime(registeredAt)}` : ""}
         </p>
       )}
 

@@ -7,6 +7,7 @@ import ReturnLoanButton from "@/components/ReturnLoanButton";
 import Link from "next/link";
 import { Wallet, Package, TrendingUp, HandHelping, Clock, AlertTriangle, Car, ShieldAlert } from "lucide-react";
 import { isLoanOverdue } from "@/lib/loans";
+import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -198,7 +199,7 @@ export default async function DashboardPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
                         <span className="flex items-center">
                           <Clock className="w-3 h-3 mr-1" />
-                          {new Date(loan.borrowedAt).toLocaleString("th-TH")}
+                          {formatThaiDateTime(loan.borrowedAt)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-xs">
@@ -207,7 +208,7 @@ export default async function DashboardPage() {
                             isOverdue ? "bg-red-100 text-red-700" : "text-gray-400"
                           }`}>
                             {isOverdue && <AlertTriangle className="w-3 h-3 mr-1" />}
-                            {new Date(loan.dueDate).toLocaleDateString("th-TH")}
+                            {formatThaiDate(loan.dueDate)}
                           </span>
                         )}
                       </td>
@@ -268,7 +269,7 @@ export default async function DashboardPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
                       <span className="flex items-center">
                         <Clock className="w-3 h-3 mr-1" />
-                        {new Date(b.startAt).toLocaleString("th-TH")} — {new Date(b.endAt).toLocaleString("th-TH")}
+                        {formatThaiDateTime(b.startAt)} — {formatThaiDateTime(b.endAt)}
                       </span>
                     </td>
                   </tr>

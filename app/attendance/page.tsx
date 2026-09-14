@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { getAttendanceLogs, getDailyAttendanceSummary } from "@/app/actions/checkin";
 import Pagination from "@/components/Pagination";
+import { formatThaiDateLong, formatThaiDateTime, formatThaiTime } from "@/lib/datetime";
 import { ClipboardList, Download, LogIn, LogOut, MapPin, CalendarClock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -88,16 +89,11 @@ export default async function AttendancePage({
                   dailyRows.map((row) => (
                     <tr key={`${row.userId}-${row.dateKey}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {new Date(row.dateKey).toLocaleDateString("th-TH", {
-                          weekday: "short",
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
+                        {formatThaiDateLong(row.dateKey)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{row.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {row.startTime ? new Date(row.startTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"}
+                        {row.startTime ? formatThaiTime(row.startTime) : "-"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         {row.stillWorking ? (
@@ -105,7 +101,7 @@ export default async function AttendancePage({
                             Still working
                           </span>
                         ) : row.endTime ? (
-                          new Date(row.endTime).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })
+                          formatThaiTime(row.endTime)
                         ) : (
                           "-"
                         )}
@@ -221,7 +217,7 @@ export default async function AttendancePage({
                         {Math.round(log.confidence * 100)}%
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(log.createdAt).toLocaleString("th-TH")}
+                        {formatThaiDateTime(log.createdAt)}
                       </td>
                     </tr>
                   ))

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import Link from "next/link";
 import { Plus, Share2, Cpu, User, Clock } from "lucide-react";
 import { redirect } from "next/navigation";
+import { formatThaiDate } from "@/lib/datetime";
 
 interface Diagram {
   id: string;
@@ -96,7 +97,7 @@ export default async function DiagramsListPage() {
               </div>
               <div className="flex items-center">
                 <Clock className="w-3 h-3 mr-1 text-gray-700" />
-                {new Date(diagram.createdAt).toLocaleDateString("th-TH")}
+                {formatThaiDate(diagram.createdAt)}
               </div>
             </div>
           </Link>

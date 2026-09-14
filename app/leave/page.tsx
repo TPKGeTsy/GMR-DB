@@ -4,6 +4,7 @@ import NewLeaveRequestForm from "@/components/NewLeaveRequestForm";
 import LeaveApprovalButtons from "@/components/LeaveApprovalButtons";
 import CancelLeaveButton from "@/components/CancelLeaveButton";
 import { CalendarHeart, ShieldAlert, Clock } from "lucide-react";
+import { formatThaiDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,8 @@ const statusLabel: Record<string, string> = {
 };
 
 function formatDateRange(startDate: string, endDate: string) {
-  const start = new Date(startDate).toLocaleDateString("th-TH");
-  const end = new Date(endDate).toLocaleDateString("th-TH");
+  const start = formatThaiDate(startDate);
+  const end = formatThaiDate(endDate);
   return start === end ? start : `${start} — ${end}`;
 }
 

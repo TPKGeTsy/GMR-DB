@@ -4,6 +4,7 @@ import RoleSelect from "@/components/RoleSelect";
 import Pagination from "@/components/Pagination";
 import { User, Shield, Activity, Calendar, MapPin } from "lucide-react";
 import Link from "next/link";
+import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,7 @@ export default async function UsersPage({
                             </span>
                           )}
                           <span className="text-[10px] text-gray-400">
-                            since {new Date(status.since).toLocaleString("th-TH")}
+                            since {formatThaiDateTime(status.since)}
                           </span>
                         </div>
                       )}
@@ -115,7 +116,7 @@ export default async function UsersPage({
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <div className="flex items-center">
                         <Calendar className="mr-1.5 h-4 w-4 text-gray-400" />
-                        {new Date(user.createdAt).toLocaleDateString("th-TH")}
+                        {formatThaiDate(user.createdAt)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

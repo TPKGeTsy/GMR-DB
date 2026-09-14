@@ -5,6 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
+import { formatThaiDateTime } from "@/lib/datetime";
 
 function isApprover(role: string | undefined) {
   return role === "ADMIN" || role === "OPERATOR";
@@ -65,7 +66,7 @@ export async function createBooking(
 
     await createActivityLog(
       "REQUEST_BOOKING",
-      `Requested ${vehicle.name} (${vehicle.licensePlate}) from ${start.toLocaleString("th-TH")} to ${end.toLocaleString("th-TH")}`
+      `Requested ${vehicle.name} (${vehicle.licensePlate}) from ${formatThaiDateTime(start)} to ${formatThaiDateTime(end)}`
     );
 
     revalidatePath("/carbook");
