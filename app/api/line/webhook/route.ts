@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { verifyLineSignature, replyLineMessage } from "@/lib/line";
+import { answerFreeformQuestion } from "@/lib/lineAssistant";
 import type { Asset, LinePendingBorrow, User } from "@prisma/client";
 
 interface LineWebhookEvent {
@@ -118,11 +119,20 @@ async function handleEvent(event: LineWebhookEvent) {
     return;
   }
 
+  // Anything else is treated as a free-form question, answered from the
+  // user's own data. Falls back to a canned pointer to the "ยืม" command
+  // if the AI call isn't configured or fails.
+  const extraContext = pending
+    ? `มีคำสั่งยืม "${pending.asset.name}" จำนวน ${pending.quantity} ค้างรอยืนยันอยู่ ถ้าผู้ใช้ถามเกี่ยวกับเรื่องนี้ ให้เตือนว่าพิมพ์ "ยืนยัน" หรือ "ยกเลิก"`
+    : undefined;
+  const aiReply = await answerFreeformQuestion(user, text, extraContext);
+
   await replyLineMessage(
     replyToken,
-    pending
-      ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่นะคะ พิมพ์ "ยืนยัน" หรือ "ยกเลิก" ได้เลยค่ะ`
-      : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`
+    aiReply ??
+      (pending
+        ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่นะคะ พิมพ์ "ยืนยัน" หรือ "ยกเลิก" ได้เลยค่ะ`
+        : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`)
   );
 }
 
