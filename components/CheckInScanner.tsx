@@ -279,10 +279,13 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
             autoPlay
             muted
             playsInline
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover -scale-x-100"
             style={{ display: isCameraStarted ? "block" : "none" }}
           />
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+          {/* Mirrored to match the video preview so the detection box lines up.
+              The underlying pixel data (face detection, saved snapshot) is
+              untouched by this — CSS transforms only affect rendering. */}
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full -scale-x-100" />
           {!isCameraStarted && (
             <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
               Camera off

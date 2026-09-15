@@ -21,28 +21,28 @@ export default async function Navbar() {
 
   const workItems: NavDropdownItem[] = [
     { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
-    { href: "/work-schedule", label: "ตารางงาน", icon: "CalendarRange" },
+    { href: "/work-schedule", label: "ตารางงาน (Work Schedule)", icon: "CalendarRange" },
   ];
 
   const resourceItems: NavDropdownItem[] = [
-    { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
-    { href: "/catalog", label: "Catalog", icon: "ShoppingBag" },
-    { href: "/my-loans", label: "My Loans", icon: "PackageCheck" },
-    { href: "/carbook", label: "Car Booking", icon: "Car", badge: pendingBookingsCount },
+    { href: "/dashboard", label: "Dashboard (ภาพรวม)", icon: "LayoutDashboard" },
+    { href: "/catalog", label: "Catalog (รายการอุปกรณ์)", icon: "ShoppingBag" },
+    { href: "/my-loans", label: "My Loans (ของที่ยืม)", icon: "PackageCheck" },
+    { href: "/carbook", label: "Car Booking (จองรถ)", icon: "Car", badge: pendingBookingsCount },
     ...(role === "ADMIN" || role === "OPERATOR"
-      ? [{ href: "/inventory", label: "Inventory", icon: "ListFilter" } as NavDropdownItem]
+      ? [{ href: "/inventory", label: "Inventory (คลังอุปกรณ์)", icon: "ListFilter" } as NavDropdownItem]
       : []),
   ];
 
   const projectItems: NavDropdownItem[] = [
-    { href: "/projects", label: "Projects", icon: "Briefcase" },
-    { href: "/circuit", label: "Circuit", icon: "Cpu" },
-    { href: "/diagrams", label: "Wiring", icon: "Share2" },
+    { href: "/projects", label: "Projects (โปรเจกต์)", icon: "Briefcase" },
+    { href: "/circuit", label: "Circuit (วงจรไฟฟ้า)", icon: "Cpu" },
+    { href: "/diagrams", label: "Wiring (การเดินสาย)", icon: "Share2" },
   ];
 
   const adminItems: NavDropdownItem[] = [
-    { href: "/users", label: "Users", icon: "User" },
-    { href: "/attendance", label: "Attendance Report", icon: "ClipboardList" },
+    { href: "/users", label: "Users (ผู้ใช้งาน)", icon: "User" },
+    { href: "/attendance", label: "Attendance Report (รายงานเข้างาน)", icon: "ClipboardList" },
   ];
 
   return (
@@ -63,7 +63,7 @@ export default async function Navbar() {
             <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:items-center sm:space-x-6">
               <Link href="/checkin" className={linkClass}>
                 <ScanFace className="w-4 h-4 mr-1" />
-                Check-In
+                Check-In (สแกนหน้าเข้างาน)
               </Link>
               {session && (
                 <>
@@ -101,7 +101,7 @@ export default async function Navbar() {
                     aria-label="Logout"
                   >
                     <LogOut className="w-4 h-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Logout</span>
+                    <span className="hidden sm:inline">Logout (ออกจากระบบ)</span>
                   </button>
                 </form>
               </div>
@@ -111,13 +111,13 @@ export default async function Navbar() {
                   href="/login"
                   className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors"
                 >
-                  Sign In
+                  Sign In (เข้าสู่ระบบ)
                 </Link>
                 <Link
                   href="/register"
                   className="inline-flex items-center px-3 sm:px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors"
                 >
-                  Register
+                  Register (สมัครสมาชิก)
                 </Link>
               </div>
             )}

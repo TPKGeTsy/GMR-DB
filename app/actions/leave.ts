@@ -6,9 +6,12 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { formatThaiDate } from "@/lib/datetime";
+import { notifyAdminsForApproval, notifyUser } from "@/lib/lineApprovals";
 
 const LEAVE_TYPES = ["SICK", "PERSONAL", "VACATION"] as const;
 type LeaveType = (typeof LEAVE_TYPES)[number];
+
+const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
 
 function isApprover(role: string | undefined) {
   return role === "ADMIN" || role === "OPERATOR";
@@ -52,6 +55,15 @@ export async function createLeaveRequest(
       `Requested ${type} leave from ${formatThaiDate(start)} to ${formatThaiDate(end)}`
     );
 
+    // Awaited (not fire-and-forget) — a detached promise can get killed
+    // when a serverless function's response is sent before it settles.
+    const requesterName = session.user.name || session.user.username;
+    await notifyAdminsForApproval(
+      "LEAVE",
+      leaveRequest.id,
+      `📋 คำขอลาใหม่\nผู้ขอ: ${requesterName}\nประเภท: ${leaveTypeLabel[type] || type}\nวันที่: ${formatThaiDate(start)} - ${formatThaiDate(end)}${leaveRequest.reason ? `\nเหตุผล: ${leaveRequest.reason}` : ""}`
+    );
+
     revalidatePath("/leave");
     return { success: true, data: JSON.parse(JSON.stringify(leaveRequest)) };
   } catch (error) {
@@ -75,6 +87,10 @@ export async function approveLeaveRequest(leaveRequestId: string) {
     });
 
     await createActivityLog("APPROVE_LEAVE", `Approved leave request ${leaveRequestId}`);
+    await notifyUser(
+      leaveRequest.userId,
+      `✅ ใบลา${leaveTypeLabel[leaveRequest.type] || leaveRequest.type} (${formatThaiDate(leaveRequest.startDate)} - ${formatThaiDate(leaveRequest.endDate)}) ได้รับการอนุมัติแล้วค่ะ`
+    );
 
     revalidatePath("/leave");
     return { success: true };
@@ -99,6 +115,10 @@ export async function rejectLeaveRequest(leaveRequestId: string) {
     });
 
     await createActivityLog("REJECT_LEAVE", `Rejected leave request ${leaveRequestId}`);
+    await notifyUser(
+      leaveRequest.userId,
+      `❌ ใบลา${leaveTypeLabel[leaveRequest.type] || leaveRequest.type} (${formatThaiDate(leaveRequest.startDate)} - ${formatThaiDate(leaveRequest.endDate)}) ถูกปฏิเสธค่ะ`
+    );
 
     revalidatePath("/leave");
     return { success: true };

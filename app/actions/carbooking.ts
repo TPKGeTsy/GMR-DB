@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { formatThaiDateTime } from "@/lib/datetime";
+import { notifyAdminsForApproval, notifyUser } from "@/lib/lineApprovals";
 
 function isApprover(role: string | undefined) {
   return role === "ADMIN" || role === "OPERATOR";
@@ -69,6 +70,13 @@ export async function createBooking(
       `Requested ${vehicle.name} (${vehicle.licensePlate}) from ${formatThaiDateTime(start)} to ${formatThaiDateTime(end)}`
     );
 
+    const requesterName = session.user.name || session.user.username;
+    await notifyAdminsForApproval(
+      "BOOKING",
+      booking.id,
+      `🚗 คำขอจองรถใหม่\nผู้ขอ: ${requesterName}\nรถ: ${vehicle.name} (${vehicle.licensePlate})\nช่วงเวลา: ${formatThaiDateTime(start)} - ${formatThaiDateTime(end)}${booking.purpose ? `\nวัตถุประสงค์: ${booking.purpose}` : ""}`
+    );
+
     revalidatePath("/carbook");
     return { success: true, data: JSON.parse(JSON.stringify(booking)) };
   } catch (error) {
@@ -109,6 +117,7 @@ export async function approveBooking(bookingId: string) {
     });
 
     await createActivityLog("APPROVE_BOOKING", `Approved booking for ${result.vehicleName}`);
+    await notifyUser(result.updated.userId, `✅ การจองรถ ${result.vehicleName} ได้รับการอนุมัติแล้วค่ะ`);
 
     revalidatePath("/carbook");
     return { success: true };
@@ -134,6 +143,7 @@ export async function rejectBooking(bookingId: string) {
     });
 
     await createActivityLog("REJECT_BOOKING", `Rejected booking for ${booking.vehicle.name}`);
+    await notifyUser(booking.userId, `❌ การจองรถ ${booking.vehicle.name} ถูกปฏิเสธค่ะ`);
 
     revalidatePath("/carbook");
     return { success: true };

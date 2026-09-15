@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { notifyAdminsFYI } from "@/lib/lineApprovals";
 
 const DEFAULT_LOAN_DAYS = 7;
 
@@ -45,6 +46,9 @@ export async function borrowAsset(assetId: string, quantity: number) {
       "BORROW_ASSET",
       `Borrowed ${quantity} x ${result.asset.name} (${result.asset.modelOrSize})`
     );
+    await notifyAdminsFYI(
+      `📦 ${session.user.name || session.user.username} ยืม ${result.asset.name} (${result.asset.modelOrSize}) x${quantity} ${result.asset.unit}`
+    );
 
     revalidatePath("/catalog");
     revalidatePath("/my-loans");
@@ -65,7 +69,10 @@ export async function returnLoan(loanId: string) {
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const result = await prisma.$transaction(async (tx) => {
-      const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { asset: true } });
+      const loan = await tx.loan.findUnique({
+        where: { id: loanId },
+        include: { asset: true, user: { select: { username: true, fullName: true } } },
+      });
       if (!loan) throw new Error("ไม่พบรายการยืมนี้");
       if (loan.returnedAt) throw new Error("คืนของรายการนี้ไปแล้ว");
       if (loan.userId !== session.user.id && session.user.role !== "ADMIN") {
@@ -82,10 +89,11 @@ export async function returnLoan(loanId: string) {
         data: { returnedAt: new Date() },
       });
 
-      return { loan: updatedLoan, assetName: loan.asset.name };
+      return { loan: updatedLoan, assetName: loan.asset.name, borrowerName: loan.user.fullName || loan.user.username };
     });
 
     await createActivityLog("RETURN_ASSET", `Returned ${result.loan.quantity} x ${result.assetName}`);
+    await notifyAdminsFYI(`↩️ ${result.borrowerName} คืน ${result.assetName} x${result.loan.quantity} แล้วค่ะ`);
 
     revalidatePath("/catalog");
     revalidatePath("/my-loans");

@@ -5,6 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
+import { bangkokDateKey } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
 
@@ -180,32 +181,7 @@ async function buildFullDailyAttendanceSummary(): Promise<DailyAttendanceSummary
   return rows;
 }
 
-/** Full history, grouped by employee + calendar day, with worked/OT hours.
- *  Always derived fresh from every CheckIn record, so it naturally keeps
- *  growing with past data instead of resetting each time it's requested. */
-export async function getDailyAttendanceSummary({
-  page = 1,
-  limit = 50,
-}: { page?: number; limit?: number } = {}): Promise<
-  | { success: true; data: DailyAttendanceSummaryRow[]; totalPages: number }
-  | { success: false; error: string }
-> {
-  try {
-    const session = await auth();
-    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
-
-    const rows = await buildFullDailyAttendanceSummary();
-    const totalPages = Math.max(1, Math.ceil(rows.length / limit));
-    const paged = rows.slice((page - 1) * limit, page * limit);
-
-    return { success: true, data: paged, totalPages };
-  } catch (error) {
-    logError("Error building daily attendance summary:", error);
-    return { success: false, error: "Failed to build daily attendance summary" };
-  }
-}
-
-/** Same data as getDailyAttendanceSummary but unpaginated, for CSV export. */
+/** Unpaginated daily summary (every employee, every day), for CSV export. */
 export async function getFullDailyAttendanceSummary(): Promise<
   { success: true; data: DailyAttendanceSummaryRow[] } | { success: false; error: string }
 > {
@@ -220,11 +196,30 @@ export async function getFullDailyAttendanceSummary(): Promise<
   }
 }
 
-export async function getAttendanceLogs({
+export interface AttendanceTableRow {
+  id: string;
+  dateKey: string;
+  employeeName: string;
+  time: string;
+  type: string;
+  location: string;
+  note: string | null;
+  confidence: number;
+  photoUrl: string | null;
+  dailyTotalHours: number | null;
+  dailyOtHours: number | null;
+  stillWorking: boolean;
+}
+
+/** One row per raw check-in/out scan, augmented with that employee's
+ *  computed totals for the same calendar day — lets the admin table offer
+ *  both "per scan" detail (time, confidence, photo) and "per day" totals
+ *  (hours, OT) as columns the admin can toggle, from a single dataset. */
+export async function getAttendanceTableRows({
   page = 1,
   limit = 50,
 }: { page?: number; limit?: number } = {}): Promise<
-  | { success: true; data: unknown[]; totalPages: number }
+  | { success: true; data: AttendanceTableRow[]; totalPages: number }
   | { success: false; error: string }
 > {
   try {
@@ -232,7 +227,7 @@ export async function getAttendanceLogs({
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
     const skip = (page - 1) * limit;
-    const [logs, totalCount] = await Promise.all([
+    const [logs, totalCount, allCheckIns] = await Promise.all([
       prisma.checkIn.findMany({
         orderBy: { createdAt: "desc" },
         skip,
@@ -240,16 +235,52 @@ export async function getAttendanceLogs({
         include: { user: { select: { username: true, fullName: true } } },
       }),
       prisma.checkIn.count(),
+      prisma.checkIn.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { userId: true, type: true, location: true, createdAt: true },
+      }),
     ]);
 
-    return {
-      success: true,
-      data: JSON.parse(JSON.stringify(logs)),
-      totalPages: Math.max(1, Math.ceil(totalCount / limit)),
-    };
+    const byUser = new Map<string, { type: string; location: string; createdAt: Date }[]>();
+    for (const c of allCheckIns) {
+      if (!byUser.has(c.userId)) byUser.set(c.userId, []);
+      byUser.get(c.userId)!.push(c);
+    }
+
+    const dailyLookup = new Map<string, Map<string, { totalHours: number; otHours: number; stillWorking: boolean }>>();
+    for (const [userId, events] of byUser) {
+      const dayMap = new Map(
+        buildDailySummary(events).map((d) => [
+          d.dateKey,
+          { totalHours: d.totalHours, otHours: d.otHours, stillWorking: d.stillWorking },
+        ])
+      );
+      dailyLookup.set(userId, dayMap);
+    }
+
+    const data: AttendanceTableRow[] = logs.map((log) => {
+      const dateKey = bangkokDateKey(log.createdAt);
+      const daily = dailyLookup.get(log.userId)?.get(dateKey);
+      return {
+        id: log.id,
+        dateKey,
+        employeeName: log.user.fullName || log.user.username,
+        time: log.createdAt.toISOString(),
+        type: log.type,
+        location: log.location,
+        note: log.note,
+        confidence: log.confidence,
+        photoUrl: log.photoUrl,
+        dailyTotalHours: daily?.totalHours ?? null,
+        dailyOtHours: daily?.otHours ?? null,
+        stillWorking: daily?.stillWorking ?? false,
+      };
+    });
+
+    return { success: true, data, totalPages: Math.max(1, Math.ceil(totalCount / limit)) };
   } catch (error) {
-    logError("Error fetching attendance logs:", error);
-    return { success: false, error: "Failed to load attendance logs" };
+    logError("Error building attendance table rows:", error);
+    return { success: false, error: "Failed to load attendance table" };
   }
 }
 

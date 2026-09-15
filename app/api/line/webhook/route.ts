@@ -6,6 +6,8 @@ import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { verifyLineSignature, replyLineMessage } from "@/lib/line";
 import { answerFreeformQuestion } from "@/lib/lineAssistant";
+import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
+import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 import type { Asset, LinePendingBorrow, User } from "@prisma/client";
 
 interface LineWebhookEvent {
@@ -23,6 +25,10 @@ const CANCEL_WORDS = new Set(["ยกเลิก", "no", "n", "cancel"]);
 const BORROW_COMMAND = /^ยืม\s+(.+?)\s+(\d+)\s*$/;
 const END_WORK_TEXT = "เลิกงานแล้ว";
 const CONTINUE_OT_TEXT = "ทำ OT ต่อ";
+// The hidden `text` payload behind an admin's "✅ อนุมัติ"/"❌ ปฏิเสธ" Quick
+// Reply button on a pending-approval push — see lib/lineApprovals.ts.
+const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING):(.+)$/;
+const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -89,6 +95,13 @@ async function handleEvent(event: LineWebhookEvent) {
 
   if (text === CONTINUE_OT_TEXT) {
     await replyLineMessage(replyToken, "โอเคค่ะ สู้ๆ นะคะ 💪 พอจะเลิกจริงๆ แล้วอย่าลืมไปสแกนหน้าที่ตู้ด้วยค่ะ");
+    return;
+  }
+
+  const approvalMatch = text.match(APPROVAL_COMMAND);
+  if (approvalMatch) {
+    const [, decision, kind, id] = approvalMatch;
+    await handleApprovalDecision(user, decision as "APPROVE" | "REJECT", kind as "LEAVE" | "BOOKING", id, replyToken);
     return;
   }
 
@@ -260,10 +273,117 @@ async function confirmBorrow(
       replyToken,
       `บันทึกการยืม ${result.asset.name} x${pending.quantity} ${result.asset.unit} เรียบร้อยแล้วค่ะ ✅ กำหนดคืนภายใน ${DEFAULT_LOAN_DAYS} วันนะคะ`
     );
+    await notifyAdminsFYI(
+      `📦 ${user.fullName || user.username} ยืม ${result.asset.name} (${result.asset.modelOrSize}) x${pending.quantity} ${result.asset.unit} (ผ่าน LINE)`
+    );
   } catch (error) {
     logError("LINE confirmBorrow failed", error, { userId: user.id, assetId: pending.assetId });
     const message = error instanceof Error ? error.message : "ยืมของไม่สำเร็จค่ะ";
     await replyLineMessage(replyToken, message);
     await prisma.linePendingBorrow.delete({ where: { lineUserId: pending.lineUserId } }).catch(() => {});
+  }
+}
+
+async function handleApprovalDecision(
+  admin: User,
+  decision: "APPROVE" | "REJECT",
+  kind: "LEAVE" | "BOOKING",
+  id: string,
+  replyToken: string
+) {
+  if (admin.role !== "ADMIN" && admin.role !== "OPERATOR") {
+    await replyLineMessage(replyToken, "คุณไม่มีสิทธิ์ดำเนินการนี้ค่ะ");
+    return;
+  }
+
+  const status = decision === "APPROVE" ? "APPROVED" : "REJECTED";
+  const icon = decision === "APPROVE" ? "✅" : "❌";
+  const actionLabel = decision === "APPROVE" ? "อนุมัติ" : "ปฏิเสธ";
+
+  try {
+    if (kind === "LEAVE") {
+      // updateMany + count, not update, so a second admin tapping the same
+      // button after someone else already decided gets told that plainly
+      // instead of silently overwriting the first decision.
+      const result = await prisma.leaveRequest.updateMany({
+        where: { id, status: "PENDING" },
+        data: { status, approvedById: admin.id, decidedAt: new Date() },
+      });
+      if (result.count === 0) {
+        await replyLineMessage(replyToken, "คำขอนี้มีคนดำเนินการไปแล้วค่ะ");
+        return;
+      }
+
+      const leaveRequest = await prisma.leaveRequest.findUnique({ where: { id } });
+      if (!leaveRequest) return;
+
+      await prisma.activityLog.create({
+        data: {
+          userId: admin.id,
+          action: decision === "APPROVE" ? "APPROVE_LEAVE" : "REJECT_LEAVE",
+          details: `${decision === "APPROVE" ? "Approved" : "Rejected"} leave request ${id} via LINE`,
+        },
+      });
+
+      revalidatePath("/leave");
+      await replyLineMessage(replyToken, `${icon} ${actionLabel}คำขอลาเรียบร้อยแล้วค่ะ`);
+      await notifyUser(
+        leaveRequest.userId,
+        `${icon} ใบลา${leaveTypeLabel[leaveRequest.type] || leaveRequest.type} (${formatThaiDate(leaveRequest.startDate)} - ${formatThaiDate(leaveRequest.endDate)}) ${decision === "APPROVE" ? "ได้รับการอนุมัติแล้ว" : "ถูกปฏิเสธ"}ค่ะ`
+      );
+      return;
+    }
+
+    // BOOKING
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.updateMany({
+        where: { id, status: "PENDING" },
+        data: { status, approvedById: admin.id, decidedAt: new Date() },
+      });
+      if (updated.count === 0) return null;
+
+      const booking = await tx.booking.findUnique({ where: { id }, include: { vehicle: true } });
+      if (!booking) return null;
+
+      // Mirrors approveBooking()'s behavior: an approval auto-rejects any
+      // other pending request for the same vehicle that overlaps it.
+      if (decision === "APPROVE") {
+        await tx.booking.updateMany({
+          where: {
+            vehicleId: booking.vehicleId,
+            status: "PENDING",
+            id: { not: id },
+            startAt: { lt: booking.endAt },
+            endAt: { gt: booking.startAt },
+          },
+          data: { status: "REJECTED", approvedById: admin.id, decidedAt: new Date() },
+        });
+      }
+
+      return booking;
+    });
+
+    if (!result) {
+      await replyLineMessage(replyToken, "คำขอนี้มีคนดำเนินการไปแล้วค่ะ");
+      return;
+    }
+
+    await prisma.activityLog.create({
+      data: {
+        userId: admin.id,
+        action: decision === "APPROVE" ? "APPROVE_BOOKING" : "REJECT_BOOKING",
+        details: `${decision === "APPROVE" ? "Approved" : "Rejected"} booking for ${result.vehicle.name} via LINE`,
+      },
+    });
+
+    revalidatePath("/carbook");
+    await replyLineMessage(replyToken, `${icon} ${actionLabel}การจองรถเรียบร้อยแล้วค่ะ`);
+    await notifyUser(
+      result.userId,
+      `${icon} การจองรถ ${result.vehicle.name} (${formatThaiDateTime(result.startAt)} - ${formatThaiDateTime(result.endAt)}) ${decision === "APPROVE" ? "ได้รับการอนุมัติแล้ว" : "ถูกปฏิเสธ"}ค่ะ`
+    );
+  } catch (error) {
+    logError("LINE approval decision failed", error, { adminId: admin.id, decision, kind, id });
+    await replyLineMessage(replyToken, "ดำเนินการไม่สำเร็จค่ะ ลองอีกครั้งหรือไปทำที่เว็บแทนนะคะ");
   }
 }

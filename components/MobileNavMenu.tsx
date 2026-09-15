@@ -50,7 +50,7 @@ export default function MobileNavMenu({
         <div className="absolute left-0 right-0 top-16 bg-gray-950 border-b border-gray-800 shadow-lg px-3 py-3 space-y-0.5 max-h-[calc(100vh-4rem)] overflow-y-auto z-20">
           <Link href="/checkin" className={linkClass} onClick={close}>
             <ScanFace className="w-4 h-4" />
-            Check-In
+            Check-In (สแกนหน้าเข้างาน)
           </Link>
 
           {isLoggedIn && (
@@ -65,48 +65,48 @@ export default function MobileNavMenu({
               </Link>
               <Link href="/work-schedule" className={linkClass} onClick={close}>
                 <CalendarRange className="w-4 h-4" />
-                ตารางงาน
+                ตารางงาน (Work Schedule)
               </Link>
 
               <p className={sectionHeaderClass}>ทรัพยากร</p>
               <Link href="/dashboard" className={linkClass} onClick={close}>
                 <LayoutDashboard className="w-4 h-4" />
-                Dashboard
+                Dashboard (ภาพรวม)
               </Link>
               <Link href="/catalog" className={linkClass} onClick={close}>
                 <ShoppingBag className="w-4 h-4" />
-                Catalog
+                Catalog (รายการอุปกรณ์)
               </Link>
               <Link href="/my-loans" className={linkClass} onClick={close}>
                 <PackageCheck className="w-4 h-4" />
-                My Loans
+                My Loans (ของที่ยืม)
               </Link>
               <Link href="/carbook" className={`${linkClass} justify-between`} onClick={close}>
                 <span className="flex items-center gap-2.5">
                   <Car className="w-4 h-4" />
-                  Car Booking
+                  Car Booking (จองรถ)
                 </span>
                 <Badge count={pendingBookingsCount} />
               </Link>
               {(role === "ADMIN" || role === "OPERATOR") && (
                 <Link href="/inventory" className={linkClass} onClick={close}>
                   <ListFilter className="w-4 h-4" />
-                  Inventory
+                  Inventory (คลังอุปกรณ์)
                 </Link>
               )}
 
               <p className={sectionHeaderClass}>โปรเจกต์</p>
               <Link href="/projects" className={linkClass} onClick={close}>
                 <Briefcase className="w-4 h-4" />
-                Projects
+                Projects (โปรเจกต์)
               </Link>
               <Link href="/circuit" className={linkClass} onClick={close}>
                 <Cpu className="w-4 h-4" />
-                Circuit
+                Circuit (วงจรไฟฟ้า)
               </Link>
               <Link href="/diagrams" className={linkClass} onClick={close}>
                 <Share2 className="w-4 h-4" />
-                Wiring
+                Wiring (การเดินสาย)
               </Link>
 
               {role === "ADMIN" && (
@@ -114,11 +114,11 @@ export default function MobileNavMenu({
                   <p className={sectionHeaderClass}>ผู้ดูแลระบบ</p>
                   <Link href="/users" className={linkClass} onClick={close}>
                     <User className="w-4 h-4" />
-                    Users
+                    Users (ผู้ใช้งาน)
                   </Link>
                   <Link href="/attendance" className={linkClass} onClick={close}>
                     <ClipboardList className="w-4 h-4" />
-                    Attendance Report
+                    Attendance Report (รายงานเข้างาน)
                   </Link>
                 </>
               )}
