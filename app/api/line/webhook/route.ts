@@ -23,6 +23,16 @@ const CONFIRM_WORDS = new Set(["ยืนยัน", "yes", "y", "ใช่", "�
 const CANCEL_WORDS = new Set(["ยกเลิก", "no", "n", "cancel"]);
 // "ยืม <ชื่ออุปกรณ์> <จำนวน>" — e.g. "ยืม สว่านไฟฟ้า 2"
 const BORROW_COMMAND = /^ยืม\s+(.+?)\s+(\d+)\s*$/;
+// Same, but with the quantity left out — e.g. just "ยืม สว่าน". Checked only
+// after BORROW_COMMAND fails to match, so it's the "no number given" case,
+// not a stricter alternative to it.
+const BORROW_NAME_ONLY = /^ยืม\s+(.+)$/;
+// -1 on a LinePendingBorrow row is a sentinel: the asset is chosen but the
+// quantity isn't yet, so the very next bare-number reply completes it. A
+// real borrow's quantity is always >= 1 (enforced before it's ever stored),
+// so this can't collide with a genuine pending confirmation.
+const AWAITING_QUANTITY = -1;
+const BARE_NUMBER = /^\d+$/;
 const END_WORK_TEXT = "เลิกงานแล้ว";
 const CONTINUE_OT_TEXT = "ทำ OT ต่อ";
 // The hidden `text` payload behind an admin's "✅ อนุมัติ"/"❌ ปฏิเสธ" Quick
@@ -34,6 +44,14 @@ const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING):(.+)$/;
 // name-collision the buttons exist to resolve.
 const SELECT_ASSET_COMMAND = /^SELECT_ASSET:(.+):(\d+)$/;
 const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
+
+// Strips stray trailing punctuation (backticks, quotes, markdown-ish
+// asterisks) that phone keyboards/autocorrect sometimes tack on — without
+// this, "ยืม Relay `" searches for the literal substring "Relay `", which
+// matches nothing even though "Relay" alone would.
+function sanitizeQuery(raw: string): string {
+  return raw.trim().replace(/[`'"*_~]+$/g, "").trim();
+}
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -117,11 +135,17 @@ async function handleEvent(event: LineWebhookEvent) {
   }
 
   const pending = await prisma.linePendingBorrow.findUnique({ where: { lineUserId }, include: { asset: true } });
+  const awaitingQuantity = pending?.quantity === AWAITING_QUANTITY;
 
   if (pending) {
     const isExpired = Date.now() - pending.createdAt.getTime() > PENDING_EXPIRY_MS;
 
-    if (!isExpired && CONFIRM_WORDS.has(normalized)) {
+    if (!isExpired && awaitingQuantity && BARE_NUMBER.test(text)) {
+      await finalizeQuantity(pending, Number(text), replyToken);
+      return;
+    }
+
+    if (!isExpired && !awaitingQuantity && CONFIRM_WORDS.has(normalized)) {
       await confirmBorrow(user, pending, replyToken);
       return;
     }
@@ -139,24 +163,34 @@ async function handleEvent(event: LineWebhookEvent) {
 
   const match = text.match(BORROW_COMMAND);
   if (match) {
-    await handleBorrowCommand(lineUserId, match[1].trim(), Number(match[2]), replyToken);
+    await handleBorrowCommand(lineUserId, sanitizeQuery(match[1]), Number(match[2]), replyToken);
+    return;
+  }
+
+  const nameOnlyMatch = text.match(BORROW_NAME_ONLY);
+  if (nameOnlyMatch) {
+    await handleBorrowSearch(lineUserId, sanitizeQuery(nameOnlyMatch[1]), replyToken);
     return;
   }
 
   // Anything else is treated as a free-form question, answered from the
   // user's own data. Falls back to a canned pointer to the "ยืม" command
   // if the AI call isn't configured or fails.
-  const extraContext = pending
-    ? `มีคำสั่งยืม "${pending.asset.name}" จำนวน ${pending.quantity} ค้างรอยืนยันอยู่ ถ้าผู้ใช้ถามเกี่ยวกับเรื่องนี้ ให้เตือนว่าพิมพ์ "ยืนยัน" หรือ "ยกเลิก"`
-    : undefined;
+  const extraContext = awaitingQuantity
+    ? `เพิ่งเลือกอุปกรณ์ "${pending!.asset.name}" ไว้ รอผู้ใช้พิมพ์จำนวนเป็นตัวเลขเฉยๆ ถ้าผู้ใช้ถามเกี่ยวกับเรื่องนี้ ให้เตือนว่าพิมพ์ตัวเลขจำนวนที่จะยืม`
+    : pending
+      ? `มีคำสั่งยืม "${pending.asset.name}" จำนวน ${pending.quantity} ค้างรอยืนยันอยู่ ถ้าผู้ใช้ถามเกี่ยวกับเรื่องนี้ ให้เตือนว่าพิมพ์ "ยืนยัน" หรือ "ยกเลิก"`
+      : undefined;
   const aiReply = await answerFreeformQuestion(user, text, extraContext);
 
   await replyLineMessage(
     replyToken,
     aiReply ??
-      (pending
-        ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่นะคะ พิมพ์ "ยืนยัน" หรือ "ยกเลิก" ได้เลยค่ะ`
-        : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`)
+      (awaitingQuantity
+        ? `จะยืม "${pending!.asset.name}" กี่${pending!.asset.unit}คะ? พิมพ์ตัวเลขได้เลยค่ะ`
+        : pending
+          ? `มีคำสั่งยืม "${pending.asset.name}" ค้างรอยืนยันอยู่นะคะ พิมพ์ "ยืนยัน" หรือ "ยกเลิก" ได้เลยค่ะ`
+          : `พิมพ์ "ยืม <ชื่ออุปกรณ์> <จำนวน>" เพื่อยืมของได้เลยค่ะ เช่น "ยืม สว่าน 2"`)
   );
 }
 
@@ -240,7 +274,60 @@ async function handleSelectAsset(lineUserId: string, assetId: string, quantity: 
     await replyLineMessage(replyToken, "ไม่พบอุปกรณ์นี้แล้วค่ะ อาจถูกลบไปจากระบบ ลองพิมพ์ค้นหาใหม่นะคะ");
     return;
   }
+  // quantity 0 here means the original "ยืม <ชื่อ>" search never gave a
+  // number in the first place — still need to ask for one.
+  if (quantity < 1) {
+    await askQuantity(lineUserId, asset, replyToken);
+    return;
+  }
   await proposeBorrow(lineUserId, asset, quantity, replyToken);
+}
+
+/** Same lookup as handleBorrowCommand, but for "ยืม <ชื่อ>" with no quantity
+ *  given — asks for the quantity next instead of proposing a borrow. */
+async function handleBorrowSearch(lineUserId: string, assetQuery: string, replyToken: string) {
+  const matches = await prisma.asset.findMany({
+    where: {
+      OR: [
+        { name: { contains: assetQuery, mode: "insensitive" } },
+        { modelOrSize: { contains: assetQuery, mode: "insensitive" } },
+      ],
+    },
+    take: 6,
+  });
+
+  if (matches.length === 0) {
+    await replyLineMessage(replyToken, `ไม่พบอุปกรณ์ชื่อ "${assetQuery}" ในระบบค่ะ ลองพิมพ์ชื่อให้ตรงกับในเว็บดูนะคะ`);
+    return;
+  }
+
+  if (matches.length > 1) {
+    const quickReplies: QuickReplyOption[] = matches.map((a: Asset) => ({
+      label: `${a.name} (${a.modelOrSize})`,
+      text: `SELECT_ASSET:${a.id}:0`,
+    }));
+    await replyLineMessage(replyToken, `พบหลายรายการที่ตรงกับ "${assetQuery}" ค่ะ เลือกจากปุ่มด้านล่างได้เลยนะคะ 👇`, quickReplies);
+    return;
+  }
+
+  await askQuantity(lineUserId, matches[0], replyToken);
+}
+
+async function askQuantity(lineUserId: string, asset: Asset, replyToken: string) {
+  await prisma.linePendingBorrow.upsert({
+    where: { lineUserId },
+    create: { lineUserId, assetId: asset.id, quantity: AWAITING_QUANTITY },
+    update: { assetId: asset.id, quantity: AWAITING_QUANTITY, createdAt: new Date() },
+  });
+  await replyLineMessage(replyToken, `จะยืม ${asset.name} (${asset.modelOrSize}) กี่${asset.unit}คะ? พิมพ์ตัวเลขได้เลยค่ะ`);
+}
+
+async function finalizeQuantity(pending: LinePendingBorrow & { asset: Asset }, quantity: number, replyToken: string) {
+  if (quantity < 1) {
+    await replyLineMessage(replyToken, "จำนวนต้องมากกว่า 0 นะคะ");
+    return;
+  }
+  await proposeBorrow(pending.lineUserId, pending.asset, quantity, replyToken);
 }
 
 async function proposeBorrow(lineUserId: string, asset: Asset, quantity: number, replyToken: string) {
