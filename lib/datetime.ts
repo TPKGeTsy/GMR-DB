@@ -36,3 +36,14 @@ export function formatThaiDateTime(date: Date | string): string {
 export function bangkokDateKey(date: Date): string {
   return date.toLocaleDateString("en-CA", { timeZone: BANGKOK_TZ });
 }
+
+/** The instant corresponding to `hour:minute` Bangkok time on the same
+ *  Bangkok calendar day as `date` — e.g. backdating an auto check-out to
+ *  "18:00 that day" regardless of what time it actually runs. Bangkok has
+ *  no DST, so a fixed +07:00 offset is always correct. */
+export function bangkokDateAt(date: Date, hour: number, minute = 0): Date {
+  const dateKey = bangkokDateKey(date);
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  return new Date(`${dateKey}T${hh}:${mm}:00+07:00`);
+}

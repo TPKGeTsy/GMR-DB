@@ -170,6 +170,13 @@ model CheckIn {
   // True right after the user taps "ทำ OT ต่อ", until their next message
   // (taken as the OT reason and folded into `note`) arrives.
   awaitingOtReason Boolean @default(false) @map("awaiting_ot_reason")
+  // Set (and left set) the first time the user taps "ทำ OT ต่อ" for this
+  // session — distinguishes "confirmed doing OT" from "never responded" once
+  // the reminder cron crosses midnight into the next calendar day.
+  otConfirmedAt DateTime? @map("ot_confirmed_at")
+  // Idempotency guard for the midnight "ยังทำ OT อยู่ไหมคะ" re-ask, so the
+  // cron (which runs every few minutes) doesn't repeat it all night.
+  midnightOtPromptSentAt DateTime? @map("midnight_ot_prompt_sent_at")
 
   @@map("check_ins")
 }

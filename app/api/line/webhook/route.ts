@@ -165,7 +165,10 @@ async function handleEvent(event: LineWebhookEvent) {
       return;
     }
 
-    await prisma.checkIn.update({ where: { id: openCheckIn.id }, data: { awaitingOtReason: true } });
+    await prisma.checkIn.update({
+      where: { id: openCheckIn.id },
+      data: { awaitingOtReason: true, otConfirmedAt: openCheckIn.otConfirmedAt ?? new Date() },
+    });
     await replyLineMessage(replyToken, "โอเคค่ะ สู้ๆ นะคะ 💪 ขอเหตุผลที่ทำ OT หน่อยค่ะ (จะบันทึกในหมายเหตุ)");
     return;
   }
