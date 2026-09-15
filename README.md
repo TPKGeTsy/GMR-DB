@@ -116,6 +116,12 @@ generated TypeScript types still update; only the (unchanged) native engine
 binary fails to re-stage. Safe to ignore, or stop the dev server first if
 it bothers you.
 
+⚠️ **After any schema change, restart `npm run dev` if it was already
+running.** Node caches the old `@prisma/client` module in memory — the
+`prisma generate` step updates the files on disk, but a dev server started
+*before* that won't see the new model/fields until restarted, and will
+throw `Unknown field '...'` errors on any query touching them.
+
 ## Roles & permissions
 
 Three roles, enforced in `auth.config.ts` (page-level) and inside each
@@ -138,7 +144,7 @@ Server Action (data-level — belt and suspenders):
 | `/my-loans` | An employee's currently-borrowed items |
 | `/carbook` | Vehicle booking, admin approval |
 | `/leave` | Leave requests, admin approval |
-| `/projects`, `/work-schedule` | Project tracking and scheduling |
+| `/projects`, `/work-schedule` | Project tracking and scheduling — projects can have images, PDFs, and 3D/CAD files (STEP, STL, OBJ, IGES) attached, up to 50MB each |
 | `/diagrams`, `/circuit` | Wiring diagram templates + free-form circuit sandbox (React Flow) |
 | `/users` | Admin-only: accounts, roles, face registration |
 | `/dashboard` | Overview landing page |
