@@ -3,6 +3,7 @@ import { getAttendanceTableRows } from "@/app/actions/checkin";
 import Pagination from "@/components/Pagination";
 import AttendanceTable from "@/components/AttendanceTable";
 import AttendanceCalendar from "@/components/AttendanceCalendar";
+import AttendanceFilters from "@/components/AttendanceFilters";
 import { ClipboardList, Download } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -10,17 +11,18 @@ export const dynamic = "force-dynamic";
 export default async function AttendancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; from?: string; to?: string; type?: string }>;
 }) {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
 
-  const { page } = await searchParams;
+  const { page, from, to, type } = await searchParams;
   const currentPage = Number(page) || 1;
+  const typeFilter = type === "IN" || type === "OUT" ? type : undefined;
 
-  const result = await getAttendanceTableRows({ page: currentPage, limit: 50 });
+  const result = await getAttendanceTableRows({ page: currentPage, limit: 50, from, to, type: typeFilter });
   const rows = result.success && result.data ? result.data : [];
 
   return (
@@ -52,6 +54,8 @@ export default async function AttendancePage({
       </div>
 
       <AttendanceCalendar />
+
+      <AttendanceFilters />
 
       <AttendanceTable rows={rows} />
 

@@ -218,7 +218,17 @@ export interface AttendanceTableRow {
 export async function getAttendanceTableRows({
   page = 1,
   limit = 50,
-}: { page?: number; limit?: number } = {}): Promise<
+  from,
+  to,
+  type,
+}: {
+  page?: number;
+  limit?: number;
+  /** Bangkok calendar dates (YYYY-MM-DD), inclusive on both ends. */
+  from?: string;
+  to?: string;
+  type?: "IN" | "OUT";
+} = {}): Promise<
   | { success: true; data: AttendanceTableRow[]; totalPages: number }
   | { success: false; error: string }
 > {
@@ -227,14 +237,28 @@ export async function getAttendanceTableRows({
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
     const skip = (page - 1) * limit;
+
+    const createdAtFilter: { gte?: Date; lt?: Date } = {};
+    if (from) createdAtFilter.gte = bangkokDayRange(from).start;
+    if (to) createdAtFilter.lt = bangkokDayRange(to).end;
+
+    // Filters only narrow which rows are *displayed* (`logs`/`totalCount`) —
+    // `allCheckIns` stays unfiltered so a day's total/OT hours keep
+    // reflecting the whole day even when e.g. only "IN" rows are shown.
+    const where = {
+      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
+      ...(type ? { type } : {}),
+    };
+
     const [logs, totalCount, allCheckIns] = await Promise.all([
       prisma.checkIn.findMany({
+        where,
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
         include: { user: { select: { username: true, fullName: true } } },
       }),
-      prisma.checkIn.count(),
+      prisma.checkIn.count({ where }),
       prisma.checkIn.findMany({
         orderBy: { createdAt: "asc" },
         select: { userId: true, type: true, location: true, createdAt: true },
