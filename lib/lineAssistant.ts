@@ -4,8 +4,51 @@ import { buildDailySummary } from "./attendance";
 import { formatThaiDate, formatThaiDateTime } from "./datetime";
 import type { User } from "@prisma/client";
 
-const MODEL = "gemini-3.6-flash";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const GROQ_MODEL = "qwen/qwen3.8-27b";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+/** Shared Groq chat-completion call. Returns the raw text reply (never
+ *  throws) or null if the key is missing, the request fails, or the model
+ *  returned nothing usable — callers fall back to a canned response. */
+async function callGroq(
+  system: string,
+  userText: string,
+  opts: { maxTokens: number; jsonMode?: boolean }
+): Promise<string | null> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    logError("LINE assistant skipped", new Error("GROQ_API_KEY is not set"));
+    return null;
+  }
+
+  const res = await fetch(GROQ_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userText },
+      ],
+      max_tokens: opts.maxTokens,
+      temperature: 0.3,
+      ...(opts.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    logError("Groq call failed", new Error(`HTTP ${res.status}`), { body });
+    return null;
+  }
+
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content;
+  return typeof text === "string" && text.trim() ? text.trim() : null;
+}
 
 const leaveTypeLabel: Record<string, string> = {
   SICK: "ลาป่วย",
@@ -115,40 +158,57 @@ export async function answerFreeformQuestion(
   question: string,
   extraContext?: string
 ): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    logError("LINE assistant skipped", new Error("GEMINI_API_KEY is not set"));
-    return null;
-  }
-
   try {
     const context = await buildUserContext(user);
     const system = extraContext ? `${SYSTEM_PROMPT}\n\n${context}\n\n${extraContext}` : `${SYSTEM_PROMPT}\n\n${context}`;
-
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: question.slice(0, 1000) }] }],
-        // Simple factual Q&A over a small data snapshot doesn't need extended
-        // reasoning — thinking was on by default and burning ~10x more
-        // tokens (and several extra seconds of latency) than the answer itself.
-        generationConfig: { maxOutputTokens: 400, thinkingConfig: { thinkingLevel: "low" } },
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      logError("LINE assistant call failed", new Error(`HTTP ${res.status}`), { body });
-      return null;
-    }
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return typeof text === "string" && text.trim() ? text.trim() : null;
+    return await callGroq(system, question.slice(0, 1000), { maxTokens: 400 });
   } catch (error) {
     logError("LINE assistant request failed", error, { userId: user.id });
+    return null;
+  }
+}
+
+export interface BorrowIntent {
+  isBorrowRequest: boolean;
+  item: string | null;
+  quantity: number | null;
+}
+
+/** Reads a message that didn't match the strict "ยืม <ชื่อ> <จำนวน>" command
+ *  and asks the model whether it's a borrow request in looser natural
+ *  language anyway (e.g. "ขอยืมสว่านหน่อยครับ 2 ตัว", or just "สว่าน 2 ตัว"
+ *  as a reply to "ยืมอะไรดีคะ?") — extracting an item name/quantity only,
+ *  never taking or proposing any action itself. The caller still has to run
+ *  the extracted item through the normal DB search + explicit "ยืนยัน"
+ *  confirmation before anything is actually borrowed, exactly as if the
+ *  user had typed the strict command — this just widens what counts as
+ *  typing it. Returns null (never throws) on any failure, so the caller can
+ *  fall back to treating the message as a plain question. */
+export async function extractBorrowIntent(text: string, awaitingContext?: string): Promise<BorrowIntent | null> {
+  if (!process.env.GROQ_API_KEY) return null;
+
+  try {
+    const system = `คุณช่วยแยกข้อมูลจากข้อความของพนักงานว่าเขาต้องการ "ยืมอุปกรณ์" จากคลังบริษัทหรือไม่ นี่คือระบบภายในสำหรับยืมของใช้ในงาน ไม่ใช่การซื้อขายหรือขอสิ่งอื่น
+
+- ถ้าข้อความดูเหมือนต้องการยืมอุปกรณ์ (ไม่ว่าจะพิมพ์เป็นประโยคธรรมดา ใส่คำลงท้าย มีคำอื่นปนมา หรือพิมพ์สั้นๆ) ให้ isBorrowRequest = true แล้วแยกชื่ออุปกรณ์ (item) และจำนวน (quantity) ถ้าบอกมา
+- ถ้าจำนวนไม่ได้ระบุมาในข้อความ ให้ quantity เป็น null (ห้ามเดา ห้ามใส่ 1 เอง)
+- ถ้าข้อความเป็นคำถามทั่วไป ทักทาย หรือไม่เกี่ยวกับการยืมของเลย ให้ isBorrowRequest = false, item = null, quantity = null
+${awaitingContext ? `- บริบทเพิ่มเติม: ${awaitingContext}` : ""}
+
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกเหนือจาก JSON ในรูปแบบนี้เป๊ะๆ:
+{"isBorrowRequest": true หรือ false, "item": string หรือ null, "quantity": number หรือ null}`;
+
+    const raw = await callGroq(system, text.slice(0, 500), { maxTokens: 200, jsonMode: true });
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    return {
+      isBorrowRequest: !!parsed.isBorrowRequest,
+      item: typeof parsed.item === "string" && parsed.item.trim() ? parsed.item.trim() : null,
+      quantity: Number.isInteger(parsed.quantity) && parsed.quantity > 0 ? parsed.quantity : null,
+    };
+  } catch (error) {
+    logError("LINE borrow-intent extraction request failed", error);
     return null;
   }
 }

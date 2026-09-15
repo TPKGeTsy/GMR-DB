@@ -299,18 +299,18 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
               <button
                 onClick={startCamera}
                 disabled={modelsLoading}
-                className="inline-flex items-center justify-center w-full sm:w-auto px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-semibold text-base"
+                className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
               >
-                <Camera className="w-5 h-5 mr-2" />
+                <Camera className="w-6 h-6 mr-2" />
                 Start Camera
               </button>
             ) : (
               <button
                 onClick={handleScan}
                 disabled={isScanning}
-                className="inline-flex items-center justify-center w-full sm:w-auto px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 font-semibold text-base"
+                className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
               >
-                <ScanFace className="w-5 h-5 mr-2" />
+                <ScanFace className="w-6 h-6 mr-2" />
                 {isScanning ? "Scanning..." : "Scan & Check In"}
               </button>
             )}

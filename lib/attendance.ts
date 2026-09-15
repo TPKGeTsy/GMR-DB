@@ -18,6 +18,12 @@ export interface DailySummaryRow {
 }
 
 const REGULAR_HOURS_CAP = 8;
+// Lunch isn't tracked as its own check-out/in, so a single IN→OUT session
+// spanning a full workday silently includes an untracked lunch break inside
+// it. Any session longer than a full 8h workday must have had one, so we
+// subtract it before counting hours — e.g. check in→out across 9 elapsed
+// hours (8 work + 1 lunch) should read as 8 worked hours, not 9.
+const LUNCH_BREAK_HOURS = 1;
 
 export function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) {
@@ -58,7 +64,11 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
       if (event.type === "IN") {
         if (!openIn) openIn = event.createdAt;
       } else if (event.type === "OUT" && openIn) {
-        totalMs += event.createdAt.getTime() - openIn.getTime();
+        let sessionMs = event.createdAt.getTime() - openIn.getTime();
+        if (sessionMs > REGULAR_HOURS_CAP * 3_600_000) {
+          sessionMs -= LUNCH_BREAK_HOURS * 3_600_000;
+        }
+        totalMs += sessionMs;
         openIn = null;
       }
     }

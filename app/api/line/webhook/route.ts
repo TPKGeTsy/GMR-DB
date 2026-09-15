@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { verifyLineSignature, replyLineMessage, type QuickReplyOption } from "@/lib/line";
-import { answerFreeformQuestion } from "@/lib/lineAssistant";
+import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 import type { Asset, LinePendingBorrow, User } from "@prisma/client";
@@ -145,6 +145,24 @@ async function handleEvent(event: LineWebhookEvent) {
       return;
     }
 
+    // A non-numeric reply while a quantity is pending might still say one in
+    // words ("เอาสัก 3 อัน", "สองตัวพอ") — ask the model to read just the
+    // number out of it, but only when the message doesn't itself look like
+    // the user starting an entirely new "ยืม ..." request (that's handled
+    // further down, and should override this pending item, not answer for it).
+    if (!isExpired && awaitingQuantity && !CANCEL_WORDS.has(normalized) && !/^ยืม\s/.test(text)) {
+      const intent = await extractBorrowIntent(
+        text,
+        `ผู้ใช้เพิ่งถูกถามว่าจะยืม "${pending.asset.name}" กี่${pending.asset.unit} — ข้อความนี้ควรเป็นคำตอบเรื่องจำนวนเท่านั้น`
+      );
+      if (intent?.quantity) {
+        await finalizeQuantity(pending, intent.quantity, replyToken);
+        return;
+      }
+      await replyLineMessage(replyToken, `จะยืม "${pending.asset.name}" กี่${pending.asset.unit}คะ? พิมพ์เป็นตัวเลขได้เลยค่ะ`);
+      return;
+    }
+
     if (!isExpired && !awaitingQuantity && CONFIRM_WORDS.has(normalized)) {
       await confirmBorrow(user, pending, replyToken);
       return;
@@ -170,6 +188,20 @@ async function handleEvent(event: LineWebhookEvent) {
   const nameOnlyMatch = text.match(BORROW_NAME_ONLY);
   if (nameOnlyMatch) {
     await handleBorrowSearch(lineUserId, sanitizeQuery(nameOnlyMatch[1]), replyToken);
+    return;
+  }
+
+  // Doesn't match the strict "ยืม ..." command at all — see if it reads as
+  // one anyway in natural language (e.g. "ขอยืมสว่านหน่อยครับ 2 ตัว"). Only
+  // extracts the item/quantity; the actual search, disambiguation, and
+  // required "ยืนยัน" confirmation are identical to the strict-command path.
+  const borrowIntent = await extractBorrowIntent(text);
+  if (borrowIntent?.isBorrowRequest && borrowIntent.item) {
+    if (borrowIntent.quantity) {
+      await handleBorrowCommand(lineUserId, borrowIntent.item, borrowIntent.quantity, replyToken);
+    } else {
+      await handleBorrowSearch(lineUserId, borrowIntent.item, replyToken);
+    }
     return;
   }
 

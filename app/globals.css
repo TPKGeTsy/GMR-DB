@@ -22,3 +22,13 @@ body {
   color: var(--foreground);
   font-family: var(--font-kanit), Arial, Helvetica, sans-serif;
 }
+
+/* Mobile browsers wait ~300ms after a tap on any button/link to see if a
+   second tap follows (double-tap-to-zoom), which reads as "have to tap
+   twice" on anything meant to feel instant — the Scan button most of all.
+   touch-action: manipulation skips that wait everywhere in the app. */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}

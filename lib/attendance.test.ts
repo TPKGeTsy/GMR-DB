@@ -22,14 +22,24 @@ describe("buildDailySummary", () => {
     expect(rows[0].stillWorking).toBe(false);
   });
 
-  it("splits anything past 8 hours into overtime", () => {
+  it("splits anything past 8 hours into overtime, after subtracting the untracked lunch break", () => {
     const rows = buildDailySummary([
       ev("IN", "2026-01-05T08:00:00"),
-      ev("OUT", "2026-01-05T19:00:00"), // 11 hours
+      ev("OUT", "2026-01-05T19:00:00"), // 11 hours elapsed, 1h of which is lunch
     ]);
-    expect(rows[0].totalHours).toBeCloseTo(11, 5);
+    expect(rows[0].totalHours).toBeCloseTo(10, 5);
     expect(rows[0].regularHours).toBeCloseTo(8, 5);
-    expect(rows[0].otHours).toBeCloseTo(3, 5);
+    expect(rows[0].otHours).toBeCloseTo(2, 5);
+  });
+
+  it("counts a normal 9-hour check-in span as 8 worked hours (1h untracked lunch), no overtime", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T08:00:00"),
+      ev("OUT", "2026-01-05T17:00:00"), // 9 hours elapsed = 8h work + 1h lunch
+    ]);
+    expect(rows[0].totalHours).toBeCloseTo(8, 5);
+    expect(rows[0].regularHours).toBeCloseTo(8, 5);
+    expect(rows[0].otHours).toBe(0);
   });
 
   it("sums multiple completed sessions in the same day (e.g. a lunch break)", () => {
