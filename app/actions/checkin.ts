@@ -204,7 +204,7 @@ export interface AttendanceTableRow {
   type: string;
   location: string;
   note: string | null;
-  confidence: number;
+  confidence: number | null;
   photoUrl: string | null;
   dailyTotalHours: number | null;
   dailyOtHours: number | null;
@@ -308,6 +308,15 @@ export async function recordCheckIn(
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return { success: false, error: "Unknown user" };
 
+    const latest = await prisma.checkIn.findFirst({ where: { userId }, orderBy: { createdAt: "desc" } });
+    const isCurrentlyCheckedIn = latest?.type === "IN";
+    if (type === "IN" && isCurrentlyCheckedIn) {
+      return { success: false, error: "คุณเช็คอินอยู่แล้ว กรุณาเช็คเอาท์ก่อนเช็คอินใหม่" };
+    }
+    if (type === "OUT" && !isCurrentlyCheckedIn) {
+      return { success: false, error: "คุณยังไม่ได้เช็คอิน ไม่สามารถเช็คเอาท์ได้" };
+    }
+
     const trimmedNote = note?.trim() || null;
 
     let photoUrl: string | null = null;
@@ -347,7 +356,7 @@ export async function recordCheckIn(
         location: checkIn.location,
         note: checkIn.note,
         createdAt: checkIn.createdAt.toISOString(),
-        confidence: checkIn.confidence,
+        confidence,
       },
     };
   } catch (error) {

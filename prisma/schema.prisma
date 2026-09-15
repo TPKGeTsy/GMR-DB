@@ -159,14 +159,17 @@ model CheckIn {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type       String   @default("IN") // 'IN' (start work) or 'OUT' (finish work)
   location   String   @default("OFFICE") // 'OFFICE' or 'OUTSIDE'
-  note       String? // detail when working outside the office
-  confidence Float    // similarity score (0-1) from the face match
+  note       String? // detail when working outside the office, or an OT reason appended by the LINE bot
+  confidence Float?   // similarity score (0-1) from the face match; null for a LINE-bot check-out (no scan)
   photoUrl   String?  @map("photo_url") // webcam snapshot at check-in time; purged daily at midnight
   createdAt  DateTime @default(now()) @map("created_at")
   // Set once the LINE bot has sent the corresponding nudge for this open
   // "IN" session, so the reminder cron doesn't re-send it every run.
   reminderSentAt DateTime? @map("reminder_sent_at")
   otPromptSentAt DateTime? @map("ot_prompt_sent_at")
+  // True right after the user taps "ทำ OT ต่อ", until their next message
+  // (taken as the OT reason and folded into `note`) arrives.
+  awaitingOtReason Boolean @default(false) @map("awaiting_ot_reason")
 
   @@map("check_ins")
 }

@@ -53,6 +53,14 @@ function sanitizeQuery(raw: string): string {
   return raw.trim().replace(/[`'"*_~]+$/g, "").trim();
 }
 
+// A person can only have one open "IN" session at a time (recordCheckIn
+// enforces this for the face-scan kiosk too) — so the latest CheckIn row
+// being type "IN" reliably means they're still clocked in right now.
+async function getOpenCheckIn(userId: string) {
+  const latest = await prisma.checkIn.findFirst({ where: { userId }, orderBy: { createdAt: "desc" } });
+  return latest?.type === "IN" ? latest : null;
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-line-signature");
@@ -107,17 +115,58 @@ async function handleEvent(event: LineWebhookEvent) {
   }
 
   const normalized = text.toLowerCase();
+  const openCheckIn = await getOpenCheckIn(user.id);
 
-  if (text === END_WORK_TEXT) {
+  // The very next message after tapping "ทำ OT ต่อ" is taken as the OT
+  // reason (unless it's a cancel word) and folded into that session's note
+  // — never routed through the borrow/Q&A logic below.
+  if (openCheckIn?.awaitingOtReason) {
+    if (CANCEL_WORDS.has(normalized)) {
+      await prisma.checkIn.update({ where: { id: openCheckIn.id }, data: { awaitingOtReason: false } });
+      await replyLineMessage(replyToken, "โอเคค่ะ ไม่บันทึกเหตุผลก็ได้ค่ะ สู้ๆ นะคะ 💪");
+      return;
+    }
+
+    const reason = text.slice(0, 300);
+    const combinedNote = openCheckIn.note ? `${openCheckIn.note} | OT: ${reason}` : `OT: ${reason}`;
+    await prisma.checkIn.update({
+      where: { id: openCheckIn.id },
+      data: { note: combinedNote, awaitingOtReason: false },
+    });
+    revalidatePath("/attendance");
     await replyLineMessage(
       replyToken,
-      "รับทราบค่ะ 😊 อย่าลืมไปสแกนหน้าที่ตู้ Check-In ด้วยนะคะ ระบบจะบันทึกเวลาเลิกงานจริงตอนสแกนค่ะ"
+      "บันทึกเหตุผล OT แล้วค่ะ สู้ๆ นะคะ 💪 พอเลิกงานจริงพิมพ์ \"เลิกงานแล้ว\" มาบอกได้เลยค่ะ"
     );
     return;
   }
 
+  if (text === END_WORK_TEXT) {
+    if (!openCheckIn) {
+      await replyLineMessage(replyToken, "ดูเหมือนว่าคุณเช็คเอาท์ไปแล้วนะคะ ไม่มีการเช็คอินที่เปิดอยู่ค่ะ");
+      return;
+    }
+
+    await prisma.checkIn.create({
+      data: { userId: user.id, type: "OUT", location: openCheckIn.location, confidence: null },
+    });
+    await prisma.activityLog.create({
+      data: { userId: user.id, action: "CHECK_OUT", details: "Checked out via LINE bot (no photo)" },
+    });
+    revalidatePath(`/users/${user.id}`);
+    revalidatePath("/attendance");
+    await replyLineMessage(replyToken, "บันทึกเช็คเอาท์เรียบร้อยค่ะ ✅ พักผ่อนเยอะๆ นะคะ วันนี้เหนื่อยแล้ว");
+    return;
+  }
+
   if (text === CONTINUE_OT_TEXT) {
-    await replyLineMessage(replyToken, "โอเคค่ะ สู้ๆ นะคะ 💪 พอจะเลิกจริงๆ แล้วอย่าลืมไปสแกนหน้าที่ตู้ด้วยค่ะ");
+    if (!openCheckIn) {
+      await replyLineMessage(replyToken, "ดูเหมือนว่าคุณเช็คเอาท์ไปแล้วนะคะ");
+      return;
+    }
+
+    await prisma.checkIn.update({ where: { id: openCheckIn.id }, data: { awaitingOtReason: true } });
+    await replyLineMessage(replyToken, "โอเคค่ะ สู้ๆ นะคะ 💪 ขอเหตุผลที่ทำ OT หน่อยค่ะ (จะบันทึกในหมายเหตุ)");
     return;
   }
 

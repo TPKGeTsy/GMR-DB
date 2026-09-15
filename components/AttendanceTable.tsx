@@ -132,7 +132,7 @@ export default function AttendanceTable({ rows }: { rows: AttendanceTableRow[] }
       case "note":
         return row.note ? <span title={row.note} className="line-clamp-1 max-w-[200px] inline-block">{row.note}</span> : "-";
       case "confidence":
-        return `${Math.round(row.confidence * 100)}%`;
+        return row.confidence != null ? `${Math.round(row.confidence * 100)}%` : <span className="text-gray-300">-</span>;
       case "photo":
         return row.photoUrl ? (
           <Image src={row.photoUrl} alt={row.employeeName} width={36} height={36} className="rounded-full object-cover border border-gray-200" />

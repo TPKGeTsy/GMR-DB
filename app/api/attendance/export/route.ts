@@ -21,7 +21,7 @@ export async function GET() {
     log.type === "IN" ? "Check In" : "Check Out",
     log.location === "OUTSIDE" ? "Outside Office" : "Office",
     log.note || "",
-    (log.confidence * 100).toFixed(1),
+    log.confidence != null ? (log.confidence * 100).toFixed(1) : "",
     log.createdAt.toISOString(),
   ]);
 
