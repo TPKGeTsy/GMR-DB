@@ -6,6 +6,8 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { validateProjectFile } from "@/lib/uploads";
+import { saveUploadedFile, deleteUploadedFile } from "@/lib/storage";
 import { z } from "zod";
 
 const createProjectSchema = z
@@ -139,6 +141,10 @@ export async function getProjectById(id: string) {
           orderBy: { addedAt: "asc" },
           include: { user: { select: { id: true, username: true, fullName: true } } },
         },
+        files: {
+          orderBy: { createdAt: "desc" },
+          include: { uploadedBy: { select: { id: true, username: true, fullName: true } } },
+        },
       },
     });
 
@@ -223,5 +229,85 @@ export async function updateProjectStatus(projectId: string, status: "ACTIVE" | 
   } catch (error) {
     logError("Error updating project status:", error);
     return { success: false, error: "อัพเดทสถานะไม่สำเร็จ" };
+  }
+}
+
+async function isProjectMember(projectId: string, userId: string) {
+  const member = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } });
+  return !!member;
+}
+
+/** Any project member (or an admin) can attach a file — reference images,
+ *  PDFs, or 3D/CAD exports left for the team, not gated behind "can manage
+ *  this project" like status/member changes are. */
+export async function uploadProjectFile(projectId: string, formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "กรุณาเข้าสู่ระบบก่อน" };
+
+    const isAdmin = session.user.role === "ADMIN";
+    if (!isAdmin && !(await isProjectMember(projectId, session.user.id))) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const rateLimit = await checkRateLimit(`uploadProjectFile:${session.user.id}`, { maxAttempts: 20, windowMs: 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `แนบไฟล์ถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
+
+    const file = formData.get("file") as File | null;
+    if (!file || !file.name || file.size === 0) {
+      return { success: false, error: "กรุณาเลือกไฟล์" };
+    }
+
+    const validation = validateProjectFile(file);
+    if (!validation.valid) return { success: false, error: validation.error };
+
+    const fileUrl = await saveUploadedFile(file, `projects/${projectId}`);
+
+    const projectFile = await prisma.projectFile.create({
+      data: {
+        projectId,
+        fileUrl,
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSize: file.size,
+        uploadedById: session.user.id,
+      },
+      include: { uploadedBy: { select: { id: true, username: true, fullName: true } } },
+    });
+
+    await createActivityLog("UPLOAD_PROJECT_FILE", `Uploaded ${file.name} to project ${projectId}`);
+
+    revalidatePath(`/projects/${projectId}`);
+    return { success: true, data: JSON.parse(JSON.stringify(projectFile)) };
+  } catch (error) {
+    logError("Error uploading project file:", error);
+    return { success: false, error: "แนบไฟล์ไม่สำเร็จ" };
+  }
+}
+
+/** Only the uploader or someone who can manage the project can remove a file. */
+export async function deleteProjectFile(fileId: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const file = await prisma.projectFile.findUnique({ where: { id: fileId } });
+    if (!file) return { success: false, error: "ไม่พบไฟล์นี้" };
+
+    const isUploader = file.uploadedById === session.user.id;
+    if (!isUploader && !(await canManageProject(file.projectId, session.user.id, session.user.role))) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    await deleteUploadedFile(file.fileUrl);
+    await prisma.projectFile.delete({ where: { id: fileId } });
+
+    revalidatePath(`/projects/${file.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting project file:", error);
+    return { success: false, error: "ลบไฟล์ไม่สำเร็จ" };
   }
 }

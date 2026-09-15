@@ -4,10 +4,11 @@ import { auth } from "@/auth";
 import ProjectMemberManager from "@/components/ProjectMemberManager";
 import ProjectStatusSelect from "@/components/ProjectStatusSelect";
 import ProjectCircuitManager from "@/components/ProjectCircuitManager";
+import ProjectFileManager from "@/components/ProjectFileManager";
 import DeadlineBadge from "@/components/DeadlineBadge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Users, Calendar, Briefcase, Cpu } from "lucide-react";
+import { ArrowLeft, Users, Calendar, Briefcase, Cpu, Paperclip } from "lucide-react";
 import { formatThaiDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +105,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             canManage={canManage}
             currentUserId={session?.user?.id}
             isAdmin={session?.user?.role === "ADMIN"}
+          />
+        </div>
+
+        <div className="bg-white p-6 shadow rounded-lg border border-gray-100 md:col-span-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+            <Paperclip className="w-4 h-4 mr-1.5" />
+            ไฟล์แนบ ({project.files.length})
+          </h2>
+          <ProjectFileManager
+            projectId={project.id}
+            files={project.files}
+            currentUserId={session?.user?.id}
+            isAdmin={session?.user?.role === "ADMIN"}
+            canManage={canManage}
           />
         </div>
       </div>
