@@ -12,18 +12,22 @@ export interface DailySummaryRow {
   endTime: Date | null;
   location: string | null;
   stillWorking: boolean;
+  // The still-open IN's timestamp when stillWorking is true, else null —
+  // lets a caller compute a live "hours so far" instead of the frozen
+  // totalHours below, which only counts sessions that have already closed.
+  openSince: Date | null;
   totalHours: number;
   regularHours: number;
   otHours: number;
 }
 
-const REGULAR_HOURS_CAP = 8;
+export const REGULAR_HOURS_CAP = 8;
 // Lunch isn't tracked as its own check-out/in, so a single IN→OUT session
 // spanning a full workday silently includes an untracked lunch break inside
 // it. Any session longer than a full 8h workday must have had one, so we
 // subtract it before counting hours — e.g. check in→out across 9 elapsed
 // hours (8 work + 1 lunch) should read as 8 worked hours, not 9.
-const LUNCH_BREAK_HOURS = 1;
+export const LUNCH_BREAK_HOURS = 1;
 
 export function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) {
@@ -83,6 +87,7 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
       endTime: lastOut?.createdAt || null,
       location: firstIn?.location || lastEvent.location,
       stillWorking: openIn !== null,
+      openSince: openIn,
       totalHours,
       regularHours,
       otHours,

@@ -436,6 +436,7 @@ export interface DaySummaryRow {
   totalHours: number;
   otHours: number;
   stillWorking: boolean;
+  openSince: string | null;
 }
 
 export interface DayLoanRow {
@@ -504,6 +505,7 @@ export async function getDaySummary(dateKey: string): Promise<
         totalHours: daily?.totalHours ?? 0,
         otHours: daily?.otHours ?? 0,
         stillWorking: daily?.stillWorking ?? false,
+        openSince: daily?.openSince ? daily.openSince.toISOString() : null,
       };
     });
     attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));

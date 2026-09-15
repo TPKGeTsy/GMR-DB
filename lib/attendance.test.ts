@@ -64,6 +64,18 @@ describe("buildDailySummary", () => {
     expect(rows[0].stillWorking).toBe(true);
     // only the closed 09:00-12:00 session counts toward hours so far
     expect(rows[0].totalHours).toBeCloseTo(3, 5);
+    // the open session started at 13:00 — a caller can use this to show a
+    // live "hours so far" instead of the frozen totalHours above
+    expect(rows[0].openSince?.toISOString()).toBe(new Date("2026-01-05T13:00:00").toISOString());
+  });
+
+  it("reports openSince as null once the day's last session is closed", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T09:00:00"),
+      ev("OUT", "2026-01-05T17:00:00"),
+    ]);
+    expect(rows[0].stillWorking).toBe(false);
+    expect(rows[0].openSince).toBeNull();
   });
 
   it("ignores a duplicate IN tap before the matching OUT", () => {

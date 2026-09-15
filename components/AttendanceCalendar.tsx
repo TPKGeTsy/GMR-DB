@@ -8,6 +8,7 @@ import {
   type DayLoanRow,
 } from "@/app/actions/checkin";
 import { formatThaiTime } from "@/lib/datetime";
+import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
 import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2 } from "lucide-react";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -18,6 +19,36 @@ const MONTH_LABELS = [
 
 function bangkokTodayKey(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+}
+
+const LIVE_TICK_MS = 30_000;
+
+/** Live "hours so far" for someone still checked in: the day's already-closed
+ *  sessions (`priorHours`, frozen) plus the still-open session's elapsed time,
+ *  re-rendered every 30s. Applies the same untracked-lunch heuristic the
+ *  final total will get once they check out, so the number doesn't visibly
+ *  jump when that happens. */
+function LiveElapsedHours({ priorHours, openSince }: { priorHours: number; openSince: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), LIVE_TICK_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  let openMs = now - new Date(openSince).getTime();
+  if (openMs > REGULAR_HOURS_CAP * 3_600_000) openMs -= LUNCH_BREAK_HOURS * 3_600_000;
+  const liveHours = priorHours + Math.max(0, openMs) / 3_600_000;
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+      </span>
+      {liveHours.toFixed(1)} ชม.
+    </span>
+  );
 }
 
 function buildMonthGrid(year: number, month: number): (string | null)[] {
@@ -159,9 +190,14 @@ export default function AttendanceCalendar() {
                   <li key={row.userId} className="px-3 py-2 bg-white">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <span className="text-sm text-gray-900 font-medium">{row.employeeName}</span>
-                      <span className="text-[10px] text-gray-500">
-                        {row.totalHours.toFixed(1)} ชม.{row.otHours > 0 && ` (OT ${row.otHours.toFixed(1)} ชม.)`}
-                        {row.stillWorking && <span className="ml-1.5 text-green-600 font-semibold">กำลังทำงาน</span>}
+                      <span className="text-[10px] text-gray-500 inline-flex items-center gap-1.5">
+                        {row.stillWorking && row.openSince ? (
+                          <LiveElapsedHours priorHours={row.totalHours} openSince={row.openSince} />
+                        ) : (
+                          `${row.totalHours.toFixed(1)} ชม.`
+                        )}
+                        {row.otHours > 0 && `(OT ${row.otHours.toFixed(1)} ชม.)`}
+                        {row.stillWorking && <span className="text-green-600 font-semibold">กำลังทำงาน</span>}
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
