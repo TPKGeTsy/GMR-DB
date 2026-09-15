@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { verifyLineSignature, replyLineMessage } from "@/lib/line";
+import { verifyLineSignature, replyLineMessage, type QuickReplyOption } from "@/lib/line";
 import { answerFreeformQuestion } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
@@ -28,6 +28,11 @@ const CONTINUE_OT_TEXT = "ทำ OT ต่อ";
 // The hidden `text` payload behind an admin's "✅ อนุมัติ"/"❌ ปฏิเสธ" Quick
 // Reply button on a pending-approval push — see lib/lineApprovals.ts.
 const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING):(.+)$/;
+// The hidden `text` payload behind one of the "พบหลายรายการ" disambiguation
+// buttons — see handleBorrowCommand. Encodes the exact asset id so picking
+// one is a single tap with no retyping and no re-triggering the same
+// name-collision the buttons exist to resolve.
+const SELECT_ASSET_COMMAND = /^SELECT_ASSET:(.+):(\d+)$/;
 const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
 
 export async function POST(request: NextRequest) {
@@ -102,6 +107,12 @@ async function handleEvent(event: LineWebhookEvent) {
   if (approvalMatch) {
     const [, decision, kind, id] = approvalMatch;
     await handleApprovalDecision(user, decision as "APPROVE" | "REJECT", kind as "LEAVE" | "BOOKING", id, replyToken);
+    return;
+  }
+
+  const selectMatch = text.match(SELECT_ASSET_COMMAND);
+  if (selectMatch) {
+    await handleSelectAsset(lineUserId, selectMatch[1], Number(selectMatch[2]), replyToken);
     return;
   }
 
@@ -208,12 +219,31 @@ async function handleBorrowCommand(lineUserId: string, assetQuery: string, quant
   }
 
   if (matches.length > 1) {
-    const list = matches.map((a: Asset) => `• ${a.name} (${a.modelOrSize})`).join("\n");
-    await replyLineMessage(replyToken, `พบหลายรายการที่ตรงกับ "${assetQuery}" ค่ะ:\n${list}\n\nกรุณาพิมพ์ชื่อให้ตรงมากขึ้นนะคะ`);
+    // Quick Reply buttons, not a "retype it more precisely" prompt — the
+    // hidden payload behind each pins the exact asset id, so tapping one is
+    // unambiguous even when the short names themselves overlap (e.g.
+    // "Relay" vs "Relay Socket") in a way retyping wouldn't resolve either.
+    const quickReplies: QuickReplyOption[] = matches.map((a: Asset) => ({
+      label: `${a.name} (${a.modelOrSize})`,
+      text: `SELECT_ASSET:${a.id}:${quantity}`,
+    }));
+    await replyLineMessage(replyToken, `พบหลายรายการที่ตรงกับ "${assetQuery}" ค่ะ เลือกจากปุ่มด้านล่างได้เลยนะคะ 👇`, quickReplies);
     return;
   }
 
-  const asset = matches[0];
+  await proposeBorrow(lineUserId, matches[0], quantity, replyToken);
+}
+
+async function handleSelectAsset(lineUserId: string, assetId: string, quantity: number, replyToken: string) {
+  const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+  if (!asset) {
+    await replyLineMessage(replyToken, "ไม่พบอุปกรณ์นี้แล้วค่ะ อาจถูกลบไปจากระบบ ลองพิมพ์ค้นหาใหม่นะคะ");
+    return;
+  }
+  await proposeBorrow(lineUserId, asset, quantity, replyToken);
+}
+
+async function proposeBorrow(lineUserId: string, asset: Asset, quantity: number, replyToken: string) {
   if (asset.quantity < quantity) {
     await replyLineMessage(replyToken, `${asset.name} เหลือไม่พอค่ะ (คงเหลือ ${asset.quantity} ${asset.unit})`);
     return;
