@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
-import { bangkokDateKey } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
 
@@ -362,5 +362,152 @@ export async function recordCheckIn(
   } catch (error) {
     logError("Error recording check-in:", error);
     return { success: false, error: "Failed to record check-in" };
+  }
+}
+
+/** Which Bangkok calendar days in a given month had any check-in activity —
+ *  lets the attendance calendar mark days worth clicking without fetching
+ *  full day detail for all 28-31 of them up front. `month` is 1-12. */
+export async function getMonthActivity(
+  year: number,
+  month: number
+): Promise<{ success: true; data: string[] } | { success: false; error: string }> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const startKey = `${year}-${String(month).padStart(2, "0")}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endKey = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
+
+    const { start } = bangkokDayRange(startKey);
+    const { start: end } = bangkokDayRange(endKey);
+
+    const checkIns = await prisma.checkIn.findMany({
+      where: { createdAt: { gte: start, lt: end } },
+      select: { createdAt: true },
+    });
+
+    const dateKeys = new Set(checkIns.map((c) => bangkokDateKey(c.createdAt)));
+    return { success: true, data: Array.from(dateKeys) };
+  } catch (error) {
+    logError("Error fetching month activity:", error);
+    return { success: false, error: "Failed to load month activity" };
+  }
+}
+
+export interface DaySummaryEvent {
+  type: string;
+  time: string;
+  location: string;
+  confidence: number | null;
+  note: string | null;
+}
+
+export interface DaySummaryRow {
+  userId: string;
+  employeeName: string;
+  events: DaySummaryEvent[];
+  totalHours: number;
+  otHours: number;
+  stillWorking: boolean;
+}
+
+export interface DayLoanRow {
+  id: string;
+  assetName: string;
+  quantity: number;
+  employeeName: string;
+  time: string;
+}
+
+/** Everything that happened on one Bangkok calendar day — who was checked in
+ *  and when, plus what was borrowed/returned that day — for the attendance
+ *  calendar's day-detail panel. */
+export async function getDaySummary(dateKey: string): Promise<
+  | { success: true; data: { attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[] } }
+  | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const { start, end } = bangkokDayRange(dateKey);
+
+    const [checkIns, borrowedLoans, returnedLoans] = await Promise.all([
+      prisma.checkIn.findMany({
+        where: { createdAt: { gte: start, lt: end } },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, username: true, fullName: true } } },
+      }),
+      prisma.loan.findMany({
+        where: { borrowedAt: { gte: start, lt: end } },
+        include: { user: { select: { username: true, fullName: true } }, asset: { select: { name: true } } },
+        orderBy: { borrowedAt: "asc" },
+      }),
+      prisma.loan.findMany({
+        where: { returnedAt: { gte: start, lt: end } },
+        include: { user: { select: { username: true, fullName: true } }, asset: { select: { name: true } } },
+        orderBy: { returnedAt: "asc" },
+      }),
+    ]);
+
+    const byUser = new Map<
+      string,
+      { name: string; events: { type: string; location: string; createdAt: Date; confidence: number | null; note: string | null }[] }
+    >();
+    for (const c of checkIns) {
+      if (!byUser.has(c.userId)) byUser.set(c.userId, { name: c.user.fullName || c.user.username, events: [] });
+      byUser.get(c.userId)!.events.push({
+        type: c.type,
+        location: c.location,
+        createdAt: c.createdAt,
+        confidence: c.confidence,
+        note: c.note,
+      });
+    }
+
+    const attendance: DaySummaryRow[] = Array.from(byUser.entries()).map(([userId, { name, events }]) => {
+      const [daily] = buildDailySummary(events);
+      return {
+        userId,
+        employeeName: name,
+        events: events
+          .slice()
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map((e) => ({ type: e.type, time: e.createdAt.toISOString(), location: e.location, confidence: e.confidence, note: e.note })),
+        totalHours: daily?.totalHours ?? 0,
+        otHours: daily?.otHours ?? 0,
+        stillWorking: daily?.stillWorking ?? false,
+      };
+    });
+    attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+
+    return {
+      success: true,
+      data: {
+        attendance,
+        borrowed: borrowedLoans.map((l) => ({
+          id: l.id,
+          assetName: l.asset.name,
+          quantity: l.quantity,
+          employeeName: l.user.fullName || l.user.username,
+          time: l.borrowedAt.toISOString(),
+        })),
+        returned: returnedLoans
+          .filter((l): l is typeof l & { returnedAt: Date } => l.returnedAt !== null)
+          .map((l) => ({
+            id: l.id,
+            assetName: l.asset.name,
+            quantity: l.quantity,
+            employeeName: l.user.fullName || l.user.username,
+            time: l.returnedAt.toISOString(),
+          })),
+      },
+    };
+  } catch (error) {
+    logError("Error building day summary:", error);
+    return { success: false, error: "Failed to load day summary" };
   }
 }

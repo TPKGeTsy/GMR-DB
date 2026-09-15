@@ -47,3 +47,12 @@ export function bangkokDateAt(date: Date, hour: number, minute = 0): Date {
   const mm = String(minute).padStart(2, "0");
   return new Date(`${dateKey}T${hh}:${mm}:00+07:00`);
 }
+
+/** The [start, end) instant range covering an entire Bangkok calendar day
+ *  (e.g. "2026-09-15") — for querying "everything that happened on this
+ *  day" regardless of the server's own timezone. */
+export function bangkokDayRange(dateKey: string): { start: Date; end: Date } {
+  const start = new Date(`${dateKey}T00:00:00+07:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}

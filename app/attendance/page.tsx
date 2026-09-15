@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getAttendanceTableRows } from "@/app/actions/checkin";
 import Pagination from "@/components/Pagination";
 import AttendanceTable from "@/components/AttendanceTable";
+import AttendanceCalendar from "@/components/AttendanceCalendar";
 import { ClipboardList, Download } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,8 @@ export default async function AttendancePage({
           </a>
         </div>
       </div>
+
+      <AttendanceCalendar />
 
       <AttendanceTable rows={rows} />
 
