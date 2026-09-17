@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
 import { recordCheckIn } from "@/app/actions/checkin";
-import { ScanFace, Camera, CheckCircle2, XCircle, LogIn, LogOut, MapPin } from "lucide-react";
+import { ScanFace, Camera, CheckCircle2, XCircle, LogIn, LogOut, MapPin, Loader2, RefreshCw } from "lucide-react";
 import { formatThaiTime } from "@/lib/datetime";
 
 interface RosterEntry {
@@ -83,6 +83,13 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsLoadFailed, setModelsLoadFailed] = useState(false);
+  // The face-recognition models are ~13MB total — plenty fast on office
+  // wifi, but on a slow mobile connection this can take a while with no
+  // visible progress, which reads as "the button is just broken." This
+  // flips on after a delay so we can say something reassuring instead of
+  // leaving the button looking dead.
+  const [modelsLoadingSlow, setModelsLoadingSlow] = useState(false);
   const [isCameraStarted, setIsCameraStarted] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -93,13 +100,23 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
   const [outsideOffice, setOutsideOffice] = useState(false);
   const [note, setNote] = useState("");
 
+  const [modelsRetryCount, setModelsRetryCount] = useState(0);
+
   useEffect(() => {
+    let cancelled = false;
+    const slowTimer = setTimeout(() => {
+      if (!cancelled) setModelsLoadingSlow(true);
+    }, 8000);
+
     const loadModels = async () => {
+      setModelsLoadFailed(false);
+      setModelsLoadingSlow(false);
       try {
         await faceapi.nets.ssdMobilenetv1.loadFromUri("/models");
         await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
         await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
         await faceapi.nets.faceExpressionNet.loadFromUri("/models");
+        if (cancelled) return;
         setModelsLoading(false);
         setStatusText(
           initialRoster.length === 0
@@ -108,11 +125,18 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
         );
       } catch (err) {
         console.error("Model load error:", err);
-        setStatusText("Failed to load face recognition models.");
+        if (cancelled) return;
+        setModelsLoadFailed(true);
+        setStatusText("โหลดระบบจดจำใบหน้าไม่สำเร็จ — เช็คอินเทอร์เน็ตแล้วลองใหม่");
       }
     };
     loadModels();
-  }, [initialRoster.length]);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(slowTimer);
+    };
+  }, [initialRoster.length, modelsRetryCount]);
 
   const startCamera = async () => {
     try {
@@ -293,26 +317,50 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
           )}
         </div>
 
+        {modelsLoadFailed && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-center justify-between gap-3">
+            <span>โหลดระบบจดจำใบหน้าไม่สำเร็จ (เน็ตอาจช้าหรือหลุด)</span>
+            <button
+              onClick={() => setModelsRetryCount((n) => n + 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-600 text-white text-xs font-semibold hover:bg-red-700 flex-shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              ลองใหม่
+            </button>
+          </div>
+        )}
+
         {!pendingMatch ? (
-          <div className="flex justify-center gap-3">
-            {!isCameraStarted ? (
-              <button
-                onClick={startCamera}
-                disabled={modelsLoading}
-                className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
-              >
-                <Camera className="w-6 h-6 mr-2" />
-                Start Camera
-              </button>
-            ) : (
-              <button
-                onClick={handleScan}
-                disabled={isScanning}
-                className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
-              >
-                <ScanFace className="w-6 h-6 mr-2" />
-                {isScanning ? "Scanning..." : "Scan & Check In"}
-              </button>
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex justify-center gap-3">
+              {!isCameraStarted ? (
+                <button
+                  onClick={startCamera}
+                  disabled={modelsLoading || modelsLoadFailed}
+                  className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
+                >
+                  {modelsLoading ? (
+                    <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                  ) : (
+                    <Camera className="w-6 h-6 mr-2" />
+                  )}
+                  {modelsLoading ? "กำลังเตรียมระบบ..." : "Start Camera"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleScan}
+                  disabled={isScanning}
+                  className="inline-flex items-center justify-center w-full sm:w-auto min-h-[60px] px-6 py-4 rounded-lg text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 font-semibold text-lg transition-transform"
+                >
+                  <ScanFace className="w-6 h-6 mr-2" />
+                  {isScanning ? "Scanning..." : "Scan & Check In"}
+                </button>
+              )}
+            </div>
+            {modelsLoading && modelsLoadingSlow && (
+              <p className="text-xs text-gray-500 text-center">
+                กำลังโหลดระบบจดจำใบหน้า (~13MB) ใช้เวลานานกว่าปกติ อาจเป็นเพราะอินเทอร์เน็ตช้า กรุณารอสักครู่...
+              </p>
             )}
           </div>
         ) : (
