@@ -4,6 +4,7 @@ import { User, Activity, Clock, FileText, MapPin, CalendarClock } from "lucide-r
 import Link from "next/link";
 import RegisterFacePanel from "@/components/RegisterFacePanel";
 import ChangePasswordPanel from "@/components/ChangePasswordPanel";
+import LineAccountPanel from "@/components/LineAccountPanel";
 import { buildDailySummary } from "@/lib/attendance";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime } from "@/lib/datetime";
 
@@ -115,6 +116,10 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
           />
 
           <ChangePasswordPanel userId={user.id} isSelf={isOwnProfile} />
+
+          {currentUser?.role === "ADMIN" && (
+            <LineAccountPanel userId={user.id} username={user.username} isLinked={!!user.lineUserId} />
+          )}
         </div>
 
         <div className="md:col-span-2 space-y-6">

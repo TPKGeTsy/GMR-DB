@@ -202,3 +202,30 @@ export async function changePassword(
     return { success: false, error: "Failed to change password" };
   }
 }
+
+/** Clears a user's LINE link (admin-only). The LINE bot itself refuses to
+ *  re-link an account that's already linked to a *different* LINE user and
+ *  tells them to contact an admin — this is that escape hatch. Once
+ *  cleared, they just send their username+password again in a private LINE
+ *  chat to link fresh (to this account or a different one — lineUserId is
+ *  unique, so only one account can hold a given LINE id at a time). */
+export async function unlinkLineAccount(userId: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found" };
+    if (!user.lineUserId) return { success: false, error: "This account isn't linked to LINE." };
+
+    await prisma.user.update({ where: { id: userId }, data: { lineUserId: null } });
+
+    await createActivityLog("UNLINK_LINE", `Unlinked LINE account for ${user.username}`);
+
+    revalidatePath(`/users/${userId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error unlinking LINE account:", error);
+    return { success: false, error: "Failed to unlink LINE account" };
+  }
+}
