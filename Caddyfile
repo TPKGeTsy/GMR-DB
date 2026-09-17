@@ -1,0 +1,6 @@
+{$DOMAIN} {
+	# Caddy issues and renews a Let's Encrypt certificate for $DOMAIN
+	# automatically the first time it starts — nothing else to configure,
+	# as long as DNS already points here and ports 80/443 are reachable.
+	reverse_proxy app:3000
+}

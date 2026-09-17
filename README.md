@@ -204,3 +204,17 @@ explicitly (`lib/datetime.ts`) — the production server itself runs in UTC,
 so anything using the ambient server timezone shows times ~7 hours off.
 Always use the helpers in `lib/datetime.ts` rather than raw
 `toLocaleString()`/`Date` timezone-dependent calls.
+
+## Docker
+
+# สร้าง image (ทำตอน deploy ครั้งแรก หรือทุกครั้งที่แก้โค้ด)
+docker compose --env-file .env.production build
+
+# รัน (ทำงานเบื้องหลัง, รันต่อแม้ปิด terminal)
+docker compose --env-file .env.production up -d
+
+# ดูว่ามันทำงานอยู่ไหม error อะไรไหม
+docker compose logs -f app
+
+# หยุด
+docker compose down
