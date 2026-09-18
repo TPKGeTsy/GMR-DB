@@ -59,6 +59,9 @@ const OT_PICK_COMMAND = /^OT_PICK:(.+)$/;
 // check in handleEvent).
 const OT_GRANT_COMMAND = /^OT_GRANT:(.+):(\d+(?:\.\d+)?)$/;
 const OT_HOUR_OPTIONS = [1, 2, 3, 4];
+// The employee's own response to the OT push notification.
+const OT_ACCEPT_COMMAND = /^OT_ACCEPT:(.+)$/;
+const OT_DECLINE_COMMAND = /^OT_DECLINE:(.+)$/;
 // When OT starts counting from, for turning granted hours into an actual
 // WorkSchedule time block — same 8-worked-hours-plus-untracked-lunch mark
 // the reminder cron uses to decide when to auto-checkout.
@@ -184,6 +187,23 @@ async function handleEvent(event: LineWebhookEvent) {
     }
   }
 
+  // The very next message from an employee after tapping "ไม่รับ OT" is
+  // taken as their decline reason (unless it's a cancel word, which just
+  // leaves the grant PENDING instead of declining it).
+  const declinePendingGrant = await prisma.otGrant.findFirst({
+    where: { userId: user.id, status: "DECLINE_PENDING" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (declinePendingGrant) {
+    if (CANCEL_WORDS.has(normalized)) {
+      await prisma.otGrant.update({ where: { id: declinePendingGrant.id }, data: { status: "PENDING" } });
+      await replyLineMessage(replyToken, "โอเคค่ะ ไม่ยกเลิกก็ได้ค่ะ");
+      return;
+    }
+    await handleOtDeclineConfirm(user, declinePendingGrant, text.slice(0, 300), replyToken);
+    return;
+  }
+
   if (text === END_WORK_TEXT) {
     if (!openCheckIn) {
       await replyLineMessage(replyToken, "ดูเหมือนว่าคุณเช็คเอาท์ไปแล้วนะคะ ไม่มีการเช็คอินที่เปิดอยู่ค่ะ");
@@ -251,6 +271,18 @@ async function handleEvent(event: LineWebhookEvent) {
   if (otGrantMatch) {
     if (!isOtManager) return;
     await handleOtHoursPicked(lineUserId, otGrantMatch[1], Number(otGrantMatch[2]), replyToken);
+    return;
+  }
+
+  const otAcceptMatch = text.match(OT_ACCEPT_COMMAND);
+  if (otAcceptMatch) {
+    await handleOtAccept(user, otAcceptMatch[1], replyToken);
+    return;
+  }
+
+  const otDeclineMatch = text.match(OT_DECLINE_COMMAND);
+  if (otDeclineMatch) {
+    await handleOtDeclineStart(user, otDeclineMatch[1], replyToken);
     return;
   }
 
@@ -649,15 +681,16 @@ async function finalizeOtGrant(
   const otStart = new Date(openCheckIn.createdAt.getTime() + EXPECTED_SPAN_MS);
   const otEnd = new Date(otStart.getTime() + pending.hours * 3_600_000);
 
-  await prisma.$transaction([
-    prisma.checkIn.update({
+  // An interactive transaction (not the array form) so the OtGrant row can
+  // record the exact CheckIn/WorkSchedule rows it created — a decline later
+  // needs those ids back to undo precisely those two rows, not just "the
+  // employee's current open session," which could've moved on by then.
+  const grant = await prisma.$transaction(async (tx) => {
+    await tx.checkIn.update({
       where: { id: openCheckIn.id },
       data: { otGrantedHours: pending.hours, otGrantedById: operator.id, otGrantedAt: new Date(), note: combinedNote },
-    }),
-    prisma.otGrant.create({
-      data: { userId: pending.targetUserId, hours: pending.hours, reason, grantedById: operator.id },
-    }),
-    prisma.workSchedule.create({
+    });
+    const schedule = await tx.workSchedule.create({
       data: {
         userId: pending.targetUserId,
         title: "ทำงานล่วงเวลา (OT)",
@@ -665,9 +698,20 @@ async function finalizeOtGrant(
         endAt: otEnd,
         note: reason,
       },
-    }),
-    prisma.linePendingOtGrant.delete({ where: { id: pending.id } }),
-  ]);
+    });
+    const created = await tx.otGrant.create({
+      data: {
+        userId: pending.targetUserId,
+        hours: pending.hours,
+        reason,
+        grantedById: operator.id,
+        checkInId: openCheckIn.id,
+        workScheduleId: schedule.id,
+      },
+    });
+    await tx.linePendingOtGrant.delete({ where: { id: pending.id } });
+    return created;
+  });
 
   revalidatePath("/attendance");
   revalidatePath("/work-schedule");
@@ -680,7 +724,102 @@ async function finalizeOtGrant(
     const operatorName = operator.nickname || operator.fullName || operator.username;
     await pushLineMessage(
       target.lineUserId,
-      `${operatorName} เปิด OT ให้คุณวันนี้ ${pending.hours} ชั่วโมงค่ะ (${reason}) 💪`
+      `${operatorName} เปิด OT ให้คุณวันนี้ ${pending.hours} ชั่วโมงค่ะ (${reason}) รับไหมคะ? 💪`,
+      [
+        { label: "รับ OT", text: `OT_ACCEPT:${grant.id}` },
+        { label: "ไม่รับ OT", text: `OT_DECLINE:${grant.id}` },
+      ]
+    );
+  }
+}
+
+/** Employee tapped "รับ OT" — just an acknowledgment, the grant was already
+ *  in effect. Lets the operator know it was accepted. */
+async function handleOtAccept(employee: User, grantId: string, replyToken: string) {
+  const grant = await prisma.otGrant.findUnique({ where: { id: grantId }, include: { grantedBy: true } });
+  if (!grant || grant.userId !== employee.id) {
+    await replyLineMessage(replyToken, "ไม่พบรายการเปิด OT นี้ค่ะ");
+    return;
+  }
+  if (grant.status !== "PENDING") {
+    await replyLineMessage(replyToken, "รายการนี้ตอบไปแล้วค่ะ");
+    return;
+  }
+
+  await prisma.otGrant.update({ where: { id: grant.id }, data: { status: "ACCEPTED", respondedAt: new Date() } });
+  revalidatePath("/ot");
+
+  await replyLineMessage(replyToken, "รับทราบค่ะ สู้ๆ นะคะ 💪");
+
+  if (grant.grantedBy.lineUserId) {
+    const name = employee.nickname || employee.fullName || employee.username;
+    await pushLineMessage(grant.grantedBy.lineUserId, `${name} รับ OT ${grant.hours} ชม. ที่เปิดให้แล้วค่ะ ✅`);
+  }
+}
+
+/** Employee tapped "ไม่รับ OT" — ask why before actually declining (see the
+ *  declinePendingGrant check in handleEvent, which calls handleOtDeclineConfirm
+ *  with whatever they type next). */
+async function handleOtDeclineStart(employee: User, grantId: string, replyToken: string) {
+  const grant = await prisma.otGrant.findUnique({ where: { id: grantId } });
+  if (!grant || grant.userId !== employee.id) {
+    await replyLineMessage(replyToken, "ไม่พบรายการเปิด OT นี้ค่ะ");
+    return;
+  }
+  if (grant.status !== "PENDING") {
+    await replyLineMessage(replyToken, "รายการนี้ตอบไปแล้วค่ะ");
+    return;
+  }
+
+  await prisma.otGrant.update({ where: { id: grant.id }, data: { status: "DECLINE_PENDING" } });
+  await replyLineMessage(replyToken, "รบกวนบอกเหตุผลที่ไม่รับ OT หน่อยค่ะ");
+}
+
+/** Reason given — declines for real. Undoes exactly the CheckIn/WorkSchedule
+ *  rows this specific grant created (only if they still look like this grant
+ *  and not something newer), and tells the operator why. */
+async function handleOtDeclineConfirm(
+  employee: User,
+  grant: { id: string; hours: number; checkInId: string | null; workScheduleId: string | null; grantedById: string },
+  declineReason: string,
+  replyToken: string
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.otGrant.update({
+      where: { id: grant.id },
+      data: { status: "DECLINED", declineReason, respondedAt: new Date() },
+    });
+
+    if (grant.checkInId) {
+      const checkIn = await tx.checkIn.findUnique({ where: { id: grant.checkInId } });
+      // Only revert if it's still open and still credits *this* grant —
+      // if it's since been checked out, or a newer grant replaced this
+      // one's hours, leave it alone rather than clobber something else.
+      if (checkIn && checkIn.type === "IN" && checkIn.otGrantedById === grant.grantedById && checkIn.otGrantedHours === grant.hours) {
+        await tx.checkIn.update({
+          where: { id: checkIn.id },
+          data: { otGrantedHours: null, otGrantedById: null, otGrantedAt: null },
+        });
+      }
+    }
+
+    if (grant.workScheduleId) {
+      await tx.workSchedule.deleteMany({ where: { id: grant.workScheduleId } });
+    }
+  });
+
+  revalidatePath("/attendance");
+  revalidatePath("/work-schedule");
+  revalidatePath("/ot");
+
+  await replyLineMessage(replyToken, "บันทึกแล้วค่ะ ไม่เป็นไรนะคะ 🙏");
+
+  const operator = await prisma.user.findUnique({ where: { id: grant.grantedById } });
+  if (operator?.lineUserId) {
+    const name = employee.nickname || employee.fullName || employee.username;
+    await pushLineMessage(
+      operator.lineUserId,
+      `${name} ไม่รับ OT ${grant.hours} ชม. ที่เปิดให้ค่ะ\nเหตุผล: ${declineReason}`
     );
   }
 }

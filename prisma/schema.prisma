@@ -260,6 +260,19 @@ model OtGrant {
   grantedById String   @map("granted_by_id")
   grantedBy   User     @relation("OtGrantGranter", fields: [grantedById], references: [id])
   createdAt   DateTime @default(now()) @map("created_at")
+  // 'PENDING' (awaiting the employee's tap) | 'ACCEPTED' | 'DECLINE_PENDING'
+  // (declined, awaiting their reason) | 'DECLINED'. Declining reverts the
+  // CheckIn/WorkSchedule side effects below (see handleOtDeclineConfirm) —
+  // this row itself is never deleted, so the log always shows what happened.
+  status         String    @default("PENDING")
+  declineReason  String?   @map("decline_reason")
+  respondedAt    DateTime? @map("responded_at")
+  // Plain references (no FK/relation) to what this grant created, so a
+  // decline can find and undo exactly those rows — deliberately not
+  // Prisma relations, since this audit row must survive even if the
+  // CheckIn it applied to is later corrected/deleted.
+  checkInId      String?   @map("check_in_id")
+  workScheduleId String?   @map("work_schedule_id")
 
   @@map("ot_grants")
 }
