@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { verifyLineSignature, replyLineMessage, type QuickReplyOption } from "@/lib/line";
+import { verifyLineSignature, replyLineMessage, pushLineMessage, type QuickReplyOption } from "@/lib/line";
 import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
@@ -43,6 +43,14 @@ const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING):(.+)$/;
 // one is a single tap with no retyping and no re-triggering the same
 // name-collision the buttons exist to resolve.
 const SELECT_ASSET_COMMAND = /^SELECT_ASSET:(.+):(\d+)$/;
+// Admin/operator-only: opens OT for someone checked in at the office instead
+// of the old self-serve ask. Two-step button flow, each step's payload
+// carrying everything the next step needs — no server-side state between
+// taps, same pattern as SELECT_ASSET_COMMAND above.
+const OT_GRANT_TRIGGER = "เปิด OT";
+const OT_PICK_COMMAND = /^OT_PICK:(.+)$/;
+const OT_GRANT_COMMAND = /^OT_GRANT:(.+):(\d+(?:\.\d+)?)$/;
+const OT_HOUR_OPTIONS = [1, 2, 3, 4];
 const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
 
 // Strips stray trailing punctuation (backticks, quotes, markdown-ish
@@ -183,6 +191,31 @@ async function handleEvent(event: LineWebhookEvent) {
   const selectMatch = text.match(SELECT_ASSET_COMMAND);
   if (selectMatch) {
     await handleSelectAsset(lineUserId, selectMatch[1], Number(selectMatch[2]), replyToken);
+    return;
+  }
+
+  const isOtManager = user.role === "ADMIN" || user.role === "OPERATOR";
+
+  if (text === OT_GRANT_TRIGGER) {
+    if (!isOtManager) {
+      await replyLineMessage(replyToken, "คำสั่งนี้ใช้ได้เฉพาะแอดมิน/ผู้ดูแลระบบเท่านั้นค่ะ");
+      return;
+    }
+    await handleOtGrantStart(replyToken);
+    return;
+  }
+
+  const otPickMatch = text.match(OT_PICK_COMMAND);
+  if (otPickMatch) {
+    if (!isOtManager) return;
+    await handleOtPick(otPickMatch[1], replyToken);
+    return;
+  }
+
+  const otGrantMatch = text.match(OT_GRANT_COMMAND);
+  if (otGrantMatch) {
+    if (!isOtManager) return;
+    await handleOtGrantConfirm(user, otGrantMatch[1], Number(otGrantMatch[2]), replyToken);
     return;
   }
 
@@ -482,6 +515,84 @@ async function confirmBorrow(
     const message = error instanceof Error ? error.message : "ยืมของไม่สำเร็จค่ะ";
     await replyLineMessage(replyToken, message);
     await prisma.linePendingBorrow.delete({ where: { lineUserId: pending.lineUserId } }).catch(() => {});
+  }
+}
+
+/** Step 1 of the OT-grant flow: lists everyone currently checked in at the
+ *  office who doesn't already have OT open, as tap-to-pick buttons labeled
+ *  with their nickname (falling back to full name/username) so the operator
+ *  recognizes them without needing to type anything. */
+async function handleOtGrantStart(replyToken: string) {
+  const latestPerUser = await prisma.checkIn.findMany({
+    orderBy: { createdAt: "desc" },
+    distinct: ["userId"],
+    include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
+  });
+
+  const eligible = latestPerUser.filter(
+    (c) => c.type === "IN" && c.location === "OFFICE" && !c.otGrantedHours
+  );
+
+  if (eligible.length === 0) {
+    await replyLineMessage(replyToken, "ตอนนี้ไม่มีใครเช็คอินอยู่ที่ออฟฟิศที่ยังไม่ได้เปิด OT ค่ะ");
+    return;
+  }
+
+  // LINE caps Quick Reply at 13 items.
+  const options: QuickReplyOption[] = eligible.slice(0, 13).map((c) => ({
+    label: c.user.nickname || c.user.fullName || c.user.username,
+    text: `OT_PICK:${c.userId}`,
+  }));
+
+  await replyLineMessage(replyToken, "จะเปิด OT ให้ใครคะ?", options);
+}
+
+/** Step 2: the operator tapped a name — ask how many hours. */
+async function handleOtPick(targetUserId: string, replyToken: string) {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) {
+    await replyLineMessage(replyToken, "ไม่พบพนักงานคนนี้ค่ะ");
+    return;
+  }
+
+  const name = target.nickname || target.fullName || target.username;
+  const options: QuickReplyOption[] = OT_HOUR_OPTIONS.map((h) => ({
+    label: `${h} ชม.`,
+    text: `OT_GRANT:${targetUserId}:${h}`,
+  }));
+
+  await replyLineMessage(replyToken, `เปิด OT ให้ "${name}" กี่ชั่วโมงคะ?`, options);
+}
+
+/** Step 3: hours picked — actually grants it by extending the deadline the
+ *  reminder cron auto-checks-out at, and lets the employee know. */
+async function handleOtGrantConfirm(operator: User, targetUserId: string, hours: number, replyToken: string) {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) {
+    await replyLineMessage(replyToken, "ไม่พบพนักงานคนนี้ค่ะ");
+    return;
+  }
+
+  const name = target.nickname || target.fullName || target.username;
+  const openCheckIn = await getOpenCheckIn(targetUserId);
+  if (!openCheckIn || openCheckIn.location !== "OFFICE") {
+    await replyLineMessage(replyToken, `${name} ไม่ได้เช็คอินอยู่ที่ออฟฟิศแล้วค่ะ (อาจเช็คเอาท์ไปแล้ว)`);
+    return;
+  }
+
+  await prisma.checkIn.update({
+    where: { id: openCheckIn.id },
+    data: { otGrantedHours: hours, otGrantedById: operator.id, otGrantedAt: new Date() },
+  });
+
+  await replyLineMessage(replyToken, `เปิด OT ให้ "${name}" ${hours} ชั่วโมงเรียบร้อยค่ะ ✅`);
+
+  if (target.lineUserId) {
+    const operatorName = operator.nickname || operator.fullName || operator.username;
+    await pushLineMessage(
+      target.lineUserId,
+      `${operatorName} เปิด OT ให้คุณวันนี้ ${hours} ชั่วโมงค่ะ 💪`
+    );
   }
 }
 

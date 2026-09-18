@@ -53,6 +53,7 @@ model User {
   username  String   @unique
   password  String
   fullName  String?  @map("full_name")
+  nickname  String?  @unique
   role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
   lineUserId String? @unique @map("line_user_id")
   faceDescriptor   Float[]   @map("face_descriptor")
@@ -75,6 +76,7 @@ model User {
   leaveRequests    LeaveRequest[] @relation("LeaveRequester")
   approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
   uploadedProjectFiles ProjectFile[]
+  grantedOtCheckIns CheckIn[] @relation("OtGrantedBy")
 
   @@map("users")
 }
@@ -195,8 +197,19 @@ model CheckIn {
   // the reminder cron crosses midnight into the next calendar day.
   otConfirmedAt DateTime? @map("ot_confirmed_at")
   // Idempotency guard for the midnight "ยังทำ OT อยู่ไหมคะ" re-ask, so the
-  // cron (which runs every few minutes) doesn't repeat it all night.
+  // cron (which runs every few minutes) doesn't repeat it all night. Only
+  // used for OUTSIDE sessions — OFFICE uses the operator-granted flow below
+  // instead of ever asking the employee.
   midnightOtPromptSentAt DateTime? @map("midnight_ot_prompt_sent_at")
+  // OFFICE sessions don't get a self-serve "do OT?" prompt — an admin/
+  // operator opens OT for someone via a LINE button flow instead, which
+  // sets these three. otGrantedHours extends this session's auto-checkout
+  // deadline (past the normal 8-worked-hours mark) by that many hours;
+  // with no grant, the reminder cron checks them out right at that mark.
+  otGrantedHours   Float?    @map("ot_granted_hours")
+  otGrantedById    String?   @map("ot_granted_by_id")
+  otGrantedBy      User?     @relation("OtGrantedBy", fields: [otGrantedById], references: [id])
+  otGrantedAt      DateTime? @map("ot_granted_at")
 
   @@map("check_ins")
 }

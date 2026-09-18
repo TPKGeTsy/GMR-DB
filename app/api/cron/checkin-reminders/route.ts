@@ -18,17 +18,33 @@ const WARNING_THRESHOLD_MS = EXPECTED_SPAN_MS - WARNING_BEFORE_MS;
 // time rather than let hours quietly pile up to midnight.
 const FALLBACK_QUIT_HOUR = 18;
 
+async function autoCheckOut(userId: string, location: string, detail: string, createdAt?: Date) {
+  await prisma.checkIn.create({
+    data: { userId, type: "OUT", location, confidence: null, ...(createdAt ? { createdAt } : {}) },
+  });
+  await prisma.activityLog.create({
+    data: { userId, action: "CHECK_OUT", details: detail },
+  });
+  revalidatePath(`/users/${userId}`);
+  revalidatePath("/attendance");
+}
+
 /**
  * Meant to run every few minutes (see README/setup notes — Vercel's Hobby
  * plan only allows once-daily cron, so this is triggered by an external
  * pinger instead of vercel.json). For everyone still clocked in with a
- * linked LINE account:
- * - Nudges them ~15 minutes before 8 worked hours (accounting for the
- *   untracked lunch break), then again once they're hit, asking if they're
- *   finishing up or doing OT.
- * - Once the calendar day rolls over past midnight on an still-open session:
- *   if they never confirmed OT, auto checks them out backdated to 18:00 that
- *   day; if they did confirm OT, asks once more whether they're still at it.
+ * linked LINE account, behavior now splits by check-in location:
+ *
+ * - OFFICE: no self-serve "do OT?" prompt anymore — an admin/operator opens
+ *   OT for someone from LINE instead (see the OT_GRANT_TRIGGER handling in
+ *   the webhook route), which sets otGrantedHours on their open CheckIn.
+ *   This just checks people out the moment they hit 8 worked hours, unless
+ *   OT was granted, in which case it extends the deadline by that many
+ *   hours and checks them out once *that* elapses. Still gets the 15-min
+ *   heads-up warning.
+ * - OUTSIDE: unchanged — self-serve ask at 8 worked hours, plus the
+ *   midnight-rollover fallback (auto-checkout at 18:00 if never confirmed,
+ *   one more re-ask if they did).
  *
  * "Still clocked in" mirrors getUserStatuses()'s definition: their most
  * recent CheckIn of any type is an "IN". reminderSentAt/otPromptSentAt/
@@ -62,7 +78,37 @@ export async function GET(request: NextRequest) {
     await Promise.all(
       stillWorking.map(async (checkIn) => {
         const lineUserId = checkIn.user.lineUserId!;
+        const elapsedMs = nowMs - checkIn.createdAt.getTime();
 
+        if (checkIn.location === "OFFICE") {
+          const deadlineMs = checkIn.otGrantedHours
+            ? EXPECTED_SPAN_MS + checkIn.otGrantedHours * 3_600_000
+            : EXPECTED_SPAN_MS;
+
+          if (elapsedMs >= deadlineMs) {
+            await autoCheckOut(
+              checkIn.userId,
+              checkIn.location,
+              checkIn.otGrantedHours
+                ? `Auto checked out — granted OT (${checkIn.otGrantedHours}h) expired`
+                : "Auto checked out at 8 worked hours — no OT opened"
+            );
+            autoCheckedOut++;
+            return;
+          }
+
+          if (elapsedMs >= WARNING_THRESHOLD_MS && elapsedMs < EXPECTED_SPAN_MS && !checkIn.reminderSentAt) {
+            await pushLineMessage(
+              lineUserId,
+              `ใกล้ครบเวลาทำงาน 8 ชั่วโมงแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ถ้าหัวหน้าไม่เปิด OT ให้ ระบบจะเช็คเอาท์ให้อัตโนมัติค่ะ ⏰`
+            );
+            await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
+            warned++;
+          }
+          return;
+        }
+
+        // OUTSIDE — unchanged self-serve ask + midnight fallback.
         if (bangkokDateKey(now) !== bangkokDateKey(checkIn.createdAt)) {
           if (checkIn.otConfirmedAt) {
             if (!checkIn.midnightOtPromptSentAt) {
@@ -78,23 +124,15 @@ export async function GET(request: NextRequest) {
 
           const fallbackQuitTime = bangkokDateAt(checkIn.createdAt, FALLBACK_QUIT_HOUR);
           const outAt = fallbackQuitTime > checkIn.createdAt ? fallbackQuitTime : checkIn.createdAt;
-          await prisma.checkIn.create({
-            data: { userId: checkIn.userId, type: "OUT", location: checkIn.location, confidence: null, createdAt: outAt },
-          });
-          await prisma.activityLog.create({
-            data: {
-              userId: checkIn.userId,
-              action: "CHECK_OUT",
-              details: `Auto checked out at ${FALLBACK_QUIT_HOUR}:00 — no response by midnight`,
-            },
-          });
-          revalidatePath(`/users/${checkIn.userId}`);
-          revalidatePath("/attendance");
+          await autoCheckOut(
+            checkIn.userId,
+            checkIn.location,
+            `Auto checked out at ${FALLBACK_QUIT_HOUR}:00 — no response by midnight`,
+            outAt
+          );
           autoCheckedOut++;
           return;
         }
-
-        const elapsedMs = nowMs - checkIn.createdAt.getTime();
 
         if (elapsedMs >= EXPECTED_SPAN_MS && !checkIn.otPromptSentAt) {
           await pushLineMessage(

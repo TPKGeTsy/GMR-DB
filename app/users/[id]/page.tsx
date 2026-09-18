@@ -5,6 +5,7 @@ import Link from "next/link";
 import RegisterFacePanel from "@/components/RegisterFacePanel";
 import ChangePasswordPanel from "@/components/ChangePasswordPanel";
 import LineAccountPanel from "@/components/LineAccountPanel";
+import NicknamePanel from "@/components/NicknamePanel";
 import { buildDailySummary } from "@/lib/attendance";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime } from "@/lib/datetime";
 
@@ -62,6 +63,10 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
               <div>
                 <p className="text-xs text-gray-400">Full Name</p>
                 <p className="text-sm font-medium text-gray-900">{user.fullName || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Nickname</p>
+                <NicknamePanel userId={user.id} initialNickname={user.nickname} />
               </div>
               <div>
                 <p className="text-xs text-gray-400">Username</p>

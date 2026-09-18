@@ -2,6 +2,7 @@
 
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import bcrypt from "bcryptjs";
@@ -227,5 +228,43 @@ export async function unlinkLineAccount(userId: string) {
   } catch (error) {
     logError("Error unlinking LINE account:", error);
     return { success: false, error: "Failed to unlink LINE account" };
+  }
+}
+
+/** Sets or clears a user's nickname — self or admin. Nicknames are unique
+ *  (enforced at the DB level) since they're shown as the button labels an
+ *  admin/operator picks from when opening OT for someone over LINE. */
+export async function updateNickname(userId: string, nickname: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    const isSelf = session.user.id === userId;
+    const isAdmin = session.user.role === "ADMIN";
+    if (!isSelf && !isAdmin) return { success: false, error: "Unauthorized" };
+
+    const trimmed = nickname.trim();
+    if (trimmed.length > 20) {
+      return { success: false, error: "ชื่อเล่นต้องไม่เกิน 20 ตัวอักษร" };
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found" };
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { nickname: trimmed || null },
+    });
+
+    await createActivityLog("UPDATE_NICKNAME", `Set nickname for ${user.username} to "${trimmed}"`);
+
+    revalidatePath(`/users/${userId}`);
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, error: "ชื่อเล่นนี้มีคนใช้แล้ว กรุณาเลือกชื่ออื่น" };
+    }
+    logError("Error updating nickname:", error);
+    return { success: false, error: "Failed to update nickname" };
   }
 }
