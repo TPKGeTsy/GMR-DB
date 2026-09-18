@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer,
 } from "lucide-react";
 
 const linkClass =
@@ -67,6 +67,12 @@ export default function MobileNavMenu({
                 <CalendarRange className="w-4 h-4" />
                 ตารางงาน (Work Schedule)
               </Link>
+              {(role === "ADMIN" || role === "OPERATOR") && (
+                <Link href="/ot" className={linkClass} onClick={close}>
+                  <Timer className="w-4 h-4" />
+                  OT
+                </Link>
+              )}
 
               <p className={sectionHeaderClass}>ทรัพยากร</p>
               <Link href="/dashboard" className={linkClass} onClick={close}>

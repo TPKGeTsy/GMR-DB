@@ -8,6 +8,7 @@ import { verifyLineSignature, replyLineMessage, pushLineMessage, type QuickReply
 import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
+import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
 import type { Asset, LinePendingBorrow, User } from "@prisma/client";
 
 interface LineWebhookEvent {
@@ -53,8 +54,15 @@ const SELECT_ASSET_COMMAND = /^SELECT_ASSET:(.+):(\d+)$/;
 // silently fell through to the general AI Q&A fallback instead.
 const OT_GRANT_TRIGGER_NORMALIZED = "เปิดot";
 const OT_PICK_COMMAND = /^OT_PICK:(.+)$/;
+// Hours picked — this doesn't finalize the grant yet, it just moves to
+// asking for a reason (see LinePendingOtGrant / the awaitingOtGrantReason
+// check in handleEvent).
 const OT_GRANT_COMMAND = /^OT_GRANT:(.+):(\d+(?:\.\d+)?)$/;
 const OT_HOUR_OPTIONS = [1, 2, 3, 4];
+// When OT starts counting from, for turning granted hours into an actual
+// WorkSchedule time block — same 8-worked-hours-plus-untracked-lunch mark
+// the reminder cron uses to decide when to auto-checkout.
+const EXPECTED_SPAN_MS = (REGULAR_HOURS_CAP + LUNCH_BREAK_HOURS) * 3_600_000;
 
 function normalizeCommand(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
@@ -157,6 +165,25 @@ async function handleEvent(event: LineWebhookEvent) {
     return;
   }
 
+  // The very next message from an admin/operator after picking OT hours for
+  // someone is taken as the reason (unless it's a cancel word), which
+  // finalizes the grant. Keyed by the *operator's* lineUserId — independent
+  // of whatever their own attendance state is.
+  const pendingOtGrant = await prisma.linePendingOtGrant.findUnique({ where: { lineUserId } });
+  if (pendingOtGrant) {
+    const isExpired = Date.now() - pendingOtGrant.createdAt.getTime() > PENDING_EXPIRY_MS;
+    if (isExpired) {
+      await prisma.linePendingOtGrant.delete({ where: { id: pendingOtGrant.id } });
+    } else if (CANCEL_WORDS.has(normalized)) {
+      await prisma.linePendingOtGrant.delete({ where: { id: pendingOtGrant.id } });
+      await replyLineMessage(replyToken, "ยกเลิกการเปิด OT แล้วค่ะ");
+      return;
+    } else {
+      await finalizeOtGrant(user, pendingOtGrant, text.slice(0, 300), replyToken);
+      return;
+    }
+  }
+
   if (text === END_WORK_TEXT) {
     if (!openCheckIn) {
       await replyLineMessage(replyToken, "ดูเหมือนว่าคุณเช็คเอาท์ไปแล้วนะคะ ไม่มีการเช็คอินที่เปิดอยู่ค่ะ");
@@ -223,7 +250,7 @@ async function handleEvent(event: LineWebhookEvent) {
   const otGrantMatch = text.match(OT_GRANT_COMMAND);
   if (otGrantMatch) {
     if (!isOtManager) return;
-    await handleOtGrantConfirm(user, otGrantMatch[1], Number(otGrantMatch[2]), replyToken);
+    await handleOtHoursPicked(lineUserId, otGrantMatch[1], Number(otGrantMatch[2]), replyToken);
     return;
   }
 
@@ -572,34 +599,88 @@ async function handleOtPick(targetUserId: string, replyToken: string) {
   await replyLineMessage(replyToken, `เปิด OT ให้ "${name}" กี่ชั่วโมงคะ?`, options);
 }
 
-/** Step 3: hours picked — actually grants it by extending the deadline the
- *  reminder cron auto-checks-out at, and lets the employee know. */
-async function handleOtGrantConfirm(operator: User, targetUserId: string, hours: number, replyToken: string) {
+/** Step 3: hours picked — doesn't grant anything yet, just remembers the
+ *  choice (keyed by the operator's own lineUserId) and asks for a reason.
+ *  The next message they send is picked up by the pendingOtGrant check in
+ *  handleEvent, which calls finalizeOtGrant. */
+async function handleOtHoursPicked(operatorLineUserId: string, targetUserId: string, hours: number, replyToken: string) {
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!target) {
     await replyLineMessage(replyToken, "ไม่พบพนักงานคนนี้ค่ะ");
     return;
   }
 
+  await prisma.linePendingOtGrant.upsert({
+    where: { lineUserId: operatorLineUserId },
+    create: { lineUserId: operatorLineUserId, targetUserId, hours },
+    update: { targetUserId, hours, createdAt: new Date() },
+  });
+
   const name = target.nickname || target.fullName || target.username;
-  const openCheckIn = await getOpenCheckIn(targetUserId);
-  if (!openCheckIn || openCheckIn.location !== "OFFICE") {
-    await replyLineMessage(replyToken, `${name} ไม่ได้เช็คอินอยู่ที่ออฟฟิศแล้วค่ะ (อาจเช็คเอาท์ไปแล้ว)`);
+  await replyLineMessage(replyToken, `เหตุผลที่เปิด OT ${hours} ชม. ให้ "${name}" คืออะไรคะ?`);
+}
+
+/** Step 4: reason given — actually grants it. Extends the deadline the
+ *  reminder cron auto-checks-out at, logs it permanently (OtGrant, for the
+ *  /ot page), adds a matching block to the employee's Work Schedule so it
+ *  shows there too, and lets the employee know. */
+async function finalizeOtGrant(
+  operator: User,
+  pending: { id: string; targetUserId: string; hours: number },
+  reason: string,
+  replyToken: string
+) {
+  const target = await prisma.user.findUnique({ where: { id: pending.targetUserId } });
+  if (!target) {
+    await prisma.linePendingOtGrant.delete({ where: { id: pending.id } });
+    await replyLineMessage(replyToken, "ไม่พบพนักงานคนนี้ค่ะ");
     return;
   }
 
-  await prisma.checkIn.update({
-    where: { id: openCheckIn.id },
-    data: { otGrantedHours: hours, otGrantedById: operator.id, otGrantedAt: new Date() },
-  });
+  const name = target.nickname || target.fullName || target.username;
+  const openCheckIn = await getOpenCheckIn(pending.targetUserId);
+  if (!openCheckIn || openCheckIn.location !== "OFFICE") {
+    await prisma.linePendingOtGrant.delete({ where: { id: pending.id } });
+    await replyLineMessage(replyToken, `${name} ไม่ได้เช็คอินอยู่ที่ออฟฟิศแล้วค่ะ (อาจเช็คเอาท์ไปแล้ว) เปิด OT ไม่สำเร็จ`);
+    return;
+  }
 
-  await replyLineMessage(replyToken, `เปิด OT ให้ "${name}" ${hours} ชั่วโมงเรียบร้อยค่ะ ✅`);
+  const combinedNote = openCheckIn.note ? `${openCheckIn.note} | OT: ${reason}` : `OT: ${reason}`;
+  const otStart = new Date(openCheckIn.createdAt.getTime() + EXPECTED_SPAN_MS);
+  const otEnd = new Date(otStart.getTime() + pending.hours * 3_600_000);
+
+  await prisma.$transaction([
+    prisma.checkIn.update({
+      where: { id: openCheckIn.id },
+      data: { otGrantedHours: pending.hours, otGrantedById: operator.id, otGrantedAt: new Date(), note: combinedNote },
+    }),
+    prisma.otGrant.create({
+      data: { userId: pending.targetUserId, hours: pending.hours, reason, grantedById: operator.id },
+    }),
+    prisma.workSchedule.create({
+      data: {
+        userId: pending.targetUserId,
+        title: "ทำงานล่วงเวลา (OT)",
+        startAt: otStart,
+        endAt: otEnd,
+        note: reason,
+      },
+    }),
+    prisma.linePendingOtGrant.delete({ where: { id: pending.id } }),
+  ]);
+
+  revalidatePath("/attendance");
+  revalidatePath("/work-schedule");
+  revalidatePath("/ot");
+  revalidatePath(`/users/${pending.targetUserId}`);
+
+  await replyLineMessage(replyToken, `เปิด OT ให้ "${name}" ${pending.hours} ชั่วโมงเรียบร้อยค่ะ ✅`);
 
   if (target.lineUserId) {
     const operatorName = operator.nickname || operator.fullName || operator.username;
     await pushLineMessage(
       target.lineUserId,
-      `${operatorName} เปิด OT ให้คุณวันนี้ ${hours} ชั่วโมงค่ะ 💪`
+      `${operatorName} เปิด OT ให้คุณวันนี้ ${pending.hours} ชั่วโมงค่ะ (${reason}) 💪`
     );
   }
 }

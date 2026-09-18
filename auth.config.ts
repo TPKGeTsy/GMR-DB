@@ -17,6 +17,7 @@ export const authConfig = {
       const isOnInventory = nextUrl.pathname.startsWith("/inventory");
       const isOnUsers = nextUrl.pathname.startsWith("/users");
       const isOnAttendance = nextUrl.pathname.startsWith("/attendance");
+      const isOnOt = nextUrl.pathname.startsWith("/ot");
       const isOnLoginPage = nextUrl.pathname.startsWith("/login");
       const isOnRegisterPage = nextUrl.pathname.startsWith("/register");
       const isOnCheckInPage = nextUrl.pathname.startsWith("/checkin");
@@ -45,6 +46,11 @@ export const authConfig = {
 
       // /inventory is ADMIN or OPERATOR
       if (isOnInventory && role !== "ADMIN" && role !== "OPERATOR") {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      }
+
+      // /ot is ADMIN or OPERATOR — same audience that can grant OT via LINE
+      if (isOnOt && role !== "ADMIN" && role !== "OPERATOR") {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

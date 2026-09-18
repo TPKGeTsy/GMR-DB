@@ -77,6 +77,9 @@ model User {
   approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
   uploadedProjectFiles ProjectFile[]
   grantedOtCheckIns CheckIn[] @relation("OtGrantedBy")
+  otGrantsReceived OtGrant[] @relation("OtGrantRecipient")
+  otGrantsMade     OtGrant[] @relation("OtGrantGranter")
+  pendingOtGrantsAsTarget LinePendingOtGrant[]
 
   @@map("users")
 }
@@ -243,6 +246,37 @@ model LinePendingBorrow {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("line_pending_borrows")
+}
+
+// A permanent audit log of every OT grant made via the LINE "เปิด OT" flow —
+// distinct from the working fields on CheckIn (otGrantedHours etc.), which
+// only reflect *today's* open session and get superseded session to session.
+model OtGrant {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  user        User     @relation("OtGrantRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  hours       Float
+  reason      String?
+  grantedById String   @map("granted_by_id")
+  grantedBy   User     @relation("OtGrantGranter", fields: [grantedById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("ot_grants")
+}
+
+// Holds the one in-progress "granting OT to <user> for <hours>, awaiting a
+// reason" flow per admin/operator LINE user — same stateless-between-taps
+// pattern as LinePendingBorrow above, keyed by the *operator's* lineUserId
+// this time instead of the recipient's.
+model LinePendingOtGrant {
+  id           String   @id @default(cuid())
+  lineUserId   String   @unique @map("line_user_id")
+  targetUserId String   @map("target_user_id")
+  target       User     @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+  hours        Float
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("line_pending_ot_grants")
 }
 
 model EquipmentTemplate {
