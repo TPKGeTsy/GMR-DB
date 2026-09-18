@@ -47,10 +47,18 @@ const SELECT_ASSET_COMMAND = /^SELECT_ASSET:(.+):(\d+)$/;
 // of the old self-serve ask. Two-step button flow, each step's payload
 // carrying everything the next step needs — no server-side state between
 // taps, same pattern as SELECT_ASSET_COMMAND above.
-const OT_GRANT_TRIGGER = "เปิด OT";
+// Matched with all whitespace stripped and lowercased (see normalizeCommand)
+// so "เปิด OT", "เปิดOT", and "เปิด  ot" all trigger it the same way —
+// phones' autocorrect/spacing is inconsistent enough that a strict match
+// silently fell through to the general AI Q&A fallback instead.
+const OT_GRANT_TRIGGER_NORMALIZED = "เปิดot";
 const OT_PICK_COMMAND = /^OT_PICK:(.+)$/;
 const OT_GRANT_COMMAND = /^OT_GRANT:(.+):(\d+(?:\.\d+)?)$/;
 const OT_HOUR_OPTIONS = [1, 2, 3, 4];
+
+function normalizeCommand(text: string): string {
+  return text.replace(/\s+/g, "").toLowerCase();
+}
 const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
 
 // Strips stray trailing punctuation (backticks, quotes, markdown-ish
@@ -196,7 +204,7 @@ async function handleEvent(event: LineWebhookEvent) {
 
   const isOtManager = user.role === "ADMIN" || user.role === "OPERATOR";
 
-  if (text === OT_GRANT_TRIGGER) {
+  if (normalizeCommand(text) === OT_GRANT_TRIGGER_NORMALIZED) {
     if (!isOtManager) {
       await replyLineMessage(replyToken, "คำสั่งนี้ใช้ได้เฉพาะแอดมิน/ผู้ดูแลระบบเท่านั้นค่ะ");
       return;
