@@ -6,13 +6,23 @@ import RegisterFacePanel from "@/components/RegisterFacePanel";
 import ChangePasswordPanel from "@/components/ChangePasswordPanel";
 import LineAccountPanel from "@/components/LineAccountPanel";
 import NicknamePanel from "@/components/NicknamePanel";
+import ActivityLogFilters from "@/components/ActivityLogFilters";
+import Pagination from "@/components/Pagination";
 import { buildDailySummary } from "@/lib/attendance";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime } from "@/lib/datetime";
+import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function UserProfilePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function UserProfilePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ logFrom?: string; logTo?: string; logAction?: string; logPage?: string }>;
+}) {
   const { id } = await params;
+  const { logFrom, logTo, logAction, logPage } = await searchParams;
   const session = await auth();
   const currentUser = session?.user;
 
@@ -21,21 +31,24 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-    include: {
-      logs: {
-        orderBy: { createdAt: "desc" },
-        take: 50,
+  const [user, logsResult, availableActions] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id },
+      include: {
+        checkIns: {
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        },
       },
-      checkIns: {
-        orderBy: { createdAt: "desc" },
-        take: 200,
-      },
-    },
-  });
+    }),
+    getUserActivityLogs(id, { from: logFrom, to: logTo, action: logAction, page: Number(logPage) || 1, limit: 20 }),
+    getUserActivityActions(id),
+  ]);
 
   if (!user) return <div className="p-8 text-center">User not found</div>;
+
+  const logs = logsResult.success && logsResult.data ? logsResult.data : [];
+  const logTotalPages = logsResult.success ? logsResult.totalPages : 1;
 
   const dailyRows = buildDailySummary(user.checkIns);
   const latestCheckIn = user.checkIns[0];
@@ -204,14 +217,15 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
           <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
               <Activity className="h-5 w-5 text-orange-600 mr-2" />
-              <h2 className="text-sm font-semibold text-gray-900">Activity Logs (Recent 50)</h2>
+              <h2 className="text-sm font-semibold text-gray-900">Activity Logs</h2>
             </div>
+            <ActivityLogFilters actions={availableActions} />
             <div className="overflow-y-auto max-h-[400px]">
               <ul className="divide-y divide-gray-100">
-                {user.logs.length === 0 ? (
+                {logs.length === 0 ? (
                   <li className="px-6 py-10 text-center text-sm text-gray-500 italic">No activity logs found.</li>
                 ) : (
-                  user.logs.map((log) => (
+                  logs.map((log) => (
                     <li key={log.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
@@ -233,6 +247,11 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                 )}
               </ul>
             </div>
+            {logTotalPages > 1 && (
+              <div className="border-t border-gray-100">
+                <Pagination totalPages={logTotalPages} currentPage={Number(logPage) || 1} paramName="logPage" />
+              </div>
+            )}
           </div>
         </div>
       </div>

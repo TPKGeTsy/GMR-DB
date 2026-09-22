@@ -32,16 +32,27 @@ function endOfMonth(monthStartKey: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-export default function DateRangePresets() {
+export default function DateRangePresets({
+  fromParam = "from",
+  toParam = "to",
+  pageParam = "page",
+}: {
+  /** URL param names to write the range into — override when a page embeds
+   *  more than one date range picker (e.g. the profile page's activity log
+   *  filter uses "logFrom"/"logTo" so it doesn't collide with anything). */
+  fromParam?: string;
+  toParam?: string;
+  pageParam?: string;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const today = bangkokDateKey(new Date());
 
   const apply = (from: string, to: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("from", from);
-    params.set("to", to);
-    params.delete("page");
+    params.set(fromParam, from);
+    params.set(toParam, to);
+    params.delete(pageParam);
     router.push(`?${params.toString()}`);
   };
 

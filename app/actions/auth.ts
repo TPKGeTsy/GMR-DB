@@ -8,6 +8,7 @@ import { logError } from "@/lib/logger";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { bangkokDayRange } from "@/lib/datetime";
 
 export async function authenticate(
   prevState: string | undefined,
@@ -267,4 +268,69 @@ export async function updateNickname(userId: string, nickname: string) {
     logError("Error updating nickname:", error);
     return { success: false, error: "Failed to update nickname" };
   }
+}
+
+export interface ActivityLogRow {
+  id: string;
+  action: string;
+  details: string | null;
+  createdAt: string;
+}
+
+async function canViewActivityLogs(userId: string): Promise<boolean> {
+  const session = await auth();
+  if (!session?.user?.id) return false;
+  return session.user.id === userId || session.user.role === "ADMIN";
+}
+
+/** Filtered/paginated activity log for one user's profile page — self or
+ *  admin, same audience as the page itself. Replaces the old hardcoded
+ *  "most recent 50, unfiltered" list with date-range + action-type filters
+ *  (same URL-param-driven pattern AttendanceFilters uses). */
+export async function getUserActivityLogs(
+  userId: string,
+  { from, to, action, page = 1, limit = 20 }: { from?: string; to?: string; action?: string; page?: number; limit?: number } = {}
+): Promise<{ success: true; data: ActivityLogRow[]; totalPages: number } | { success: false; error: string }> {
+  try {
+    if (!(await canViewActivityLogs(userId))) return { success: false, error: "Unauthorized" };
+
+    const createdAtFilter: { gte?: Date; lt?: Date } = {};
+    if (from) createdAtFilter.gte = bangkokDayRange(from).start;
+    if (to) createdAtFilter.lt = bangkokDayRange(to).end;
+
+    const where = {
+      userId,
+      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
+      ...(action ? { action } : {}),
+    };
+
+    const skip = (page - 1) * limit;
+    const [logs, totalCount] = await Promise.all([
+      prisma.activityLog.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit }),
+      prisma.activityLog.count({ where }),
+    ]);
+
+    return {
+      success: true,
+      data: logs.map((l) => ({ id: l.id, action: l.action, details: l.details, createdAt: l.createdAt.toISOString() })),
+      totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+    };
+  } catch (error) {
+    logError("Error fetching user activity logs:", error);
+    return { success: false, error: "Failed to load activity logs" };
+  }
+}
+
+/** Distinct action values this user actually has logs for — populates the
+ *  action-type filter dropdown without hardcoding every action string used
+ *  anywhere in the app (which drifts as features are added). */
+export async function getUserActivityActions(userId: string): Promise<string[]> {
+  if (!(await canViewActivityLogs(userId))) return [];
+  const rows = await prisma.activityLog.findMany({
+    where: { userId },
+    distinct: ["action"],
+    select: { action: true },
+    orderBy: { action: "asc" },
+  });
+  return rows.map((r) => r.action);
 }
