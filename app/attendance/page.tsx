@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { getAttendanceTableRows } from "@/app/actions/checkin";
+import { getAttendanceTableRows, getEmployeeOptions } from "@/app/actions/checkin";
 import Pagination from "@/components/Pagination";
 import AttendanceTable from "@/components/AttendanceTable";
 import AttendanceCalendar from "@/components/AttendanceCalendar";
@@ -22,8 +22,12 @@ export default async function AttendancePage({
   const currentPage = Number(page) || 1;
   const typeFilter = type === "IN" || type === "OUT" ? type : undefined;
 
-  const result = await getAttendanceTableRows({ page: currentPage, limit: 50, from, to, type: typeFilter });
+  const [result, employeeOptionsResult] = await Promise.all([
+    getAttendanceTableRows({ page: currentPage, limit: 50, from, to, type: typeFilter }),
+    getEmployeeOptions(),
+  ]);
   const rows = result.success && result.data ? result.data : [];
+  const employeeOptions = employeeOptionsResult.success && employeeOptionsResult.data ? employeeOptionsResult.data : [];
 
   return (
     <div className="space-y-8">
@@ -57,7 +61,7 @@ export default async function AttendancePage({
 
       <AttendanceFilters />
 
-      <AttendanceTable rows={rows} />
+      <AttendanceTable rows={rows} employeeOptions={employeeOptions} />
 
       {result.success && <Pagination totalPages={result.totalPages} currentPage={currentPage} paramName="page" />}
     </div>

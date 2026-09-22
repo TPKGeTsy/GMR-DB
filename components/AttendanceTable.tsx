@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Columns3, Check } from "lucide-react";
+import { Columns3, Check, Pencil } from "lucide-react";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
-import type { AttendanceTableRow } from "@/app/actions/checkin";
+import type { AttendanceTableRow, EmployeeOption } from "@/app/actions/checkin";
+import EditCheckInModal from "./EditCheckInModal";
 
 const STORAGE_KEY = "gmr-attendance-columns-v1";
 
@@ -46,10 +47,17 @@ function loadVisibleColumns(): Set<ColumnKey> {
   }
 }
 
-export default function AttendanceTable({ rows }: { rows: AttendanceTableRow[] }) {
+export default function AttendanceTable({
+  rows,
+  employeeOptions,
+}: {
+  rows: AttendanceTableRow[];
+  employeeOptions: EmployeeOption[];
+}) {
   const [visible, setVisible] = useState<Set<ColumnKey>>(new Set(COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key)));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [editingRow, setEditingRow] = useState<AttendanceTableRow | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -191,12 +199,13 @@ export default function AttendanceTable({ rows }: { rows: AttendanceTableRow[] }
                   {col.label}
                 </th>
               ))}
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={activeColumns.length || 1} className="px-4 py-10 text-center text-sm text-gray-500 italic">
+                <td colSpan={activeColumns.length + 1 || 1} className="px-4 py-10 text-center text-sm text-gray-500 italic">
                   ไม่มีข้อมูล
                 </td>
               </tr>
@@ -208,12 +217,29 @@ export default function AttendanceTable({ rows }: { rows: AttendanceTableRow[] }
                       {renderCell(row, col.key)}
                     </td>
                   ))}
+                  <td className="px-4 py-3 whitespace-nowrap text-right">
+                    <button
+                      onClick={() => setEditingRow(row)}
+                      className="text-gray-400 hover:text-orange-600"
+                      title="แก้ไขรายการนี้"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {editingRow && (
+        <EditCheckInModal
+          row={editingRow}
+          employeeOptions={employeeOptions}
+          onClose={() => setEditingRow(null)}
+        />
+      )}
     </div>
   );
 }

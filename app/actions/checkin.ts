@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
+import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
 import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
@@ -199,6 +200,7 @@ export async function getFullDailyAttendanceSummary(): Promise<
 export interface AttendanceTableRow {
   id: string;
   dateKey: string;
+  employeeId: string;
   employeeName: string;
   time: string;
   type: string;
@@ -256,7 +258,7 @@ export async function getAttendanceTableRows({
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
-        include: { user: { select: { username: true, fullName: true } } },
+        include: { user: { select: { username: true, fullName: true, nickname: true } } },
       }),
       prisma.checkIn.count({ where }),
       prisma.checkIn.findMany({
@@ -288,7 +290,8 @@ export async function getAttendanceTableRows({
       return {
         id: log.id,
         dateKey,
-        employeeName: log.user.fullName || log.user.username,
+        employeeId: log.userId,
+        employeeName: log.user.nickname || log.user.fullName || log.user.username,
         time: log.createdAt.toISOString(),
         type: log.type,
         location: log.location,
@@ -535,5 +538,123 @@ export async function getDaySummary(dateKey: string): Promise<
   } catch (error) {
     logError("Error building day summary:", error);
     return { success: false, error: "Failed to load day summary" };
+  }
+}
+
+export interface EmployeeOption {
+  id: string;
+  name: string;
+}
+
+/** For the "reassign employee" dropdown on the edit-check-in modal. */
+export async function getEmployeeOptions(): Promise<
+  { success: true; data: EmployeeOption[] } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const users = await prisma.user.findMany({
+      orderBy: { username: "asc" },
+      select: { id: true, username: true, fullName: true, nickname: true },
+    });
+
+    return { success: true, data: users.map((u) => ({ id: u.id, name: u.nickname || u.fullName || u.username })) };
+  } catch (error) {
+    logError("Error fetching employee options:", error);
+    return { success: false, error: "Failed to load employees" };
+  }
+}
+
+/** Corrects a raw check-in/out scan — who it belongs to, when it happened,
+ *  in/out, office/outside, and the note. Exists because the reminder cron
+ *  auto-checks people out at exactly 8 worked hours (or a granted OT
+ *  deadline) with no way to retroactively extend it — a real overnight
+ *  shift that nobody opened enough OT for gets cut short in the data even
+ *  though people kept actually working, and this is how an admin fixes
+ *  that after the fact. */
+export async function updateCheckIn(
+  id: string,
+  data: { userId?: string; type?: string; location?: string; createdAt?: string; note?: string }
+) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const existing = await prisma.checkIn.findUnique({ where: { id } });
+    if (!existing) return { success: false, error: "ไม่พบรายการนี้" };
+
+    const updateData: {
+      type?: string;
+      location?: string;
+      createdAt?: Date;
+      note?: string | null;
+      userId?: string;
+    } = {};
+
+    if (data.type !== undefined) {
+      if (data.type !== "IN" && data.type !== "OUT") return { success: false, error: "ประเภทไม่ถูกต้อง" };
+      updateData.type = data.type;
+    }
+    if (data.location !== undefined) {
+      if (data.location !== "OFFICE" && data.location !== "OUTSIDE") return { success: false, error: "สถานที่ไม่ถูกต้อง" };
+      updateData.location = data.location;
+    }
+    if (data.createdAt !== undefined) {
+      const parsed = new Date(data.createdAt);
+      if (isNaN(parsed.getTime())) return { success: false, error: "วันเวลาไม่ถูกต้อง" };
+      updateData.createdAt = parsed;
+    }
+    if (data.note !== undefined) {
+      updateData.note = data.note.trim() || null;
+    }
+    if (data.userId !== undefined && data.userId !== existing.userId) {
+      const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
+      if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+      updateData.userId = data.userId;
+    }
+
+    const updated = await prisma.checkIn.update({ where: { id }, data: updateData });
+
+    await createActivityLog(
+      "EDIT_CHECKIN",
+      `Admin edited check-in ${id} (user ${existing.userId} -> ${updated.userId}, ${existing.type}@${existing.createdAt.toISOString()} -> ${updated.type}@${updated.createdAt.toISOString()})`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${existing.userId}`);
+    if (updated.userId !== existing.userId) revalidatePath(`/users/${updated.userId}`);
+
+    return { success: true, data: JSON.parse(JSON.stringify(updated)) };
+  } catch (error) {
+    logError("Error updating check-in:", error);
+    return { success: false, error: "แก้ไขไม่สำเร็จ" };
+  }
+}
+
+/** Removes a stray/duplicate scan entirely (e.g. an accidental double-tap
+ *  that created two IN rows back to back). */
+export async function deleteCheckIn(id: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const existing = await prisma.checkIn.findUnique({ where: { id } });
+    if (!existing) return { success: false, error: "ไม่พบรายการนี้" };
+
+    await prisma.checkIn.delete({ where: { id } });
+
+    await createActivityLog(
+      "DELETE_CHECKIN",
+      `Admin deleted check-in ${id} (user ${existing.userId}, ${existing.type}@${existing.createdAt.toISOString()})`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${existing.userId}`);
+
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting check-in:", error);
+    return { success: false, error: "ลบไม่สำเร็จ" };
   }
 }
