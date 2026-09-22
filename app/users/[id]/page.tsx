@@ -77,6 +77,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
                 <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                   user.role === "ADMIN" ? "bg-purple-100 text-purple-700" :
                   user.role === "OPERATOR" ? "bg-blue-100 text-blue-700" :
+                  user.role === "SENIOR" ? "bg-teal-100 text-teal-700" :
                   "bg-gray-100 text-gray-700"
                 }`}>
                   {user.role}

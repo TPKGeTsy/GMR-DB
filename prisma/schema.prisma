@@ -54,7 +54,7 @@ model User {
   password  String
   fullName  String?  @map("full_name")
   nickname  String?  @unique
-  role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'USER'
+  role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'SENIOR', 'USER'
   lineUserId String? @unique @map("line_user_id")
   faceDescriptor   Float[]   @map("face_descriptor")
   faceRegisteredAt DateTime? @map("face_registered_at")
@@ -80,6 +80,8 @@ model User {
   otGrantsReceived OtGrant[] @relation("OtGrantRecipient")
   otGrantsMade     OtGrant[] @relation("OtGrantGranter")
   pendingOtGrantsAsTarget LinePendingOtGrant[]
+  otApprovalRequests        OtApprovalRequest[] @relation("OtApprovalRequestUser")
+  decidedOtApprovalRequests OtApprovalRequest[] @relation("OtApprovalRequestDecider")
 
   @@map("users")
 }
@@ -290,6 +292,33 @@ model LinePendingOtGrant {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("line_pending_ot_grants")
+}
+
+// A request to recognize some already-worked or planned time as official OT,
+// requiring an ADMIN/OPERATOR/SENIOR's approval before an OtGrant is created.
+// Two sources: an employee's own free-text/web request ('SELF_REQUEST', hours
+// known upfront), or an automatic one raised when someone on a registered
+// OutsideWorkTrip crosses into OT territory ('OUTSIDE_AUTO', open-ended until
+// they check out, so hours aren't known yet at request time).
+model OtApprovalRequest {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  user        User      @relation("OtApprovalRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  source      String    // 'OUTSIDE_AUTO' | 'SELF_REQUEST'
+  // Plain references (no FK/relation), same rationale as OtGrant's — this
+  // audit row must survive even if the CheckIn/trip it refers to changes.
+  checkInId   String?   @map("check_in_id")
+  tripId      String?   @map("trip_id")
+  location    String?
+  reason      String?
+  requestedHours Float? @map("requested_hours")
+  status      String    @default("PENDING") // 'PENDING', 'APPROVED', 'REJECTED'
+  decidedById String?   @map("decided_by_id")
+  decidedBy   User?     @relation("OtApprovalRequestDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime? @map("decided_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("ot_approval_requests")
 }
 
 model EquipmentTemplate {

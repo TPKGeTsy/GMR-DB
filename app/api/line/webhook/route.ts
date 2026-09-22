@@ -8,7 +8,8 @@ import { verifyLineSignature, replyLineMessage, pushLineMessage, type QuickReply
 import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
-import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
+import { isOtManagerRole } from "@/lib/roles";
+import { grantOtToUser, getOpenCheckIn } from "@/lib/otGrant";
 import type { Asset, LinePendingBorrow, User } from "@prisma/client";
 
 interface LineWebhookEvent {
@@ -38,7 +39,7 @@ const END_WORK_TEXT = "เลิกงานแล้ว";
 const CONTINUE_OT_TEXT = "ทำ OT ต่อ";
 // The hidden `text` payload behind an admin's "✅ อนุมัติ"/"❌ ปฏิเสธ" Quick
 // Reply button on a pending-approval push — see lib/lineApprovals.ts.
-const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING):(.+)$/;
+const APPROVAL_COMMAND = /^(APPROVE|REJECT)_(LEAVE|BOOKING|OT_REQUEST):(.+)$/;
 // The hidden `text` payload behind one of the "พบหลายรายการ" disambiguation
 // buttons — see handleBorrowCommand. Encodes the exact asset id so picking
 // one is a single tap with no retyping and no re-triggering the same
@@ -62,10 +63,6 @@ const OT_HOUR_OPTIONS = [1, 2, 3, 4];
 // The employee's own response to the OT push notification.
 const OT_ACCEPT_COMMAND = /^OT_ACCEPT:(.+)$/;
 const OT_DECLINE_COMMAND = /^OT_DECLINE:(.+)$/;
-// When OT starts counting from, for turning granted hours into an actual
-// WorkSchedule time block — same 8-worked-hours-plus-untracked-lunch mark
-// the reminder cron uses to decide when to auto-checkout.
-const EXPECTED_SPAN_MS = (REGULAR_HOURS_CAP + LUNCH_BREAK_HOURS) * 3_600_000;
 
 function normalizeCommand(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
@@ -78,14 +75,6 @@ const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PER
 // matches nothing even though "Relay" alone would.
 function sanitizeQuery(raw: string): string {
   return raw.trim().replace(/[`'"*_~]+$/g, "").trim();
-}
-
-// A person can only have one open "IN" session at a time (recordCheckIn
-// enforces this for the face-scan kiosk too) — so the latest CheckIn row
-// being type "IN" reliably means they're still clocked in right now.
-async function getOpenCheckIn(userId: string) {
-  const latest = await prisma.checkIn.findFirst({ where: { userId }, orderBy: { createdAt: "desc" } });
-  return latest?.type === "IN" ? latest : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -239,7 +228,13 @@ async function handleEvent(event: LineWebhookEvent) {
   const approvalMatch = text.match(APPROVAL_COMMAND);
   if (approvalMatch) {
     const [, decision, kind, id] = approvalMatch;
-    await handleApprovalDecision(user, decision as "APPROVE" | "REJECT", kind as "LEAVE" | "BOOKING", id, replyToken);
+    await handleApprovalDecision(
+      user,
+      decision as "APPROVE" | "REJECT",
+      kind as "LEAVE" | "BOOKING" | "OT_REQUEST",
+      id,
+      replyToken
+    );
     return;
   }
 
@@ -249,7 +244,7 @@ async function handleEvent(event: LineWebhookEvent) {
     return;
   }
 
-  const isOtManager = user.role === "ADMIN" || user.role === "OPERATOR";
+  const isOtManager = isOtManagerRole(user.role);
 
   if (normalizeCommand(text) === OT_GRANT_TRIGGER_NORMALIZED) {
     if (!isOtManager) {
@@ -652,10 +647,7 @@ async function handleOtHoursPicked(operatorLineUserId: string, targetUserId: str
   await replyLineMessage(replyToken, `เหตุผลที่เปิด OT ${hours} ชม. ให้ "${name}" คืออะไรคะ?`);
 }
 
-/** Step 4: reason given — actually grants it. Extends the deadline the
- *  reminder cron auto-checks-out at, logs it permanently (OtGrant, for the
- *  /ot page), adds a matching block to the employee's Work Schedule so it
- *  shows there too, and lets the employee know. */
+/** Step 4: reason given — actually grants it, then lets the employee know. */
 async function finalizeOtGrant(
   operator: User,
   pending: { id: string; targetUserId: string; hours: number },
@@ -677,40 +669,13 @@ async function finalizeOtGrant(
     return;
   }
 
-  const combinedNote = openCheckIn.note ? `${openCheckIn.note} | OT: ${reason}` : `OT: ${reason}`;
-  const otStart = new Date(openCheckIn.createdAt.getTime() + EXPECTED_SPAN_MS);
-  const otEnd = new Date(otStart.getTime() + pending.hours * 3_600_000);
-
-  // An interactive transaction (not the array form) so the OtGrant row can
-  // record the exact CheckIn/WorkSchedule rows it created — a decline later
-  // needs those ids back to undo precisely those two rows, not just "the
-  // employee's current open session," which could've moved on by then.
-  const grant = await prisma.$transaction(async (tx) => {
-    await tx.checkIn.update({
-      where: { id: openCheckIn.id },
-      data: { otGrantedHours: pending.hours, otGrantedById: operator.id, otGrantedAt: new Date(), note: combinedNote },
-    });
-    const schedule = await tx.workSchedule.create({
-      data: {
-        userId: pending.targetUserId,
-        title: "ทำงานล่วงเวลา (OT)",
-        startAt: otStart,
-        endAt: otEnd,
-        note: reason,
-      },
-    });
-    const created = await tx.otGrant.create({
-      data: {
-        userId: pending.targetUserId,
-        hours: pending.hours,
-        reason,
-        grantedById: operator.id,
-        checkInId: openCheckIn.id,
-        workScheduleId: schedule.id,
-      },
-    });
-    await tx.linePendingOtGrant.delete({ where: { id: pending.id } });
-    return created;
+  const grant = await grantOtToUser({
+    userId: pending.targetUserId,
+    hours: pending.hours,
+    reason,
+    grantedById: operator.id,
+    openCheckIn,
+    cleanupPendingOtGrantId: pending.id,
   });
 
   revalidatePath("/attendance");
@@ -827,11 +792,13 @@ async function handleOtDeclineConfirm(
 async function handleApprovalDecision(
   admin: User,
   decision: "APPROVE" | "REJECT",
-  kind: "LEAVE" | "BOOKING",
+  kind: "LEAVE" | "BOOKING" | "OT_REQUEST",
   id: string,
   replyToken: string
 ) {
-  if (admin.role !== "ADMIN" && admin.role !== "OPERATOR") {
+  // OT requests are also SENIOR's to decide; leave/booking stay ADMIN/OPERATOR-only.
+  const allowed = kind === "OT_REQUEST" ? isOtManagerRole(admin.role) : admin.role === "ADMIN" || admin.role === "OPERATOR";
+  if (!allowed) {
     await replyLineMessage(replyToken, "คุณไม่มีสิทธิ์ดำเนินการนี้ค่ะ");
     return;
   }
@@ -841,6 +808,60 @@ async function handleApprovalDecision(
   const actionLabel = decision === "APPROVE" ? "อนุมัติ" : "ปฏิเสธ";
 
   try {
+    if (kind === "OT_REQUEST") {
+      const result = await prisma.otApprovalRequest.updateMany({
+        where: { id, status: "PENDING" },
+        data: { status, decidedById: admin.id, decidedAt: new Date() },
+      });
+      if (result.count === 0) {
+        await replyLineMessage(replyToken, "คำขอนี้มีคนดำเนินการไปแล้วค่ะ");
+        return;
+      }
+
+      const request = await prisma.otApprovalRequest.findUnique({ where: { id } });
+      if (!request) return;
+
+      const target = await prisma.user.findUnique({ where: { id: request.userId } });
+      const targetName = target ? target.nickname || target.fullName || target.username : "พนักงาน";
+
+      // SELF_REQUEST hours are known upfront, so approval can grant right
+      // away (only if they're still checked in at the office). OUTSIDE_AUTO
+      // requests are open-ended — approval here just clears them to accrue
+      // OT; the actual OtGrant is realized once they check out for real.
+      if (decision === "APPROVE" && request.source === "SELF_REQUEST" && request.requestedHours) {
+        const openCheckIn = await getOpenCheckIn(request.userId);
+        if (openCheckIn && openCheckIn.location === "OFFICE") {
+          await grantOtToUser({
+            userId: request.userId,
+            hours: request.requestedHours,
+            reason: request.reason || "คำขอ OT จากพนักงาน",
+            grantedById: admin.id,
+            openCheckIn,
+          });
+        }
+      }
+
+      await prisma.activityLog.create({
+        data: {
+          userId: admin.id,
+          action: decision === "APPROVE" ? "APPROVE_OT_REQUEST" : "REJECT_OT_REQUEST",
+          details: `${decision === "APPROVE" ? "Approved" : "Rejected"} OT request ${id} via LINE`,
+        },
+      });
+
+      revalidatePath("/ot");
+      revalidatePath("/attendance");
+      revalidatePath("/work-schedule");
+      await replyLineMessage(replyToken, `${icon} ${actionLabel}คำขอ OT ของ ${targetName} เรียบร้อยแล้วค่ะ`);
+      if (target) {
+        await notifyUser(
+          target.id,
+          `${icon} คำขอ OT ของคุณ${request.requestedHours ? ` (${request.requestedHours} ชม.)` : ""} ${decision === "APPROVE" ? "ได้รับการอนุมัติแล้ว" : "ถูกปฏิเสธ"}ค่ะ`
+        );
+      }
+      return;
+    }
+
     if (kind === "LEAVE") {
       // updateMany + count, not update, so a second admin tapping the same
       // button after someone else already decided gets told that plainly

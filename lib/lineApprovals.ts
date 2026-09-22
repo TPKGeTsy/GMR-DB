@@ -1,6 +1,7 @@
 import prisma from "./prisma";
 import { logError } from "./logger";
 import { pushLineMessage, type QuickReplyOption } from "./line";
+import { OT_MANAGER_ROLES } from "./roles";
 
 export type ApprovalKind = "LEAVE" | "BOOKING";
 
@@ -26,6 +27,27 @@ export async function notifyAdminsForApproval(kind: ApprovalKind, id: string, su
     );
   } catch (error) {
     logError("Failed to notify admins for approval", error, { kind, id });
+  }
+}
+
+/** Same as notifyAdminsForApproval, but for OT-specific approval requests
+ *  (OtApprovalRequest — self-serve OT requests and outside-work-trip
+ *  auto-requests) — SENIOR should see these too, unlike leave/booking. */
+export async function notifyOtManagers(id: string, summary: string): Promise<void> {
+  try {
+    const approvers = await prisma.user.findMany({
+      where: { role: { in: OT_MANAGER_ROLES }, lineUserId: { not: null } },
+      select: { lineUserId: true },
+    });
+
+    const quickReplies: QuickReplyOption[] = [
+      { label: "✅ อนุมัติ", text: `APPROVE_OT_REQUEST:${id}` },
+      { label: "❌ ปฏิเสธ", text: `REJECT_OT_REQUEST:${id}` },
+    ];
+
+    await Promise.all(approvers.map((a) => pushLineMessage(a.lineUserId!, summary, quickReplies)));
+  } catch (error) {
+    logError("Failed to notify OT managers", error, { id });
   }
 }
 

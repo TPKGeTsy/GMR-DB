@@ -35,6 +35,7 @@ export default function RoleSelect({ userId, initialRole }: RoleSelectProps) {
     >
       <option value="USER">USER</option>
       <option value="OPERATOR">OPERATOR</option>
+      <option value="SENIOR">SENIOR</option>
       <option value="ADMIN">ADMIN</option>
     </select>
   );

@@ -1,8 +1,10 @@
 import { auth } from "@/auth";
-import { getOtGrants } from "@/app/actions/ot";
+import { getOtGrants, getPendingOtApprovalRequests } from "@/app/actions/ot";
 import DeleteOtGrantButton from "@/components/DeleteOtGrantButton";
+import OtApprovalRequestActions from "@/components/OtApprovalRequestActions";
 import { formatThaiDateTime } from "@/lib/datetime";
-import { Timer } from "lucide-react";
+import { isOtManagerRole } from "@/lib/roles";
+import { Timer, Bell } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -13,15 +15,21 @@ const STATUS_LABEL: Record<string, { text: string; className: string }> = {
   DECLINED: { text: "ไม่รับ", className: "bg-red-100 text-red-700" },
 };
 
+const REQUEST_SOURCE_LABEL: Record<string, string> = {
+  SELF_REQUEST: "คำขอจากพนักงาน",
+  OUTSIDE_AUTO: "ทำงานนอกสถานที่",
+};
+
 export default async function OtPage() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN" && session?.user?.role !== "OPERATOR") {
+  if (!isOtManagerRole(session?.user?.role)) {
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
   const isAdmin = session?.user?.role === "ADMIN";
 
-  const result = await getOtGrants();
+  const [result, pendingResult] = await Promise.all([getOtGrants(), getPendingOtApprovalRequests()]);
   const grants = result.success && result.data ? result.data : [];
+  const pendingRequests = pendingResult.success && pendingResult.data ? pendingResult.data : [];
 
   return (
     <div className="space-y-6">
@@ -32,6 +40,37 @@ export default async function OtPage() {
         </h1>
         <p className="text-gray-500">ประวัติการเปิด OT ทั้งหมด — สั่งผ่านไลน์ด้วยคำสั่ง &quot;เปิด OT&quot;</p>
       </div>
+
+      {pendingRequests.length > 0 && (
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg border border-orange-200">
+          <div className="px-4 py-3 border-b border-orange-100 bg-orange-50 flex items-center">
+            <Bell className="w-4 h-4 mr-2 text-orange-600" />
+            <h2 className="text-sm font-semibold text-orange-800">
+              คำขอ OT รออนุมัติ ({pendingRequests.length})
+            </h2>
+          </div>
+          <ul className="divide-y divide-gray-100">
+            {pendingRequests.map((r) => (
+              <li key={r.id} className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">
+                    {r.employeeName}
+                    <span className="ml-2 text-xs font-normal text-gray-400">
+                      {REQUEST_SOURCE_LABEL[r.source] || r.source}
+                    </span>
+                  </p>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    {r.requestedHours ? `${r.requestedHours} ชม.` : "ยังไม่ทราบชั่วโมง (รอเช็คเอาท์)"}
+                    {r.location ? ` · ${r.location}` : ""}
+                    {r.reason ? ` · ${r.reason}` : ""}
+                  </p>
+                </div>
+                <OtApprovalRequestActions id={r.id} employeeName={r.employeeName} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="bg-white shadow overflow-hidden sm:rounded-lg">
         <div className="overflow-x-auto">

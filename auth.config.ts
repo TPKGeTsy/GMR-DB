@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import { isOtManagerRole } from "@/lib/roles";
 
 export const authConfig = {
   pages: {
@@ -49,8 +50,8 @@ export const authConfig = {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
-      // /ot is ADMIN or OPERATOR — same audience that can grant OT via LINE
-      if (isOnOt && role !== "ADMIN" && role !== "OPERATOR") {
+      // /ot is ADMIN, OPERATOR, or SENIOR — same audience that can grant/approve OT via LINE
+      if (isOnOt && !isOtManagerRole(role)) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
