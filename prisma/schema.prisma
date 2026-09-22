@@ -82,6 +82,8 @@ model User {
   pendingOtGrantsAsTarget LinePendingOtGrant[]
   otApprovalRequests        OtApprovalRequest[] @relation("OtApprovalRequestUser")
   decidedOtApprovalRequests OtApprovalRequest[] @relation("OtApprovalRequestDecider")
+  createdOutsideTrips       OutsideWorkTrip[]   @relation("OutsideTripCreatedBy")
+  outsideWorkTripMemberships OutsideWorkTripMember[]
 
   @@map("users")
 }
@@ -215,6 +217,13 @@ model CheckIn {
   otGrantedById    String?   @map("ot_granted_by_id")
   otGrantedBy      User?     @relation("OtGrantedBy", fields: [otGrantedById], references: [id])
   otGrantedAt      DateTime? @map("ot_granted_at")
+  // Plain reference (no FK/relation, same rationale as OtGrant's) to the
+  // OutsideWorkTrip this OUTSIDE session belongs to, if any — lets the
+  // reminder cron skip the self-serve ask-continue-OT prompt for it (OT
+  // counts automatically, pending manager approval, instead) and lets the
+  // hourly check-in nudge find it.
+  tripId        String?   @map("trip_id")
+  otNudgeSentAt DateTime? @map("ot_nudge_sent_at")
 
   @@map("check_ins")
 }
@@ -319,6 +328,56 @@ model OtApprovalRequest {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("ot_approval_requests")
+}
+
+// A group of employees registered as working outside the office together —
+// created via the LINE "ไปทำงานนอกสถานที่" flow. Any employee can start one
+// (urgent field work is often decided on the ground, not by a manager), not
+// just admin/operator. Each member gets their own OUTSIDE CheckIn tagged
+// with this trip's id (CheckIn.tripId), which is what lets the reminder
+// cron skip the self-serve OT-ask for them and raise an approval request
+// instead once they cross into OT territory.
+model OutsideWorkTrip {
+  id          String   @id @default(cuid())
+  location    String
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation("OutsideTripCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  members     OutsideWorkTripMember[]
+
+  @@map("outside_work_trips")
+}
+
+model OutsideWorkTripMember {
+  id        String  @id @default(cuid())
+  tripId    String  @map("trip_id")
+  trip      OutsideWorkTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String  @map("user_id")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Plain reference (no FK/relation) to the OUTSIDE CheckIn this membership
+  // created — same rationale as elsewhere: survives the CheckIn being later
+  // edited/deleted without needing this row cleaned up in lockstep.
+  checkInId String? @map("check_in_id")
+
+  @@unique([tripId, userId])
+  @@map("outside_work_trip_members")
+}
+
+// Holds the one in-progress "registering an outside-work trip" flow per LINE
+// user, keyed by the *requester's* lineUserId — same stateless-between-taps
+// pattern as LinePendingBorrow/LinePendingOtGrant above, but with a `step`
+// since this flow asks two separate questions (location+headcount, then
+// team members) instead of just one.
+model LinePendingOutsideTrip {
+  id              String   @id @default(cuid())
+  lineUserId      String   @unique @map("line_user_id")
+  step            String   // 'AWAITING_LOCATION_COUNT' | 'AWAITING_MEMBERS'
+  location        String?
+  headcount       Int?
+  selectedUserIds String[] @map("selected_user_ids")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("line_pending_outside_trips")
 }
 
 model EquipmentTemplate {

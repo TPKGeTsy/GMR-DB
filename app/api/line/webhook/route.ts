@@ -9,8 +9,8 @@ import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant
 import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
 import { isOtManagerRole } from "@/lib/roles";
-import { grantOtToUser, getOpenCheckIn } from "@/lib/otGrant";
-import type { Asset, LinePendingBorrow, User } from "@prisma/client";
+import { grantOtToUser, getOpenCheckIn, realizeOutsideTripOtGrant } from "@/lib/otGrant";
+import type { Asset, LinePendingBorrow, LinePendingOutsideTrip, User } from "@prisma/client";
 
 interface LineWebhookEvent {
   type: string;
@@ -63,6 +63,21 @@ const OT_HOUR_OPTIONS = [1, 2, 3, 4];
 // The employee's own response to the OT push notification.
 const OT_ACCEPT_COMMAND = /^OT_ACCEPT:(.+)$/;
 const OT_DECLINE_COMMAND = /^OT_DECLINE:(.+)$/;
+// Any employee (not just admin/operator — this is urgent-field-work
+// self-service) can start an outside-work-trip registration with a natural
+// sentence like "ต้องไปทำงานนอกสถานที่อ่า". Deliberately a plain keyword
+// check, not an AI intent call — the "เปิดOT" trigger bug earlier showed
+// what happens when a workflow-critical trigger relies on something less
+// deterministic and falls through to the AI Q&A fallback instead.
+function looksLikeOutsideTripRequest(text: string): boolean {
+  return /นอกสถานที่/.test(text) && /(ไป|ทำงาน|ออก)/.test(text);
+}
+// "ไป Sharp 3 คน" — location text (anything, incl. spaces) then a headcount
+// ending in "คน". The leading "ไป" is optional (someone might just type
+// "Sharp 3 คน").
+const OUTSIDE_TRIP_LOCATION_COUNT = /^(?:ไป\s*)?(.+?)\s*(\d+)\s*คน\s*$/;
+const OUTTRIP_TOGGLE_COMMAND = /^OUTTRIP_TOGGLE:(.+)$/;
+const OUTTRIP_CONFIRM_COMMAND = "OUTTRIP_CONFIRM";
 
 function normalizeCommand(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
@@ -193,6 +208,33 @@ async function handleEvent(event: LineWebhookEvent) {
     return;
   }
 
+  // The one in-progress "registering an outside-work trip" flow, keyed by
+  // the requester's own lineUserId. AWAITING_LOCATION_COUNT takes the next
+  // message as free-text location+headcount; AWAITING_MEMBERS is entirely
+  // button-driven (OUTTRIP_TOGGLE/OUTTRIP_CONFIRM below), so a stray text
+  // message during that step is just redirected back to the buttons.
+  const pendingOutsideTrip = await prisma.linePendingOutsideTrip.findUnique({ where: { lineUserId } });
+  if (pendingOutsideTrip) {
+    const isExpired = Date.now() - pendingOutsideTrip.createdAt.getTime() > PENDING_EXPIRY_MS;
+    if (isExpired) {
+      await prisma.linePendingOutsideTrip.delete({ where: { id: pendingOutsideTrip.id } });
+    } else if (CANCEL_WORDS.has(normalized)) {
+      await prisma.linePendingOutsideTrip.delete({ where: { id: pendingOutsideTrip.id } });
+      await replyLineMessage(replyToken, "ยกเลิกการลงทะเบียนไปทำงานนอกสถานที่แล้วค่ะ");
+      return;
+    } else if (pendingOutsideTrip.step === "AWAITING_LOCATION_COUNT") {
+      await handleOutsideTripLocationCount(pendingOutsideTrip, text, replyToken);
+      return;
+    } else if (!OUTTRIP_TOGGLE_COMMAND.test(text) && text !== OUTTRIP_CONFIRM_COMMAND) {
+      // AWAITING_MEMBERS is button-driven — a toggle/confirm tap falls
+      // through to its own handler further down; anything else (stray free
+      // text) gets redirected back to the buttons instead of being treated
+      // as a new command.
+      await replyLineMessage(replyToken, `กดปุ่มเลือกสมาชิกด้านบนได้เลยค่ะ หรือพิมพ์ "ยกเลิก" เพื่อยกเลิกนะคะ`);
+      return;
+    }
+  }
+
   if (text === END_WORK_TEXT) {
     if (!openCheckIn) {
       await replyLineMessage(replyToken, "ดูเหมือนว่าคุณเช็คเอาท์ไปแล้วนะคะ ไม่มีการเช็คอินที่เปิดอยู่ค่ะ");
@@ -205,6 +247,10 @@ async function handleEvent(event: LineWebhookEvent) {
     await prisma.activityLog.create({
       data: { userId: user.id, action: "CHECK_OUT", details: "Checked out via LINE bot (no photo)" },
     });
+    if (openCheckIn.tripId) {
+      await realizeOutsideTripOtGrant(openCheckIn.id, user.id);
+      revalidatePath("/ot");
+    }
     revalidatePath(`/users/${user.id}`);
     revalidatePath("/attendance");
     await replyLineMessage(replyToken, "บันทึกเช็คเอาท์เรียบร้อยค่ะ ✅ พักผ่อนเยอะๆ นะคะ วันนี้เหนื่อยแล้ว");
@@ -259,6 +305,23 @@ async function handleEvent(event: LineWebhookEvent) {
   if (otPickMatch) {
     if (!isOtManager) return;
     await handleOtPick(otPickMatch[1], replyToken);
+    return;
+  }
+
+  // Not role-gated — any employee can register an outside-work trip.
+  if (looksLikeOutsideTripRequest(text)) {
+    await handleOutsideTripStart(lineUserId, replyToken);
+    return;
+  }
+
+  const outTripToggleMatch = text.match(OUTTRIP_TOGGLE_COMMAND);
+  if (outTripToggleMatch) {
+    await handleOutsideTripToggle(lineUserId, outTripToggleMatch[1], replyToken);
+    return;
+  }
+
+  if (text === OUTTRIP_CONFIRM_COMMAND) {
+    await handleOutsideTripConfirm(lineUserId, user, replyToken);
     return;
   }
 
@@ -787,6 +850,182 @@ async function handleOtDeclineConfirm(
       `${name} ไม่รับ OT ${grant.hours} ชม. ที่เปิดให้ค่ะ\nเหตุผล: ${declineReason}`
     );
   }
+}
+
+/** Step 1 of the outside-work-trip flow: any employee sends a free-text
+ *  message like "ต้องไปทำงานนอกสถานที่อ่า" — ask where and how many. */
+async function handleOutsideTripStart(lineUserId: string, replyToken: string) {
+  await prisma.linePendingOutsideTrip.upsert({
+    where: { lineUserId },
+    create: { lineUserId, step: "AWAITING_LOCATION_COUNT", selectedUserIds: [] },
+    update: { step: "AWAITING_LOCATION_COUNT", location: null, headcount: null, selectedUserIds: [], createdAt: new Date() },
+  });
+  await replyLineMessage(replyToken, `โอเคค่ะ ไปที่ไหน และไปกี่คนคะ? (เช่น "ไป Sharp 3 คน")`);
+}
+
+/** Step 2: parses "<สถานที่> <จำนวน> คน" — on success moves to
+ *  AWAITING_MEMBERS and shows the team picker; on failure re-asks without
+ *  advancing the step. */
+async function handleOutsideTripLocationCount(
+  pending: LinePendingOutsideTrip,
+  text: string,
+  replyToken: string
+) {
+  const match = text.trim().match(OUTSIDE_TRIP_LOCATION_COUNT);
+  const location = match?.[1]?.trim();
+  const headcount = match ? Number(match[2]) : NaN;
+
+  if (!match || !location || !Number.isInteger(headcount) || headcount < 1) {
+    await replyLineMessage(replyToken, `รบกวนระบุสถานที่และจำนวนคนด้วยนะคะ เช่น "ไป Sharp 3 คน"`);
+    return;
+  }
+
+  const updated = await prisma.linePendingOutsideTrip.update({
+    where: { id: pending.id },
+    data: { step: "AWAITING_MEMBERS", location, headcount, selectedUserIds: [] },
+  });
+
+  await replyOutsideTripPicker(updated, replyToken);
+}
+
+/** Builds the team-picker Quick Reply for the current selection state —
+ *  candidates are everyone currently checked in at the office (the same
+ *  eligibility query as handleOtGrantStart) plus anyone already selected,
+ *  so a tap never makes a name disappear. Each name toggles on tap (✅
+ *  prefix when selected); a "ยืนยันทีม (n/headcount)" button is always
+ *  last. This is the closest LINE-native approximation of ticking several
+ *  boxes at once — Quick Reply has no true multi-select, so each tap
+ *  re-sends the same list with the updated state instead of navigating
+ *  anywhere, keeping the whole thing in one chat flow. */
+async function buildOutsideTripPickerMessage(pending: {
+  location: string | null;
+  headcount: number | null;
+  selectedUserIds: string[];
+}): Promise<{ text: string; options: QuickReplyOption[] }> {
+  const latestPerUser = await prisma.checkIn.findMany({
+    orderBy: { createdAt: "desc" },
+    distinct: ["userId"],
+    include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
+  });
+  const eligible = latestPerUser.filter((c) => c.type === "IN" && c.location === "OFFICE");
+
+  const candidates = eligible.map((c) => ({
+    id: c.userId,
+    name: c.user.nickname || c.user.fullName || c.user.username,
+  }));
+  const missingSelected = pending.selectedUserIds.filter((id) => !candidates.some((c) => c.id === id));
+  if (missingSelected.length > 0) {
+    const users = await prisma.user.findMany({ where: { id: { in: missingSelected } } });
+    for (const u of users) candidates.push({ id: u.id, name: u.nickname || u.fullName || u.username });
+  }
+
+  // LINE caps Quick Reply at 13 items — leave one slot for the confirm button.
+  const options: QuickReplyOption[] = candidates.slice(0, 12).map((c) => ({
+    label: `${pending.selectedUserIds.includes(c.id) ? "✅ " : ""}${c.name}`,
+    text: `OUTTRIP_TOGGLE:${c.id}`,
+  }));
+  options.push({
+    label: `ยืนยันทีม (${pending.selectedUserIds.length}/${pending.headcount ?? "?"})`,
+    text: OUTTRIP_CONFIRM_COMMAND,
+  });
+
+  const text = `ไป "${pending.location}" ${pending.headcount} คน — แตะชื่อเพื่อเลือก/ยกเลิกสมาชิก แล้วกด "ยืนยันทีม" ค่ะ 👇`;
+  return { text, options };
+}
+
+async function replyOutsideTripPicker(
+  pending: { location: string | null; headcount: number | null; selectedUserIds: string[] },
+  replyToken: string
+) {
+  const { text, options } = await buildOutsideTripPickerMessage(pending);
+  await replyLineMessage(replyToken, text, options);
+}
+
+/** A tap on one of the team-picker names — adds/removes it from the
+ *  selection and resends the same picker with the updated state. */
+async function handleOutsideTripToggle(lineUserId: string, targetUserId: string, replyToken: string) {
+  const pending = await prisma.linePendingOutsideTrip.findUnique({ where: { lineUserId } });
+  if (!pending || pending.step !== "AWAITING_MEMBERS") {
+    await replyLineMessage(replyToken, `ไม่พบรายการที่กำลังลงทะเบียนอยู่ค่ะ ลองเริ่มใหม่โดยพิมพ์ว่าจะไปทำงานนอกสถานที่นะคะ`);
+    return;
+  }
+
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) {
+    await replyLineMessage(replyToken, "ไม่พบพนักงานคนนี้ค่ะ");
+    return;
+  }
+
+  const selectedUserIds = pending.selectedUserIds.includes(targetUserId)
+    ? pending.selectedUserIds.filter((id) => id !== targetUserId)
+    : [...pending.selectedUserIds, targetUserId];
+
+  const updated = await prisma.linePendingOutsideTrip.update({
+    where: { id: pending.id },
+    data: { selectedUserIds, createdAt: new Date() },
+  });
+
+  await replyOutsideTripPicker(updated, replyToken);
+}
+
+/** "ยืนยันทีม" tapped — creates the trip, closes each selected member's
+ *  open session (if any) and opens a fresh OUTSIDE one tagged with the
+ *  trip, then notifies everyone. Any member already on an open IN session
+ *  (OFFICE or a previous OUTSIDE trip) gets auto-checked-out of it first —
+ *  a person can only ever have one open session. */
+async function handleOutsideTripConfirm(lineUserId: string, requester: User, replyToken: string) {
+  const pending = await prisma.linePendingOutsideTrip.findUnique({ where: { lineUserId } });
+  if (!pending || pending.step !== "AWAITING_MEMBERS") {
+    await replyLineMessage(replyToken, "ไม่พบรายการที่กำลังลงทะเบียนอยู่ค่ะ");
+    return;
+  }
+  if (pending.selectedUserIds.length === 0) {
+    await replyLineMessage(replyToken, "ยังไม่ได้เลือกสมาชิกเลยค่ะ แตะชื่อเพื่อเลือกก่อนนะคะ");
+    return;
+  }
+
+  const location = pending.location || "-";
+  const members = await prisma.user.findMany({ where: { id: { in: pending.selectedUserIds } } });
+
+  await prisma.$transaction(async (tx) => {
+    const created = await tx.outsideWorkTrip.create({ data: { location, createdById: requester.id } });
+
+    for (const member of members) {
+      const latest = await tx.checkIn.findFirst({ where: { userId: member.id }, orderBy: { createdAt: "desc" } });
+      if (latest?.type === "IN") {
+        await tx.checkIn.create({
+          data: {
+            userId: member.id,
+            type: "OUT",
+            location: latest.location,
+            confidence: null,
+            note: `เปลี่ยนเป็นทำงานนอกสถานที่ (${location})`,
+          },
+        });
+      }
+      const checkIn = await tx.checkIn.create({
+        data: { userId: member.id, type: "IN", location: "OUTSIDE", confidence: null, note: location, tripId: created.id },
+      });
+      await tx.outsideWorkTripMember.create({
+        data: { tripId: created.id, userId: member.id, checkInId: checkIn.id },
+      });
+    }
+
+    await tx.linePendingOutsideTrip.delete({ where: { id: pending.id } });
+  });
+
+  revalidatePath("/attendance");
+  revalidatePath("/work-schedule");
+
+  const names = members.map((m) => m.nickname || m.fullName || m.username).join(", ");
+  await replyLineMessage(replyToken, `บันทึกทีมไปทำงานนอกสถานที่ที่ "${location}" เรียบร้อยค่ะ ✅\nสมาชิก: ${names}`);
+
+  const requesterName = requester.nickname || requester.fullName || requester.username;
+  await Promise.all(
+    members
+      .filter((m) => m.id !== requester.id && m.lineUserId)
+      .map((m) => pushLineMessage(m.lineUserId!, `${requesterName} บันทึกให้คุณไปทำงานนอกสถานที่ที่ "${location}" ค่ะ 📍`))
+  );
 }
 
 async function handleApprovalDecision(
