@@ -8,6 +8,8 @@ import { revalidatePath } from "next/cache";
 import { isOtManagerRole } from "@/lib/roles";
 import { notifyUser } from "@/lib/lineApprovals";
 import { grantOtToUser, getOpenCheckIn } from "@/lib/otGrant";
+import { buildDailySummary, type CheckInEvent } from "@/lib/attendance";
+import { bangkokDayRange } from "@/lib/datetime";
 
 export interface OtGrantRow {
   id: string;
@@ -205,5 +207,90 @@ export async function decideOtApprovalRequest(id: string, decision: "APPROVE" | 
   } catch (error) {
     logError("Error deciding OT approval request:", error);
     return { success: false, error: "ดำเนินการไม่สำเร็จ" };
+  }
+}
+
+export interface OtSummaryRow {
+  userId: string;
+  employeeName: string;
+  daysWorked: number;
+  totalHours: number;
+  totalOtHours: number;
+  /** Days with otHours > 3 — the "gets a meal" threshold (web-only badge, no notification). */
+  mealEligibleDays: number;
+  /** Sum of ACCEPTED OtGrant.hours in range — the formally-granted figure, for
+   *  comparing against totalOtHours (the raw computed figure from actual scan times). */
+  formalOtHours: number;
+}
+
+/** Per-employee days-worked/OT rollup for a date range — the /ot/summary
+ *  page. Reuses buildDailySummary the same way getAttendanceTableRows does
+ *  (computed from each user's *entire* check-in history so overnight
+ *  sessions pair correctly, then filtered down to the requested range). */
+export async function getOtSummary({ from, to }: { from?: string; to?: string }): Promise<
+  { success: true; data: OtSummaryRow[] } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (!isOtManagerRole(session?.user?.role)) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const users = await prisma.user.findMany({
+      select: { id: true, username: true, fullName: true, nickname: true },
+    });
+
+    const allCheckIns = await prisma.checkIn.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { userId: true, type: true, location: true, createdAt: true },
+    });
+
+    const byUser = new Map<string, CheckInEvent[]>();
+    for (const c of allCheckIns) {
+      if (!byUser.has(c.userId)) byUser.set(c.userId, []);
+      byUser.get(c.userId)!.push(c);
+    }
+
+    const createdAtFilter: { gte?: Date; lt?: Date } = {};
+    if (from) createdAtFilter.gte = bangkokDayRange(from).start;
+    if (to) createdAtFilter.lt = bangkokDayRange(to).end;
+
+    const grants = await prisma.otGrant.groupBy({
+      by: ["userId"],
+      where: {
+        status: "ACCEPTED",
+        ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
+      },
+      _sum: { hours: true },
+    });
+    const formalOtByUser = new Map(grants.map((g) => [g.userId, g._sum.hours || 0]));
+
+    const data: OtSummaryRow[] = [];
+    for (const user of users) {
+      const events = byUser.get(user.id);
+      if (!events || events.length === 0) continue;
+
+      const daily = buildDailySummary(events).filter(
+        (d) => (!from || d.dateKey >= from) && (!to || d.dateKey <= to)
+      );
+      if (daily.length === 0) continue;
+
+      data.push({
+        userId: user.id,
+        employeeName: user.nickname || user.fullName || user.username,
+        daysWorked: daily.filter((d) => d.totalHours > 0).length,
+        totalHours: daily.reduce((sum, d) => sum + d.totalHours, 0),
+        totalOtHours: daily.reduce((sum, d) => sum + d.otHours, 0),
+        mealEligibleDays: daily.filter((d) => d.otHours > 3).length,
+        formalOtHours: formalOtByUser.get(user.id) || 0,
+      });
+    }
+
+    data.sort((a, b) => b.totalOtHours - a.totalOtHours);
+
+    return { success: true, data };
+  } catch (error) {
+    logError("Error building OT summary:", error);
+    return { success: false, error: "Failed to build OT summary" };
   }
 }

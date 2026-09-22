@@ -4,8 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3,
 } from "lucide-react";
+import { isOtManagerRole } from "@/lib/roles";
 
 const linkClass =
   "flex items-center gap-2.5 px-3 py-3 rounded-md text-sm font-medium text-gray-200 hover:bg-gray-800 hover:text-orange-400 transition-colors";
@@ -67,11 +68,17 @@ export default function MobileNavMenu({
                 <CalendarRange className="w-4 h-4" />
                 ตารางงาน (Work Schedule)
               </Link>
-              {(role === "ADMIN" || role === "OPERATOR") && (
-                <Link href="/ot" className={linkClass} onClick={close}>
-                  <Timer className="w-4 h-4" />
-                  OT
-                </Link>
+              {isOtManagerRole(role) && (
+                <>
+                  <Link href="/ot" className={linkClass} onClick={close}>
+                    <Timer className="w-4 h-4" />
+                    OT
+                  </Link>
+                  <Link href="/ot/summary" className={linkClass} onClick={close}>
+                    <BarChart3 className="w-4 h-4" />
+                    สรุป OT (OT Summary)
+                  </Link>
+                </>
               )}
 
               <p className={sectionHeaderClass}>ทรัพยากร</p>

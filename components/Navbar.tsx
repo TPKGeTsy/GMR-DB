@@ -5,6 +5,7 @@ import { getPendingBookingsCount } from "@/app/actions/carbooking";
 import { getPendingLeaveRequestsCount } from "@/app/actions/leave";
 import MobileNavMenu from "./MobileNavMenu";
 import NavDropdown, { type NavDropdownItem } from "./NavDropdown";
+import { isOtManagerRole } from "@/lib/roles";
 
 const linkClass =
   "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
@@ -22,8 +23,11 @@ export default async function Navbar() {
   const workItems: NavDropdownItem[] = [
     { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
     { href: "/work-schedule", label: "ตารางงาน (Work Schedule)", icon: "CalendarRange" },
-    ...(role === "ADMIN" || role === "OPERATOR"
-      ? [{ href: "/ot", label: "OT", icon: "Timer" } as NavDropdownItem]
+    ...(isOtManagerRole(role)
+      ? [
+          { href: "/ot", label: "OT", icon: "Timer" } as NavDropdownItem,
+          { href: "/ot/summary", label: "สรุป OT (OT Summary)", icon: "BarChart3" } as NavDropdownItem,
+        ]
       : []),
   ];
 
