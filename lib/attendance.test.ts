@@ -116,4 +116,33 @@ describe("buildDailySummary", () => {
     ]);
     expect(rows[0].location).toBe("OUTSIDE");
   });
+
+  it("attributes a session crossing midnight entirely to the day it started", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T09:00:00"),
+      ev("OUT", "2026-01-05T12:00:00"), // lunch break
+      ev("IN", "2026-01-05T13:00:00"),
+      ev("OUT", "2026-01-06T07:00:00"), // OT overnight, ends after midnight
+    ]);
+    // no spurious zero-hour row for the day the OUT landed on
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dateKey).toBe("2026-01-05");
+    expect(rows[0].stillWorking).toBe(false);
+    // 3h (09-12) + 18h (13:00 -> next day 07:00, over 8h so -1h lunch) = 20h
+    expect(rows[0].totalHours).toBeCloseTo(20, 5);
+    expect(rows[0].regularHours).toBeCloseTo(8, 5);
+    expect(rows[0].otHours).toBeCloseTo(12, 5);
+    expect(rows[0].startTime?.toISOString()).toBe(new Date("2026-01-05T09:00:00").toISOString());
+    expect(rows[0].endTime?.toISOString()).toBe(new Date("2026-01-06T07:00:00").toISOString());
+  });
+
+  it("still marks the day as working when an overnight session hasn't checked out yet", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T22:00:00"), // clocked in late, still working past midnight
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dateKey).toBe("2026-01-05");
+    expect(rows[0].stillWorking).toBe(true);
+    expect(rows[0].openSince?.toISOString()).toBe(new Date("2026-01-05T22:00:00").toISOString());
+  });
 });

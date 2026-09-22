@@ -42,52 +42,85 @@ export function toCsv(header: string[], rows: string[][]): string {
     .join("\r\n");
 }
 
+interface Session {
+  start: Date;
+  end: Date | null; // null = still open (no matching OUT yet)
+  location: string;
+}
+
+/** Pairs IN events with the next OUT chronologically, across the *entire*
+ *  event list — deliberately not scoped to a single calendar day, so an
+ *  overnight session (IN one day, OUT the next) stays one session instead
+ *  of having its OUT silently stranded in a different day's bucket with no
+ *  open IN to close, which used to drop that whole session's hours. */
+function pairSessions(checkIns: CheckInEvent[]): Session[] {
+  const sorted = [...checkIns].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const sessions: Session[] = [];
+  let openStart: Date | null = null;
+  let openLocation: string | null = null;
+  for (const event of sorted) {
+    if (event.type === "IN") {
+      if (!openStart) {
+        openStart = event.createdAt;
+        openLocation = event.location;
+      }
+    } else if (event.type === "OUT" && openStart) {
+      sessions.push({ start: openStart, end: event.createdAt, location: openLocation! });
+      openStart = null;
+      openLocation = null;
+    }
+  }
+  if (openStart) {
+    sessions.push({ start: openStart, end: null, location: openLocation! });
+  }
+
+  return sessions;
+}
+
 /** Groups check-in/out events by local calendar day and computes worked hours.
  *  Sums every completed IN→OUT session that day (so a lunch break or a
  *  second check-in/out cycle is counted correctly, not just first-in to
- *  last-out), then splits anything past REGULAR_HOURS_CAP into overtime. */
+ *  last-out), then splits anything past REGULAR_HOURS_CAP into overtime.
+ *  A session is attributed to the day it *started* — so an overnight OT
+ *  shift's hours show up entirely on the day it began, not split (or lost)
+ *  across the midnight boundary. */
 export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
-  const byDate = new Map<string, CheckInEvent[]>();
+  const sessions = pairSessions(checkIns);
 
-  for (const c of checkIns) {
-    const dateKey = bangkokDateKey(c.createdAt);
+  const byDate = new Map<string, Session[]>();
+  for (const session of sessions) {
+    const dateKey = bangkokDateKey(session.start);
     if (!byDate.has(dateKey)) byDate.set(dateKey, []);
-    byDate.get(dateKey)!.push(c);
+    byDate.get(dateKey)!.push(session);
   }
 
   const rows: DailySummaryRow[] = [];
-  for (const [dateKey, events] of byDate) {
-    events.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    const firstIn = events.find((e) => e.type === "IN");
-    const lastOut = [...events].reverse().find((e) => e.type === "OUT");
-    const lastEvent = events[events.length - 1];
-
+  for (const [dateKey, daySessions] of byDate) {
     let totalMs = 0;
-    let openIn: Date | null = null;
-    for (const event of events) {
-      if (event.type === "IN") {
-        if (!openIn) openIn = event.createdAt;
-      } else if (event.type === "OUT" && openIn) {
-        let sessionMs = event.createdAt.getTime() - openIn.getTime();
-        if (sessionMs > REGULAR_HOURS_CAP * 3_600_000) {
-          sessionMs -= LUNCH_BREAK_HOURS * 3_600_000;
-        }
-        totalMs += sessionMs;
-        openIn = null;
+    for (const session of daySessions) {
+      if (session.end === null) continue;
+      let sessionMs = session.end.getTime() - session.start.getTime();
+      if (sessionMs > REGULAR_HOURS_CAP * 3_600_000) {
+        sessionMs -= LUNCH_BREAK_HOURS * 3_600_000;
       }
+      totalMs += sessionMs;
     }
 
     const totalHours = totalMs / 3_600_000;
     const regularHours = Math.min(totalHours, REGULAR_HOURS_CAP);
     const otHours = Math.max(0, totalHours - REGULAR_HOURS_CAP);
 
+    const lastSession = daySessions[daySessions.length - 1];
+    const stillWorking = lastSession.end === null;
+
     rows.push({
       dateKey,
-      startTime: firstIn?.createdAt || null,
-      endTime: lastOut?.createdAt || null,
-      location: firstIn?.location || lastEvent.location,
-      stillWorking: openIn !== null,
-      openSince: openIn,
+      startTime: daySessions[0].start,
+      endTime: stillWorking ? null : lastSession.end,
+      location: daySessions[0].location,
+      stillWorking,
+      openSince: stillWorking ? lastSession.start : null,
       totalHours,
       regularHours,
       otHours,
