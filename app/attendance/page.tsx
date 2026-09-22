@@ -11,19 +11,19 @@ export const dynamic = "force-dynamic";
 export default async function AttendancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; from?: string; to?: string; type?: string }>;
+  searchParams: Promise<{ page?: string; from?: string; to?: string; type?: string; otOnly?: string }>;
 }) {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
 
-  const { page, from, to, type } = await searchParams;
+  const { page, from, to, type, otOnly } = await searchParams;
   const currentPage = Number(page) || 1;
   const typeFilter = type === "IN" || type === "OUT" ? type : undefined;
 
   const [result, employeeOptionsResult] = await Promise.all([
-    getAttendanceTableRows({ page: currentPage, limit: 50, from, to, type: typeFilter }),
+    getAttendanceTableRows({ page: currentPage, limit: 50, from, to, type: typeFilter, otOnly: otOnly === "1" }),
     getEmployeeOptions(),
   ]);
   const rows = result.success && result.data ? result.data : [];

@@ -223,6 +223,7 @@ export async function getAttendanceTableRows({
   from,
   to,
   type,
+  otOnly,
 }: {
   page?: number;
   limit?: number;
@@ -230,6 +231,8 @@ export async function getAttendanceTableRows({
   from?: string;
   to?: string;
   type?: "IN" | "OUT";
+  /** Only rows on a day where that employee's computed dailyOtHours > 0. */
+  otOnly?: boolean;
 } = {}): Promise<
   | { success: true; data: AttendanceTableRow[]; totalPages: number }
   | { success: false; error: string }
@@ -244,28 +247,13 @@ export async function getAttendanceTableRows({
     if (from) createdAtFilter.gte = bangkokDayRange(from).start;
     if (to) createdAtFilter.lt = bangkokDayRange(to).end;
 
-    // Filters only narrow which rows are *displayed* (`logs`/`totalCount`) —
-    // `allCheckIns` stays unfiltered so a day's total/OT hours keep
-    // reflecting the whole day even when e.g. only "IN" rows are shown.
-    const where = {
-      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
-      ...(type ? { type } : {}),
-    };
-
-    const [logs, totalCount, allCheckIns] = await Promise.all([
-      prisma.checkIn.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
-        include: { user: { select: { username: true, fullName: true, nickname: true } } },
-      }),
-      prisma.checkIn.count({ where }),
-      prisma.checkIn.findMany({
-        orderBy: { createdAt: "asc" },
-        select: { userId: true, type: true, location: true, createdAt: true },
-      }),
-    ]);
+    // Always fetched unfiltered — a day's total/OT hours must reflect the
+    // whole day even when other filters narrow which rows are *displayed*,
+    // and (when otOnly is set) this is also what decides which days qualify.
+    const allCheckIns = await prisma.checkIn.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { userId: true, type: true, location: true, createdAt: true },
+    });
 
     const byUser = new Map<string, { type: string; location: string; createdAt: Date }[]>();
     for (const c of allCheckIns) {
@@ -274,6 +262,9 @@ export async function getAttendanceTableRows({
     }
 
     const dailyLookup = new Map<string, Map<string, { totalHours: number; otHours: number; stillWorking: boolean }>>();
+    // (userId, dateKey) pairs with OT hours, within the from/to window if
+    // given — what an otOnly filter is built from below.
+    const otDays: { userId: string; dateKey: string }[] = [];
     for (const [userId, events] of byUser) {
       const dayMap = new Map(
         buildDailySummary(events).map((d) => [
@@ -282,7 +273,43 @@ export async function getAttendanceTableRows({
         ])
       );
       dailyLookup.set(userId, dayMap);
+      if (otOnly) {
+        for (const [dateKey, d] of dayMap) {
+          if (d.otHours > 0 && (!from || dateKey >= from) && (!to || dateKey <= to)) {
+            otDays.push({ userId, dateKey });
+          }
+        }
+      }
     }
+
+    // Filters only narrow which rows are *displayed* (`logs`/`totalCount`) —
+    // dailyLookup above stays keyed off the unfiltered allCheckIns.
+    const where = {
+      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
+      ...(type ? { type } : {}),
+      ...(otOnly
+        ? {
+            OR:
+              otDays.length > 0
+                ? otDays.map(({ userId, dateKey }) => {
+                    const { start, end } = bangkokDayRange(dateKey);
+                    return { userId, createdAt: { gte: start, lt: end } };
+                  })
+                : [{ id: "__no_ot_days__" }], // no OT days in range — show nothing, not everything
+          }
+        : {}),
+    };
+
+    const [logs, totalCount] = await Promise.all([
+      prisma.checkIn.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: { user: { select: { username: true, fullName: true, nickname: true } } },
+      }),
+      prisma.checkIn.count({ where }),
+    ]);
 
     const data: AttendanceTableRow[] = logs.map((log) => {
       const dateKey = bangkokDateKey(log.createdAt);
