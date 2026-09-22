@@ -178,6 +178,26 @@ describe("buildDailySummary", () => {
       ev("OUT", "2026-01-05T17:00:00"), // 9.5h elapsed, over 8h so -1h lunch = 8.5h
     ]);
     expect(rows[0].totalHours).toBeCloseTo(8.5, 5);
-    expect(rows[0].otHours).toBeCloseTo(0.5, 5);
+    // 0.5h of "OT" is below MIN_OT_HOURS — not flagged as OT (see below),
+    // but totalHours still reflects the true elapsed time.
+    expect(rows[0].otHours).toBe(0);
+  });
+
+  it("doesn't flag OT under MIN_OT_HOURS (usually just a late checkout, not real overtime)", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T09:00:00"),
+      ev("OUT", "2026-01-05T18:30:00"), // 9.5h elapsed, over 8h so -1h lunch = 8.5h total — 0.5h "OT"
+    ]);
+    expect(rows[0].totalHours).toBeCloseTo(8.5, 5);
+    expect(rows[0].otHours).toBe(0);
+    expect(rows[0].regularHours).toBeCloseTo(8, 5);
+  });
+
+  it("still flags OT once it reaches MIN_OT_HOURS", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T09:00:00"),
+      ev("OUT", "2026-01-05T19:00:00"), // 10h elapsed, over 8h so -1h lunch = 9h total — 1.0h OT
+    ]);
+    expect(rows[0].otHours).toBeCloseTo(1, 5);
   });
 });

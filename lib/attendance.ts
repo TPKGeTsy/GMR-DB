@@ -33,6 +33,11 @@ export const REGULAR_HOURS_CAP = 8;
 // subtract it before counting hours — e.g. check in→out across 9 elapsed
 // hours (8 work + 1 lunch) should read as 8 worked hours, not 9.
 export const LUNCH_BREAK_HOURS = 1;
+// Below this, "OT" is almost always just checking out a few minutes late,
+// not real overtime — not worth flagging (and it clutters the OT summary).
+// totalHours still reflects the true elapsed time; only the otHours flag/count
+// gets zeroed out.
+export const MIN_OT_HOURS = 1;
 
 export function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) {
@@ -118,7 +123,8 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
 
     const totalHours = totalMs / 3_600_000;
     const regularHours = Math.min(totalHours, REGULAR_HOURS_CAP);
-    const otHours = Math.max(0, totalHours - REGULAR_HOURS_CAP);
+    const rawOtHours = Math.max(0, totalHours - REGULAR_HOURS_CAP);
+    const otHours = rawOtHours < MIN_OT_HOURS ? 0 : rawOtHours;
 
     const lastSession = daySessions[daySessions.length - 1];
     const stillWorking = lastSession.end === null;
