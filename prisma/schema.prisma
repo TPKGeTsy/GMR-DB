@@ -224,6 +224,17 @@ model CheckIn {
   // hourly check-in nudge find it.
   tripId        String?   @map("trip_id")
   otNudgeSentAt DateTime? @map("ot_nudge_sent_at")
+  // Set when an OFFICE check-in more than 45 minutes before 9:00 gets "มีงาน"
+  // (has work) confirmed via the LINE prompt — audit/payroll-legitimacy
+  // marker only, no math effect (buildDailySummary already counts from the
+  // true check-in time).
+  earlyOtConfirmedAt DateTime? @map("early_ot_confirmed_at")
+  // The other early-check-in answer ("แค่มาก่อน" — just came early, not
+  // working) sets this to 09:00 Bangkok that day: buildDailySummary uses it
+  // in place of the true createdAt for hour/OT math on this session, so the
+  // early idle time before 9:00 doesn't count as worked or OT time. The raw
+  // createdAt is still what's *displayed* as the check-in time everywhere.
+  otStartOverride DateTime? @map("ot_start_override")
 
   @@map("check_ins")
 }

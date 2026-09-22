@@ -6,8 +6,8 @@ import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { verifyLineSignature, replyLineMessage, pushLineMessage, type QuickReplyOption } from "@/lib/line";
 import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
-import { notifyAdminsFYI, notifyUser } from "@/lib/lineApprovals";
-import { formatThaiDate, formatThaiDateTime } from "@/lib/datetime";
+import { notifyAdminsFYI, notifyUser, notifyOtManagers } from "@/lib/lineApprovals";
+import { formatThaiDate, formatThaiDateTime, bangkokDateAt } from "@/lib/datetime";
 import { isOtManagerRole } from "@/lib/roles";
 import { grantOtToUser, getOpenCheckIn, realizeOutsideTripOtGrant } from "@/lib/otGrant";
 import type { Asset, LinePendingBorrow, LinePendingOutsideTrip, User } from "@prisma/client";
@@ -78,6 +78,13 @@ function looksLikeOutsideTripRequest(text: string): boolean {
 const OUTSIDE_TRIP_LOCATION_COUNT = /^(?:ไป\s*)?(.+?)\s*(\d+)\s*คน\s*$/;
 const OUTTRIP_TOGGLE_COMMAND = /^OUTTRIP_TOGGLE:(.+)$/;
 const OUTTRIP_CONFIRM_COMMAND = "OUTTRIP_CONFIRM";
+// The two buttons on the early-check-in prompt (see recordCheckIn in
+// app/actions/checkin.ts, which sends them).
+const EARLY_HAS_WORK_COMMAND = /^EARLY_HAS_WORK:(.+)$/;
+const EARLY_JUST_EARLY_COMMAND = /^EARLY_JUST_EARLY:(.+)$/;
+// Self-serve OT request — "ขอ OT <ชั่วโมง> <เหตุผล>", e.g. "ขอ OT 2 มีงานด่วนต้องทำต่อ".
+// Case-insensitive on "OT" so "ขอot"/"ขอ ot" both match.
+const OT_REQUEST_COMMAND = /^ขอ\s*ot\s+(\d+(?:\.\d+)?)\s+(.+)$/i;
 
 function normalizeCommand(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
@@ -322,6 +329,24 @@ async function handleEvent(event: LineWebhookEvent) {
 
   if (text === OUTTRIP_CONFIRM_COMMAND) {
     await handleOutsideTripConfirm(lineUserId, user, replyToken);
+    return;
+  }
+
+  const earlyHasWorkMatch = text.match(EARLY_HAS_WORK_COMMAND);
+  if (earlyHasWorkMatch) {
+    await handleEarlyHasWork(user, earlyHasWorkMatch[1], replyToken);
+    return;
+  }
+
+  const earlyJustEarlyMatch = text.match(EARLY_JUST_EARLY_COMMAND);
+  if (earlyJustEarlyMatch) {
+    await handleEarlyJustEarly(user, earlyJustEarlyMatch[1], replyToken);
+    return;
+  }
+
+  const otRequestMatch = text.match(OT_REQUEST_COMMAND);
+  if (otRequestMatch) {
+    await handleOtSelfRequest(user, Number(otRequestMatch[1]), otRequestMatch[2].trim(), replyToken);
     return;
   }
 
@@ -1026,6 +1051,64 @@ async function handleOutsideTripConfirm(lineUserId: string, requester: User, rep
       .filter((m) => m.id !== requester.id && m.lineUserId)
       .map((m) => pushLineMessage(m.lineUserId!, `${requesterName} บันทึกให้คุณไปทำงานนอกสถานที่ที่ "${location}" ค่ะ 📍`))
   );
+}
+
+/** Early check-in, "มีงาน" tapped — audit-only marker, no math change (see
+ *  CheckIn.earlyOtConfirmedAt's doc comment in schema.prisma). */
+async function handleEarlyHasWork(employee: User, checkInId: string, replyToken: string) {
+  const checkIn = await prisma.checkIn.findUnique({ where: { id: checkInId } });
+  if (!checkIn || checkIn.userId !== employee.id) {
+    await replyLineMessage(replyToken, "ไม่พบรายการเช็คอินนี้ค่ะ");
+    return;
+  }
+  await prisma.checkIn.update({ where: { id: checkIn.id }, data: { earlyOtConfirmedAt: new Date() } });
+  await replyLineMessage(replyToken, "รับทราบค่ะ สู้ๆ นะคะ 💪");
+}
+
+/** Early check-in, "แค่มาก่อน" tapped — the early time before 9:00 shouldn't
+ *  count as worked/OT time, so this sets otStartOverride to 09:00 Bangkok
+ *  on the check-in's own day; buildDailySummary uses it for hour math from
+ *  here on (see lib/attendance.ts), while the true check-in time stays what
+ *  displays everywhere. */
+async function handleEarlyJustEarly(employee: User, checkInId: string, replyToken: string) {
+  const checkIn = await prisma.checkIn.findUnique({ where: { id: checkInId } });
+  if (!checkIn || checkIn.userId !== employee.id) {
+    await replyLineMessage(replyToken, "ไม่พบรายการเช็คอินนี้ค่ะ");
+    return;
+  }
+  const otStartOverride = bangkokDateAt(checkIn.createdAt, 9, 0);
+  await prisma.checkIn.update({ where: { id: checkIn.id }, data: { otStartOverride } });
+  revalidatePath("/attendance");
+  revalidatePath(`/users/${employee.id}`);
+  await replyLineMessage(replyToken, "โอเคค่ะ พักผ่อนไปก่อนนะคะ เวลางานจะเริ่มนับตั้งแต่ 9 โมงค่ะ ☕");
+}
+
+/** Self-serve OT request — "ขอ OT <ชั่วโมง> <เหตุผล>". Requires being
+ *  currently checked in at the office (OT only makes sense while working);
+ *  creates a PENDING OtApprovalRequest and notifies OT managers, same
+ *  approve/reject flow (APPROVAL_COMMAND, kind OT_REQUEST) as everywhere
+ *  else an OtApprovalRequest is decided. */
+async function handleOtSelfRequest(employee: User, hours: number, reason: string, replyToken: string) {
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 12) {
+    await replyLineMessage(replyToken, `จำนวนชั่วโมงไม่ถูกต้องค่ะ ลองพิมพ์ใหม่ เช่น "ขอ OT 2 ${reason || "มีงานด่วน"}"`);
+    return;
+  }
+
+  const openCheckIn = await getOpenCheckIn(employee.id);
+  if (!openCheckIn || openCheckIn.location !== "OFFICE") {
+    await replyLineMessage(replyToken, "คุณต้องเช็คอินอยู่ที่ออฟฟิศก่อนถึงจะขอ OT ได้ค่ะ");
+    return;
+  }
+
+  const request = await prisma.otApprovalRequest.create({
+    data: { userId: employee.id, source: "SELF_REQUEST", requestedHours: hours, reason: reason.slice(0, 300) },
+  });
+
+  revalidatePath("/ot");
+  await replyLineMessage(replyToken, `ส่งคำขอ OT ${hours} ชม. (${reason}) ให้ผู้ดูแลอนุมัติแล้วค่ะ รอสักครู่นะคะ 🙏`);
+
+  const name = employee.nickname || employee.fullName || employee.username;
+  await notifyOtManagers(request.id, `🙋 ${name} ขอ OT ${hours} ชม. (${reason}) ขออนุมัติค่ะ`);
 }
 
 async function handleApprovalDecision(

@@ -22,6 +22,13 @@ const FALLBACK_QUIT_HOUR = 18;
 // How often to nudge someone on an approved outside-work-trip OT session to
 // check in / check out, once they're past the point OT started counting.
 const OT_NUDGE_INTERVAL_MS = 60 * 60 * 1000;
+// OFFICE auto-cutoff is a fixed wall-clock time, not "9 hours after
+// check-in" — early arrivals, the 45-min-early flow, etc. all still just
+// end the day at the same normal quitting time (30 min of grace past
+// 18:00) rather than the elapsed-time math giving everyone a different
+// personal cutoff.
+const OFFICE_CUTOFF_HOUR = 18;
+const OFFICE_CUTOFF_MINUTE = 30;
 
 async function autoCheckOut(userId: string, location: string, detail: string, createdAt?: Date) {
   await prisma.checkIn.create({
@@ -40,13 +47,16 @@ async function autoCheckOut(userId: string, location: string, detail: string, cr
  * pinger instead of vercel.json). For everyone still clocked in with a
  * linked LINE account, behavior now splits by check-in location:
  *
- * - OFFICE: no self-serve "do OT?" prompt anymore — an admin/operator opens
- *   OT for someone from LINE instead (see the OT_GRANT_TRIGGER handling in
- *   the webhook route), which sets otGrantedHours on their open CheckIn.
- *   This just checks people out the moment they hit 8 worked hours, unless
- *   OT was granted, in which case it extends the deadline by that many
- *   hours and checks them out once *that* elapses. Still gets the 15-min
- *   heads-up warning.
+ * - OFFICE: no self-serve "do OT?" prompt — an admin/operator opens OT for
+ *   someone from LINE instead (see the OT_GRANT_TRIGGER handling in the
+ *   webhook route), or the employee requests it themselves (OT_REQUEST_COMMAND,
+ *   pending approval), which sets otGrantedHours on their open CheckIn.
+ *   Auto-checkout is a *fixed wall-clock cutoff* (18:30 Bangkok, not "9
+ *   hours after check-in") — everyone ends the day at the same normal
+ *   quitting time regardless of when they clocked in (early arrivals,
+ *   granted OT extends the cutoff by that many hours instead of moving
+ *   the whole thing later). Still gets a 15-min heads-up warning before
+ *   the cutoff.
  * - OUTSIDE, part of a registered outside-work trip (CheckIn.tripId set):
  *   no self-serve ask either — OT counts automatically once 8 worked hours
  *   pass, raising an OtApprovalRequest for an ADMIN/OPERATOR/SENIOR to
@@ -95,26 +105,30 @@ export async function GET(request: NextRequest) {
         const elapsedMs = nowMs - checkIn.createdAt.getTime();
 
         if (checkIn.location === "OFFICE") {
-          const deadlineMs = checkIn.otGrantedHours
-            ? EXPECTED_SPAN_MS + checkIn.otGrantedHours * 3_600_000
-            : EXPECTED_SPAN_MS;
+          const baseCutoff = bangkokDateAt(checkIn.createdAt, OFFICE_CUTOFF_HOUR, OFFICE_CUTOFF_MINUTE);
+          const deadline = checkIn.otGrantedHours
+            ? new Date(baseCutoff.getTime() + checkIn.otGrantedHours * 3_600_000)
+            : baseCutoff;
 
-          if (elapsedMs >= deadlineMs) {
+          if (now >= deadline) {
+            const outAt = deadline > checkIn.createdAt ? deadline : checkIn.createdAt;
             await autoCheckOut(
               checkIn.userId,
               checkIn.location,
               checkIn.otGrantedHours
                 ? `Auto checked out — granted OT (${checkIn.otGrantedHours}h) expired`
-                : "Auto checked out at 8 worked hours — no OT opened"
+                : `Auto checked out at ${OFFICE_CUTOFF_HOUR}:${String(OFFICE_CUTOFF_MINUTE).padStart(2, "0")} — no OT opened`,
+              outAt
             );
             autoCheckedOut++;
             return;
           }
 
-          if (elapsedMs >= WARNING_THRESHOLD_MS && elapsedMs < EXPECTED_SPAN_MS && !checkIn.reminderSentAt) {
+          const warningThreshold = new Date(deadline.getTime() - WARNING_BEFORE_MS);
+          if (now >= warningThreshold && !checkIn.reminderSentAt) {
             await pushLineMessage(
               lineUserId,
-              `ใกล้ครบเวลาทำงาน 8 ชั่วโมงแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ถ้าหัวหน้าไม่เปิด OT ให้ ระบบจะเช็คเอาท์ให้อัตโนมัติค่ะ ⏰`
+              `ใกล้ถึงเวลาเลิกงานแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ถ้าหัวหน้าไม่เปิด OT ให้ ระบบจะเช็คเอาท์ให้อัตโนมัติค่ะ ⏰`
             );
             await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
             warned++;

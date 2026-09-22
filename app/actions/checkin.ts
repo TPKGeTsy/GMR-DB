@@ -6,9 +6,15 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary } from "@/lib/attendance";
-import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange, bangkokDateAt } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { pushLineMessage } from "@/lib/line";
+
+// "เช็คอินก่อน 9.00 เกิน 45 นาที" — more than 45 min before 9:00, i.e. at or
+// before 8:15.
+const EARLY_CHECKIN_CUTOFF_HOUR = 8;
+const EARLY_CHECKIN_CUTOFF_MINUTE = 15;
 
 export async function registerFace(userId: string, descriptor: number[], consented: boolean) {
   try {
@@ -252,10 +258,10 @@ export async function getAttendanceTableRows({
     // and (when otOnly is set) this is also what decides which days qualify.
     const allCheckIns = await prisma.checkIn.findMany({
       orderBy: { createdAt: "asc" },
-      select: { userId: true, type: true, location: true, createdAt: true },
+      select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
     });
 
-    const byUser = new Map<string, { type: string; location: string; createdAt: Date }[]>();
+    const byUser = new Map<string, { type: string; location: string; createdAt: Date; otStartOverride: Date | null }[]>();
     for (const c of allCheckIns) {
       if (!byUser.has(c.userId)) byUser.set(c.userId, []);
       byUser.get(c.userId)!.push(c);
@@ -397,6 +403,25 @@ export async function recordCheckIn(
         details: `${actionLabel}${locationLabel} — confidence ${(confidence * 100).toFixed(1)}%`,
       },
     });
+
+    // More than 45 min before 9:00 (at/before 8:15) — ask whether there's
+    // actual work to do this early, or they just came in ahead of time.
+    // "มีงาน" is audit-only (hours already count from the true check-in
+    // time); "แค่มาก่อน" sets otStartOverride so the early idle time
+    // doesn't count as worked/OT time (see lib/attendance.ts).
+    if (type === "IN" && location === "OFFICE" && user.lineUserId) {
+      const cutoff = bangkokDateAt(checkIn.createdAt, EARLY_CHECKIN_CUTOFF_HOUR, EARLY_CHECKIN_CUTOFF_MINUTE);
+      if (checkIn.createdAt < cutoff) {
+        await pushLineMessage(
+          user.lineUserId,
+          "สวัสดีค่ะ ☀️ เช็คอินเร็วกว่าปกตินะคะ มีงานที่ต้องเริ่มทำเลยไหมคะ หรือแค่มาก่อนเวลาเฉยๆ?",
+          [
+            { label: "มีงาน", text: `EARLY_HAS_WORK:${checkIn.id}` },
+            { label: "แค่มาก่อน", text: `EARLY_JUST_EARLY:${checkIn.id}` },
+          ]
+        );
+      }
+    }
 
     revalidatePath(`/users/${userId}`);
     revalidatePath("/attendance");

@@ -4,6 +4,11 @@ export interface CheckInEvent {
   type: string;
   location: string;
   createdAt: Date;
+  // Overrides where OT/hour-math for the session this IN opens starts
+  // counting from (e.g. 09:00 for someone who checked in early but told the
+  // bot they weren't actually working yet) — the raw createdAt is still
+  // what's displayed as the check-in time, only the hour math shifts.
+  otStartOverride?: Date | null;
 }
 
 export interface DailySummaryRow {
@@ -43,7 +48,8 @@ export function toCsv(header: string[], rows: string[][]): string {
 }
 
 interface Session {
-  start: Date;
+  start: Date; // raw check-in time, for display
+  hoursStart: Date; // start, or its otStartOverride — what hour/OT math uses
   end: Date | null; // null = still open (no matching OUT yet)
   location: string;
 }
@@ -58,21 +64,24 @@ function pairSessions(checkIns: CheckInEvent[]): Session[] {
 
   const sessions: Session[] = [];
   let openStart: Date | null = null;
+  let openHoursStart: Date | null = null;
   let openLocation: string | null = null;
   for (const event of sorted) {
     if (event.type === "IN") {
       if (!openStart) {
         openStart = event.createdAt;
+        openHoursStart = event.otStartOverride ?? event.createdAt;
         openLocation = event.location;
       }
     } else if (event.type === "OUT" && openStart) {
-      sessions.push({ start: openStart, end: event.createdAt, location: openLocation! });
+      sessions.push({ start: openStart, hoursStart: openHoursStart!, end: event.createdAt, location: openLocation! });
       openStart = null;
+      openHoursStart = null;
       openLocation = null;
     }
   }
   if (openStart) {
-    sessions.push({ start: openStart, end: null, location: openLocation! });
+    sessions.push({ start: openStart, hoursStart: openHoursStart!, end: null, location: openLocation! });
   }
 
   return sessions;
@@ -100,7 +109,7 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
     let totalMs = 0;
     for (const session of daySessions) {
       if (session.end === null) continue;
-      let sessionMs = session.end.getTime() - session.start.getTime();
+      let sessionMs = session.end.getTime() - session.hoursStart.getTime();
       if (sessionMs > REGULAR_HOURS_CAP * 3_600_000) {
         sessionMs -= LUNCH_BREAK_HOURS * 3_600_000;
       }
@@ -120,7 +129,7 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
       endTime: stillWorking ? null : lastSession.end,
       location: daySessions[0].location,
       stillWorking,
-      openSince: stillWorking ? lastSession.start : null,
+      openSince: stillWorking ? lastSession.hoursStart : null,
       totalHours,
       regularHours,
       otHours,

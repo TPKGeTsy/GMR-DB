@@ -242,7 +242,7 @@ export async function getOtSummary({ from, to }: { from?: string; to?: string })
 
     const allCheckIns = await prisma.checkIn.findMany({
       orderBy: { createdAt: "asc" },
-      select: { userId: true, type: true, location: true, createdAt: true },
+      select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
     });
 
     const byUser = new Map<string, CheckInEvent[]>();

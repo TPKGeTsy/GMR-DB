@@ -5,6 +5,10 @@ function ev(type: "IN" | "OUT", isoTime: string, location: "OFFICE" | "OUTSIDE" 
   return { type, location, createdAt: new Date(isoTime) };
 }
 
+function evWithOverride(isoTime: string, overrideIsoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): CheckInEvent {
+  return { type: "IN", location, createdAt: new Date(isoTime), otStartOverride: new Date(overrideIsoTime) };
+}
+
 describe("buildDailySummary", () => {
   it("returns nothing for an empty list", () => {
     expect(buildDailySummary([])).toEqual([]);
@@ -144,5 +148,36 @@ describe("buildDailySummary", () => {
     expect(rows[0].dateKey).toBe("2026-01-05");
     expect(rows[0].stillWorking).toBe(true);
     expect(rows[0].openSince?.toISOString()).toBe(new Date("2026-01-05T22:00:00").toISOString());
+  });
+
+  it("uses otStartOverride for hour math but keeps the raw check-in time for display", () => {
+    // Checked in 07:30 (early), told the bot "just came early" — the early
+    // half hour before 09:00 shouldn't count as worked/OT time.
+    const rows = buildDailySummary([
+      evWithOverride("2026-01-05T07:30:00", "2026-01-05T09:00:00"),
+      ev("OUT", "2026-01-05T17:00:00"),
+    ]);
+    expect(rows).toHaveLength(1);
+    // Displayed start is still the true check-in time...
+    expect(rows[0].startTime?.toISOString()).toBe(new Date("2026-01-05T07:30:00").toISOString());
+    // ...but hours are computed as if the session started at 09:00: 8h
+    // elapsed, not over 8h, so no untracked-lunch deduction either.
+    expect(rows[0].totalHours).toBeCloseTo(8, 5);
+    expect(rows[0].otHours).toBe(0);
+  });
+
+  it("reports openSince from otStartOverride, not the raw check-in time, for a still-open early session", () => {
+    const rows = buildDailySummary([evWithOverride("2026-01-05T07:30:00", "2026-01-05T09:00:00")]);
+    expect(rows[0].stillWorking).toBe(true);
+    expect(rows[0].openSince?.toISOString()).toBe(new Date("2026-01-05T09:00:00").toISOString());
+  });
+
+  it("counts the true elapsed time when no otStartOverride is set (unaffected by the new field)", () => {
+    const rows = buildDailySummary([
+      ev("IN", "2026-01-05T07:30:00"),
+      ev("OUT", "2026-01-05T17:00:00"), // 9.5h elapsed, over 8h so -1h lunch = 8.5h
+    ]);
+    expect(rows[0].totalHours).toBeCloseTo(8.5, 5);
+    expect(rows[0].otHours).toBeCloseTo(0.5, 5);
   });
 });

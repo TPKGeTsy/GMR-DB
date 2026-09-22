@@ -85,7 +85,7 @@ export async function realizeOutsideTripOtGrant(checkInId: string, userId: strin
   const events = await prisma.checkIn.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
-    select: { type: true, location: true, createdAt: true },
+    select: { type: true, location: true, createdAt: true, otStartOverride: true },
   });
   const dateKey = bangkokDateKey(openCheckIn.createdAt);
   const dayRow = buildDailySummary(events).find((d) => d.dateKey === dateKey);
