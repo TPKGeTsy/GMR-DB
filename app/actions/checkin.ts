@@ -253,13 +253,46 @@ export async function getAttendanceTableRows({
     if (from) createdAtFilter.gte = bangkokDayRange(from).start;
     if (to) createdAtFilter.lt = bangkokDayRange(to).end;
 
-    // Always fetched unfiltered — a day's total/OT hours must reflect the
-    // whole day even when other filters narrow which rows are *displayed*,
-    // and (when otOnly is set) this is also what decides which days qualify.
-    const allCheckIns = await prisma.checkIn.findMany({
-      orderBy: { createdAt: "asc" },
-      select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
-    });
+    const baseWhere = {
+      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
+      ...(type ? { type } : {}),
+    };
+
+    const allCheckInsQuery = () =>
+      prisma.checkIn.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
+      });
+    const logsQuery = (where: typeof baseWhere) =>
+      prisma.checkIn.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: { user: { select: { username: true, fullName: true, nickname: true } } },
+      });
+
+    // otOnly needs the full unfiltered history fetched *before* logs/totalCount
+    // can run, since it decides which days qualify for the `where` clause
+    // below — but that's the uncommon path. The plain view's `where` never
+    // depends on allCheckIns, so keep it running concurrently with
+    // logs/totalCount like before, rather than serializing every request
+    // behind a full-table scan (which is what allCheckIns always is).
+    let allCheckIns: Awaited<ReturnType<typeof allCheckInsQuery>>;
+    let logs: Awaited<ReturnType<typeof logsQuery>>;
+    let totalCount: number;
+
+    if (otOnly) {
+      allCheckIns = await allCheckInsQuery();
+      logs = [];
+      totalCount = 0;
+    } else {
+      [allCheckIns, logs, totalCount] = await Promise.all([
+        allCheckInsQuery(),
+        logsQuery(baseWhere),
+        prisma.checkIn.count({ where: baseWhere }),
+      ]);
+    }
 
     const byUser = new Map<string, { type: string; location: string; createdAt: Date; otStartOverride: Date | null }[]>();
     for (const c of allCheckIns) {
@@ -288,34 +321,22 @@ export async function getAttendanceTableRows({
       }
     }
 
-    // Filters only narrow which rows are *displayed* (`logs`/`totalCount`) —
-    // dailyLookup above stays keyed off the unfiltered allCheckIns.
-    const where = {
-      ...(Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {}),
-      ...(type ? { type } : {}),
-      ...(otOnly
-        ? {
-            OR:
-              otDays.length > 0
-                ? otDays.map(({ userId, dateKey }) => {
-                    const { start, end } = bangkokDayRange(dateKey);
-                    return { userId, createdAt: { gte: start, lt: end } };
-                  })
-                : [{ id: "__no_ot_days__" }], // no OT days in range — show nothing, not everything
-          }
-        : {}),
-    };
+    if (otOnly) {
+      // Filters only narrow which rows are *displayed* (`logs`/`totalCount`) —
+      // dailyLookup above stays keyed off the unfiltered allCheckIns.
+      const where = {
+        ...baseWhere,
+        OR:
+          otDays.length > 0
+            ? otDays.map(({ userId, dateKey }) => {
+                const { start, end } = bangkokDayRange(dateKey);
+                return { userId, createdAt: { gte: start, lt: end } };
+              })
+            : [{ id: "__no_ot_days__" }], // no OT days in range — show nothing, not everything
+      };
 
-    const [logs, totalCount] = await Promise.all([
-      prisma.checkIn.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
-        include: { user: { select: { username: true, fullName: true, nickname: true } } },
-      }),
-      prisma.checkIn.count({ where }),
-    ]);
+      [logs, totalCount] = await Promise.all([logsQuery(where), prisma.checkIn.count({ where })]);
+    }
 
     const data: AttendanceTableRow[] = logs.map((log) => {
       const dateKey = bangkokDateKey(log.createdAt);
