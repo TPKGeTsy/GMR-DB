@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
-import { getWageSettings, getWageReport } from "@/app/actions/wages";
-import WageSettingsPanel from "@/components/WageSettingsPanel";
+import { getWageGrades, getWageReport } from "@/app/actions/wages";
+import WageGradesPanel from "@/components/WageGradesPanel";
 import WageReportFilters from "@/components/WageReportFilters";
 import WageReportTable from "@/components/WageReportTable";
 import { bangkokDateKey } from "@/lib/datetime";
@@ -24,12 +24,12 @@ export default async function WagesPage({
   const rangeFrom = from || defaultFrom;
   const rangeTo = to || today;
 
-  const [settingsResult, reportResult] = await Promise.all([
-    getWageSettings(),
+  const [gradesResult, reportResult] = await Promise.all([
+    getWageGrades(),
     getWageReport({ from: rangeFrom, to: rangeTo }),
   ]);
 
-  const settings = settingsResult.success ? settingsResult.data : null;
+  const grades = gradesResult.success && gradesResult.data ? gradesResult.data : [];
   const report = reportResult.success && reportResult.data ? reportResult.data : [];
 
   return (
@@ -42,7 +42,7 @@ export default async function WagesPage({
         <p className="text-gray-500">คำนวณค่าแรงรายวันตามเกรดและสถานที่ทำงาน</p>
       </div>
 
-      {settings && <WageSettingsPanel initial={settings} />}
+      <WageGradesPanel initial={grades} />
 
       <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
         <div className="p-6 pb-0">

@@ -11,6 +11,7 @@ import ProfileSummaryFilters from "@/components/ProfileSummaryFilters";
 import Pagination from "@/components/Pagination";
 import { buildDailySummary } from "@/lib/attendance";
 import { countMealDays } from "@/lib/wages";
+import { gradeBadgeClass } from "@/lib/gradeColor";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
 import { canManageUsers } from "@/lib/roles";
@@ -124,11 +125,7 @@ export default async function UserProfilePage({
               {user.internGrade && (
                 <div>
                   <p className="text-xs text-gray-400">เกรดเด็กฝึกงาน</p>
-                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                    user.internGrade === "A" ? "bg-emerald-100 text-emerald-700" :
-                    user.internGrade === "B" ? "bg-amber-100 text-amber-700" :
-                    "bg-rose-100 text-rose-700"
-                  }`}>
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${gradeBadgeClass(user.internGrade)}`}>
                     {user.internGrade}
                   </span>
                 </div>

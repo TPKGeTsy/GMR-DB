@@ -494,17 +494,20 @@ model RateLimitBucket {
   @@map("rate_limit_buckets")
 }
 
-// Singleton row (id is always 1) holding the admin-editable daily wage rates
-// for graded interns — kept in the DB instead of hardcoded so HR can adjust
-// rates without a code deploy.
-model WageSettings {
-  id                     Int      @id @default(1)
-  gradeARate             Int      @default(300) @map("grade_a_rate")
-  gradeBRate             Int      @default(250) @map("grade_b_rate")
-  gradeCRate             Int      @default(150) @map("grade_c_rate")
-  outsideFlatRate        Int      @default(300) @map("outside_flat_rate") // grade B/C's rate on an outside-work day
-  gradeAOutsideAllowance Int      @default(0)   @map("grade_a_outside_allowance") // added on top of gradeARate on an outside-work day
-  updatedAt              DateTime @updatedAt @map("updated_at")
+// Admin-managed intern pay grades (originally a fixed A/B/C, now an open
+// list so HR can add new grades — e.g. "A+", "S" — without a code change).
+// `User.internGrade` stores this `code` as a plain string (same loose,
+// non-FK pattern as `role`) so deleting a grade never cascades into user
+// rows; a grade in use is blocked from deletion instead (see
+// deleteWageGrade in app/actions/wages.ts).
+model WageGrade {
+  id          String   @id @default(cuid())
+  code        String   @unique // e.g. 'A', 'B', 'C' — shown as-is, admin's own label
+  onsiteRate  Int      @map("onsite_rate")  // บาท/วัน ทำงานในออฟฟิศ
+  outsideRate Int      @map("outside_rate") // บาท/วัน ทำงานนอกออฟฟิศ — set directly, no formula
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  @@map("wage_settings")
+  @@map("wage_grades")
 }

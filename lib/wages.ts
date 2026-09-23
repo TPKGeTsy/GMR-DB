@@ -1,13 +1,9 @@
 import { bangkokDateKey } from "./datetime";
 
-export type InternGrade = "A" | "B" | "C";
-
-export interface WageSettingsValues {
-  gradeARate: number;
-  gradeBRate: number;
-  gradeCRate: number;
-  outsideFlatRate: number;
-  gradeAOutsideAllowance: number;
+export interface WageGradeRate {
+  code: string;
+  onsiteRate: number;
+  outsideRate: number;
 }
 
 export interface WageCheckInEvent {
@@ -21,23 +17,13 @@ export interface DailyWageRow {
   rate: number;
 }
 
-const GRADE_RATE_KEY: Record<InternGrade, keyof WageSettingsValues> = {
-  A: "gradeARate",
-  B: "gradeBRate",
-  C: "gradeCRate",
-};
-
 /** One row per calendar day a graded intern checked in: a flat day-rate (no
  *  partial-day proration — any check-in that day counts the whole day),
- *  bumped to the outside rate if any of that day's check-ins were OUTSIDE.
- *  Grade A's outside rate is its normal rate plus a configurable allowance;
- *  B/C's outside rate replaces their (lower) normal rate with one flat
- *  amount instead of adding an allowance. */
-export function buildDailyWages(
-  checkIns: WageCheckInEvent[],
-  grade: InternGrade,
-  settings: WageSettingsValues
-): DailyWageRow[] {
+ *  using the grade's outsideRate instead of onsiteRate if any of that day's
+ *  check-ins were OUTSIDE. Both rates are set directly by an admin per
+ *  grade — no formula (allowance, flat bump, etc.) tying them together, so
+ *  any grade can be shaped however HR wants. */
+export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRate): DailyWageRow[] {
   const byDate = new Map<string, boolean>(); // dateKey -> wentOutside that day
   for (const c of checkIns) {
     const dateKey = bangkokDateKey(c.createdAt);
@@ -45,15 +31,9 @@ export function buildDailyWages(
     byDate.set(dateKey, wentOutside);
   }
 
-  const baseRate = settings[GRADE_RATE_KEY[grade]];
   const rows: DailyWageRow[] = [];
   for (const [dateKey, wentOutside] of byDate) {
-    const rate = wentOutside
-      ? grade === "A"
-        ? baseRate + settings.gradeAOutsideAllowance
-        : settings.outsideFlatRate
-      : baseRate;
-    rows.push({ dateKey, wentOutside, rate });
+    rows.push({ dateKey, wentOutside, rate: wentOutside ? grade.outsideRate : grade.onsiteRate });
   }
 
   return rows.sort((a, b) => a.dateKey.localeCompare(b.dateKey));

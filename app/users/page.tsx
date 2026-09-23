@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { getUsers } from "@/app/actions/auth";
 import { getUserStatuses } from "@/app/actions/checkin";
+import { getWageGrades } from "@/app/actions/wages";
 import RoleSelect from "@/components/RoleSelect";
 import InternGradeSelect from "@/components/InternGradeSelect";
 import Pagination from "@/components/Pagination";
@@ -28,12 +29,14 @@ export default async function UsersPage({
   const { page } = await searchParams;
   const currentPage = Number(page) || 1;
 
-  const [session, result, statusResult] = await Promise.all([
+  const [session, result, statusResult, gradesResult] = await Promise.all([
     auth(),
     getUsers({ page: currentPage, limit: 20 }),
     getUserStatuses(),
+    getWageGrades(),
   ]);
   const isAdmin = session?.user?.role === "ADMIN";
+  const gradeOptions = gradesResult.success && gradesResult.data ? gradesResult.data.map((g) => g.code) : [];
 
   if (!result.success || !result.data) {
     return (
@@ -121,7 +124,12 @@ export default async function UsersPage({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-28">
-                        <InternGradeSelect userId={user.id} initialGrade={user.internGrade} readOnly={!isAdmin} />
+                        <InternGradeSelect
+                          userId={user.id}
+                          initialGrade={user.internGrade}
+                          gradeOptions={gradeOptions}
+                          readOnly={!isAdmin}
+                        />
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

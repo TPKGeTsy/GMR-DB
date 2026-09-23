@@ -3,13 +3,8 @@
 import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, MapPin } from "lucide-react";
 import { formatThaiDateLong } from "@/lib/datetime";
+import { gradeBadgeClass } from "@/lib/gradeColor";
 import type { EmployeeWageReportRow } from "@/app/actions/wages";
-
-const GRADE_BADGE_STYLES: Record<string, string> = {
-  A: "bg-emerald-100 text-emerald-700",
-  B: "bg-amber-100 text-amber-700",
-  C: "bg-rose-100 text-rose-700",
-};
 
 export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -56,7 +51,7 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
                   </td>
                   <td className="px-4 py-2 text-sm font-medium text-gray-900">{row.employeeName}</td>
                   <td className="px-4 py-2">
-                    <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${GRADE_BADGE_STYLES[row.grade]}`}>
+                    <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${gradeBadgeClass(row.grade)}`}>
                       {row.grade}
                     </span>
                   </td>
