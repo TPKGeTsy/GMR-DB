@@ -3,10 +3,10 @@
 import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, MapPin } from "lucide-react";
 import { formatThaiDateLong } from "@/lib/datetime";
-import { gradeBadgeClass } from "@/lib/gradeColor";
+import InternGradeSelect from "./InternGradeSelect";
 import type { EmployeeWageReportRow } from "@/app/actions/wages";
 
-export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[] }) {
+export default function WageReportTable({ rows, gradeOptions }: { rows: EmployeeWageReportRow[]; gradeOptions: string[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const toggle = (userId: string) => {
@@ -22,6 +22,7 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
     return <p className="px-6 py-10 text-center text-sm text-gray-400 italic">ไม่มีเด็กฝึกงานที่เช็คอินในช่วงนี้</p>;
   }
 
+  const grandTotalOtPay = rows.reduce((sum, r) => sum + r.totalOtPay, 0);
   const grandTotal = rows.reduce((sum, r) => sum + r.totalWage, 0);
 
   return (
@@ -34,6 +35,8 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
             <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">เกรด</th>
             <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-700 uppercase tracking-wider">วันทำงาน</th>
             <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-700 uppercase tracking-wider">วันออกข้างนอก</th>
+            <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-700 uppercase tracking-wider">OT (ชม.)</th>
+            <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-700 uppercase tracking-wider">ค่า OT</th>
             <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-700 uppercase tracking-wider">ค่าแรงรวม</th>
           </tr>
         </thead>
@@ -42,28 +45,27 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
             const isOpen = expanded.has(row.userId);
             return (
               <Fragment key={row.userId}>
-                <tr
-                  onClick={() => toggle(row.userId)}
-                  className="hover:bg-gray-50 cursor-pointer"
-                >
+                <tr onClick={() => toggle(row.userId)} className="hover:bg-gray-50 cursor-pointer">
                   <td className="px-4 py-2 text-gray-400">
                     {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                   </td>
                   <td className="px-4 py-2 text-sm font-medium text-gray-900">{row.employeeName}</td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${gradeBadgeClass(row.grade)}`}>
-                      {row.grade}
-                    </span>
+                  <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-24">
+                      <InternGradeSelect userId={row.userId} initialGrade={row.grade} gradeOptions={gradeOptions} />
+                    </div>
                   </td>
                   <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalDays}</td>
                   <td className="px-4 py-2 text-right text-sm text-gray-700">{row.outsideDays}</td>
+                  <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalOtHours.toFixed(1)}</td>
+                  <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalOtPay.toLocaleString()} บาท</td>
                   <td className="px-4 py-2 text-right text-sm font-semibold text-gray-900">
                     {row.totalWage.toLocaleString()} บาท
                   </td>
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-2 bg-gray-50/70">
+                    <td colSpan={8} className="px-4 py-2 bg-gray-50/70">
                       <ul className="divide-y divide-gray-100 border border-gray-100 rounded-md overflow-hidden bg-white">
                         {row.days.map((d) => (
                           <li key={d.dateKey} className="px-3 py-1.5 flex items-center justify-between text-xs">
@@ -77,6 +79,12 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
                                 <MapPin className="w-2.5 h-2.5 mr-1" />
                                 {d.wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                               </span>
+                              <span className="text-gray-500">{d.baseRate.toLocaleString()} บาท</span>
+                              {d.otHours > 0 && (
+                                <span className="text-orange-600">
+                                  +OT {d.otHours.toFixed(1)} ชม. ({d.otPay.toLocaleString()} บาท)
+                                </span>
+                              )}
                               <span className="font-semibold text-gray-900">{d.rate.toLocaleString()} บาท</span>
                             </span>
                           </li>
@@ -91,9 +99,10 @@ export default function WageReportTable({ rows }: { rows: EmployeeWageReportRow[
         </tbody>
         <tfoot className="bg-gray-50">
           <tr>
-            <td colSpan={5} className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            <td colSpan={6} className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
               รวมทั้งหมด
             </td>
+            <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">{grandTotalOtPay.toLocaleString()} บาท</td>
             <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">{grandTotal.toLocaleString()} บาท</td>
           </tr>
         </tfoot>

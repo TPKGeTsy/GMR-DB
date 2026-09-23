@@ -1,4 +1,5 @@
 import { bangkokDateKey } from "./datetime";
+import { buildDailySummary, type CheckInEvent } from "./attendance";
 
 export interface WageGradeRate {
   code: string;
@@ -6,43 +7,54 @@ export interface WageGradeRate {
   outsideRate: number;
 }
 
-export interface WageCheckInEvent {
-  location: string;
-  createdAt: Date;
-}
+// Extends CheckInEvent (needs `type` for buildDailySummary to pair IN/OUT
+// sessions correctly, including ones spanning past midnight) rather than
+// just {location, createdAt}.
+export type WageCheckInEvent = CheckInEvent;
 
 export interface DailyWageRow {
   dateKey: string;
   wentOutside: boolean;
-  rate: number;
+  otHours: number;
+  baseRate: number;
+  otPay: number;
+  rate: number; // baseRate + otPay
 }
 
-/** One row per calendar day a graded intern checked in: a flat day-rate (no
- *  partial-day proration — any check-in that day counts the whole day),
- *  using the grade's outsideRate instead of onsiteRate if any of that day's
- *  check-ins were OUTSIDE. Both rates are set directly by an admin per
- *  grade — no formula (allowance, flat bump, etc.) tying them together, so
- *  any grade can be shaped however HR wants. */
+const OT_MULTIPLIER = 1.5;
+const REGULAR_HOURS_PER_DAY = 8;
+
+/** One row per calendar day a graded intern worked: a flat day-rate (no
+ *  partial-day proration for the base pay) using the grade's outsideRate
+ *  instead of onsiteRate if any of that day's check-ins were OUTSIDE, plus
+ *  OT pay on top — OT hours (computed the same way as the Attendance page,
+ *  including the untracked-lunch subtraction and midnight-crossing
+ *  handling) times an hourly rate derived from that day's own rate
+ *  (rate/8 * 1.5), rounded to the nearest baht. */
 export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRate): DailyWageRow[] {
-  const byDate = new Map<string, boolean>(); // dateKey -> wentOutside that day
+  const outsideByDate = new Map<string, boolean>();
   for (const c of checkIns) {
     const dateKey = bangkokDateKey(c.createdAt);
-    const wentOutside = (byDate.get(dateKey) ?? false) || c.location === "OUTSIDE";
-    byDate.set(dateKey, wentOutside);
+    const wentOutside = (outsideByDate.get(dateKey) ?? false) || c.location === "OUTSIDE";
+    outsideByDate.set(dateKey, wentOutside);
   }
 
-  const rows: DailyWageRow[] = [];
-  for (const [dateKey, wentOutside] of byDate) {
-    rows.push({ dateKey, wentOutside, rate: wentOutside ? grade.outsideRate : grade.onsiteRate });
-  }
+  const summaryRows = buildDailySummary(checkIns);
 
-  return rows.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  return summaryRows
+    .map((row) => {
+      const wentOutside = outsideByDate.get(row.dateKey) ?? false;
+      const baseRate = wentOutside ? grade.outsideRate : grade.onsiteRate;
+      const otPay = Math.round(row.otHours * (baseRate / REGULAR_HOURS_PER_DAY) * OT_MULTIPLIER);
+      return { dateKey: row.dateKey, wentOutside, otHours: row.otHours, baseRate, otPay, rate: baseRate + otPay };
+    })
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 }
 
 /** Distinct Bangkok calendar days with at least one OUTSIDE check-in — the
  *  "accumulated meals" count shown on a profile, one per person per day they
  *  went out ("คนละมื้อ"). Applies to everyone, not just graded interns. */
-export function countMealDays(checkIns: WageCheckInEvent[]): number {
+export function countMealDays(checkIns: { location: string; createdAt: Date }[]): number {
   const days = new Set<string>();
   for (const c of checkIns) {
     if (c.location === "OUTSIDE") days.add(bangkokDateKey(c.createdAt));

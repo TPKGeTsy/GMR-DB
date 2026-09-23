@@ -160,6 +160,8 @@ export interface EmployeeWageReportRow {
   days: DailyWageRow[];
   totalDays: number;
   outsideDays: number;
+  totalOtHours: number;
+  totalOtPay: number;
   totalWage: number;
 }
 
@@ -178,20 +180,10 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
     const { start } = bangkokDayRange(from);
     const { end } = bangkokDayRange(to);
 
-    const [users, grades] = await Promise.all([
+    const [activeUsers, grades] = await Promise.all([
       prisma.user.findMany({
-        where: { internGrade: { not: null } },
-        select: {
-          id: true,
-          username: true,
-          fullName: true,
-          nickname: true,
-          internGrade: true,
-          checkIns: {
-            where: { createdAt: { gte: start, lt: end } },
-            select: { location: true, createdAt: true },
-          },
-        },
+        where: { internGrade: { not: null }, checkIns: { some: { createdAt: { gte: start, lt: end } } } },
+        select: { id: true, username: true, fullName: true, nickname: true, internGrade: true },
       }),
       prisma.wageGrade.findMany(),
     ]);
@@ -200,11 +192,30 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
       grades.map((g) => [g.code, { code: g.code, onsiteRate: g.onsiteRate, outsideRate: g.outsideRate }])
     );
 
-    const data: EmployeeWageReportRow[] = users
-      .filter((u) => u.checkIns.length > 0 && u.internGrade && gradeByCode.has(u.internGrade))
+    // Each active user's *full* check-in history, not just this range — a
+    // session that started inside the range but crosses midnight past `to`
+    // (or started just before `from`) needs its whole pair to compute hours
+    // correctly, the same reasoning as the day-panel fix in getDaySummary.
+    const userIds = activeUsers.map((u) => u.id);
+    const fullHistory = userIds.length
+      ? await prisma.checkIn.findMany({
+          where: { userId: { in: userIds } },
+          orderBy: { createdAt: "asc" },
+          select: { userId: true, type: true, location: true, createdAt: true },
+        })
+      : [];
+    const historyByUser = new Map<string, typeof fullHistory>();
+    for (const c of fullHistory) {
+      if (!historyByUser.has(c.userId)) historyByUser.set(c.userId, []);
+      historyByUser.get(c.userId)!.push(c);
+    }
+
+    const data: EmployeeWageReportRow[] = activeUsers
+      .filter((u) => u.internGrade && gradeByCode.has(u.internGrade))
       .map((u) => {
         const gradeRate = gradeByCode.get(u.internGrade!)!;
-        const days = buildDailyWages(u.checkIns, gradeRate);
+        const allDays = buildDailyWages(historyByUser.get(u.id) || [], gradeRate);
+        const days = allDays.filter((d) => d.dateKey >= from && d.dateKey <= to);
         return {
           userId: u.id,
           employeeName: u.nickname || u.fullName || u.username,
@@ -212,6 +223,8 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
           days,
           totalDays: days.length,
           outsideDays: days.filter((d) => d.wentOutside).length,
+          totalOtHours: days.reduce((sum, d) => sum + d.otHours, 0),
+          totalOtPay: days.reduce((sum, d) => sum + d.otPay, 0),
           totalWage: days.reduce((sum, d) => sum + d.rate, 0),
         };
       });

@@ -49,7 +49,7 @@ export default async function WagesPage({
           <h2 className="text-sm font-semibold text-gray-900 mb-3">รายงานค่าแรง</h2>
           <WageReportFilters defaultFrom={defaultFrom} defaultTo={today} />
         </div>
-        <WageReportTable rows={report} />
+        <WageReportTable rows={report} gradeOptions={grades.map((g) => g.code)} />
       </div>
     </div>
   );
