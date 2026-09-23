@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { getUsers } from "@/app/actions/auth";
 import { getUserStatuses } from "@/app/actions/checkin";
 import RoleSelect from "@/components/RoleSelect";
@@ -25,10 +26,12 @@ export default async function UsersPage({
   const { page } = await searchParams;
   const currentPage = Number(page) || 1;
 
-  const [result, statusResult] = await Promise.all([
+  const [session, result, statusResult] = await Promise.all([
+    auth(),
     getUsers({ page: currentPage, limit: 20 }),
     getUserStatuses(),
   ]);
+  const isAdmin = session?.user?.role === "ADMIN";
 
   if (!result.success || !result.data) {
     return (
@@ -110,7 +113,7 @@ export default async function UsersPage({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-32">
-                        <RoleSelect userId={user.id} initialRole={user.role} />
+                        <RoleSelect userId={user.id} initialRole={user.role} readOnly={!isAdmin} />
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

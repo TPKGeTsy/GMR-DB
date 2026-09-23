@@ -9,8 +9,9 @@ import NicknamePanel from "@/components/NicknamePanel";
 import ActivityLogFilters from "@/components/ActivityLogFilters";
 import Pagination from "@/components/Pagination";
 import { buildDailySummary } from "@/lib/attendance";
-import { formatThaiDateLong, formatThaiDateTime, formatThaiTime } from "@/lib/datetime";
+import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
+import { canManageUsers } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -27,18 +28,20 @@ export default async function UserProfilePage({
   const currentUser = session?.user;
 
   const isOwnProfile = currentUser?.id === id;
-  if (currentUser?.role !== "ADMIN" && !isOwnProfile) {
+  if (!canManageUsers(currentUser?.role) && !isOwnProfile) {
     return <div className="p-8 text-center text-red-600">Access Denied</div>;
   }
+  // Operators get full /users access except seeing OTHER employees' check-in/
+  // attendance history — they can still see their own.
+  const canSeeAttendance = currentUser?.role === "ADMIN" || isOwnProfile;
 
   const [user, logsResult, availableActions] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: {
-        checkIns: {
-          orderBy: { createdAt: "desc" },
-          take: 200,
-        },
+        checkIns: canSeeAttendance
+          ? { orderBy: { createdAt: "desc" }, take: 200 }
+          : { orderBy: { createdAt: "desc" }, take: 1 }, // just enough for the online/offline badge
       },
     }),
     getUserActivityLogs(id, { from: logFrom, to: logTo, action: logAction, page: Number(logPage) || 1, limit: 20 }),
@@ -50,9 +53,19 @@ export default async function UserProfilePage({
   const logs = logsResult.success && logsResult.data ? logsResult.data : [];
   const logTotalPages = logsResult.success ? logsResult.totalPages : 1;
 
-  const dailyRows = buildDailySummary(user.checkIns);
+  const dailyRows = canSeeAttendance ? buildDailySummary(user.checkIns) : [];
   const latestCheckIn = user.checkIns[0];
   const isOnline = latestCheckIn?.type === "IN";
+
+  // This calendar month's worked/OT hours, for a quick workload summary at a
+  // glance — reuses the same per-day totals the Daily Timesheet already computes.
+  const currentMonthKey = bangkokDateKey(new Date()).slice(0, 7); // YYYY-MM
+  const monthRows = dailyRows.filter((row) => row.dateKey.startsWith(currentMonthKey));
+  const monthSummary = {
+    days: monthRows.length,
+    totalHours: monthRows.reduce((sum, row) => sum + row.totalHours, 0),
+    otHours: monthRows.reduce((sum, row) => sum + row.otHours, 0),
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -61,7 +74,7 @@ export default async function UserProfilePage({
           <User className="mr-2 h-6 w-6 text-orange-600" />
           User Profile: {user.username}
         </h1>
-        {currentUser?.role === "ADMIN" && (
+        {canManageUsers(currentUser?.role) && (
           <Link href="/users" className="text-sm text-orange-600 hover:text-orange-500 font-medium">
             &larr; Back to Users
           </Link>
@@ -136,12 +149,35 @@ export default async function UserProfilePage({
 
           <ChangePasswordPanel userId={user.id} isSelf={isOwnProfile} />
 
-          {currentUser?.role === "ADMIN" && (
+          {canManageUsers(currentUser?.role) && (
             <LineAccountPanel userId={user.id} username={user.username} isLinked={!!user.lineUserId} />
           )}
         </div>
 
         <div className="md:col-span-2 space-y-6">
+          {canSeeAttendance && (
+            <div className="bg-white shadow rounded-lg border border-gray-100 p-6">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                สรุปชั่วโมงทำงานเดือนนี้
+              </h2>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{monthSummary.days}</p>
+                  <p className="text-xs text-gray-400 mt-1">วันทำงาน</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{monthSummary.totalHours.toFixed(1)}</p>
+                  <p className="text-xs text-gray-400 mt-1">ชั่วโมงรวม</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-orange-600">{monthSummary.otHours.toFixed(1)}</p>
+                  <p className="text-xs text-gray-400 mt-1">ชั่วโมง OT</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {canSeeAttendance && (
           <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
               <CalendarClock className="h-5 w-5 text-orange-600 mr-2" />
@@ -213,6 +249,7 @@ export default async function UserProfilePage({
               </table>
             </div>
           </div>
+          )}
 
           <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">

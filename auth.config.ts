@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { isOtManagerRole } from "@/lib/roles";
+import { isOtManagerRole, canManageUsers } from "@/lib/roles";
 
 export const authConfig = {
   pages: {
@@ -40,8 +40,9 @@ export const authConfig = {
       const role = auth.user?.role;
       const isOwnProfile = isOnUsers && nextUrl.pathname === `/users/${auth.user?.id}`;
 
-      // /users is ADMIN only, except a user's own profile page (e.g. to register their own face)
-      if (isOnUsers && role !== "ADMIN" && !isOwnProfile) {
+      // /users is ADMIN or OPERATOR, except a user's own profile page (e.g.
+      // to register their own face) which anyone logged in can reach
+      if (isOnUsers && !canManageUsers(role) && !isOwnProfile) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

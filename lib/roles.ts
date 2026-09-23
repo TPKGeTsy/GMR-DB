@@ -7,3 +7,14 @@ export const OT_MANAGER_ROLES = ["ADMIN", "OPERATOR", "SENIOR"];
 export function isOtManagerRole(role: string | undefined | null): boolean {
   return !!role && OT_MANAGER_ROLES.includes(role);
 }
+
+// Roles allowed into /users (employee management). OPERATOR gets the same
+// access as ADMIN here EXCEPT changing a user's role (updateUserRole stays
+// ADMIN-only) and seeing another employee's check-in/attendance history
+// (gated separately, per-page, since it's not a role check but a "whose
+// profile" check).
+export const MANAGE_USERS_ROLES = ["ADMIN", "OPERATOR"];
+
+export function canManageUsers(role: string | undefined | null): boolean {
+  return !!role && MANAGE_USERS_ROLES.includes(role);
+}

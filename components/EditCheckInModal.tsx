@@ -43,6 +43,10 @@ export default function EditCheckInModal({
   const [location, setLocation] = useState(row.location);
   const [time, setTime] = useState(toBangkokInputValue(row.time));
   const [note, setNote] = useState(row.note || "");
+  const [confidencePct, setConfidencePct] = useState(
+    row.confidence != null ? String(Math.round(row.confidence * 100)) : ""
+  );
+  const [photoUrl, setPhotoUrl] = useState(row.photoUrl || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +61,8 @@ export default function EditCheckInModal({
       location,
       createdAt: fromBangkokInputValue(time),
       note,
+      confidence: confidencePct.trim() === "" ? null : Number(confidencePct) / 100,
+      photoUrl: photoUrl.trim() || null,
     });
 
     if (!result.success) {
@@ -152,6 +158,32 @@ export default function EditCheckInModal({
               onChange={(e) => setNote(e.target.value)}
               className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400">ความแม่นยำ (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={confidencePct}
+                onChange={(e) => setConfidencePct(e.target.value)}
+                placeholder="-"
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400">URL รูปภาพ</label>
+              <input
+                type="text"
+                value={photoUrl}
+                onChange={(e) => setPhotoUrl(e.target.value)}
+                placeholder="-"
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+            </div>
           </div>
 
           {error && <p className="text-xs text-red-600">{error}</p>}

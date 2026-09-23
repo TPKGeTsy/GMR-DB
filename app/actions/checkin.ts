@@ -648,7 +648,15 @@ export async function getEmployeeOptions(): Promise<
  *  that after the fact. */
 export async function updateCheckIn(
   id: string,
-  data: { userId?: string; type?: string; location?: string; createdAt?: string; note?: string }
+  data: {
+    userId?: string;
+    type?: string;
+    location?: string;
+    createdAt?: string;
+    note?: string;
+    confidence?: number | null;
+    photoUrl?: string | null;
+  }
 ) {
   try {
     const session = await auth();
@@ -663,6 +671,8 @@ export async function updateCheckIn(
       createdAt?: Date;
       note?: string | null;
       userId?: string;
+      confidence?: number | null;
+      photoUrl?: string | null;
     } = {};
 
     if (data.type !== undefined) {
@@ -680,6 +690,15 @@ export async function updateCheckIn(
     }
     if (data.note !== undefined) {
       updateData.note = data.note.trim() || null;
+    }
+    if (data.confidence !== undefined) {
+      if (data.confidence !== null && (isNaN(data.confidence) || data.confidence < 0 || data.confidence > 1)) {
+        return { success: false, error: "ความแม่นยำต้องอยู่ระหว่าง 0-100%" };
+      }
+      updateData.confidence = data.confidence;
+    }
+    if (data.photoUrl !== undefined) {
+      updateData.photoUrl = data.photoUrl?.trim() || null;
     }
     if (data.userId !== undefined && data.userId !== existing.userId) {
       const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });

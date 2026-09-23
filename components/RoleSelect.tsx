@@ -6,18 +6,28 @@ import { useState } from "react";
 interface RoleSelectProps {
   userId: string;
   initialRole: string;
+  // Operators can see everyone's role but only an Admin can change it —
+  // render a plain badge instead of an interactive control for anyone else.
+  readOnly?: boolean;
 }
 
-export default function RoleSelect({ userId, initialRole }: RoleSelectProps) {
+const ROLE_BADGE_STYLES: Record<string, string> = {
+  ADMIN: "bg-purple-100 text-purple-700",
+  OPERATOR: "bg-blue-100 text-blue-700",
+  SENIOR: "bg-teal-100 text-teal-700",
+  USER: "bg-gray-100 text-gray-700",
+};
+
+export default function RoleSelect({ userId, initialRole, readOnly = false }: RoleSelectProps) {
   const [role, setRole] = useState(initialRole);
   const [isPending, setIsPending] = useState(false);
 
   const handleRoleChange = async (newRole: string) => {
     if (newRole === role) return;
-    
+
     setIsPending(true);
     const result = await updateUserRole(userId, newRole);
-    
+
     if (result.success) {
       setRole(newRole);
     } else {
@@ -25,6 +35,14 @@ export default function RoleSelect({ userId, initialRole }: RoleSelectProps) {
     }
     setIsPending(false);
   };
+
+  if (readOnly) {
+    return (
+      <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${ROLE_BADGE_STYLES[role] || ROLE_BADGE_STYLES.USER}`}>
+        {role}
+      </span>
+    );
+  }
 
   return (
     <select

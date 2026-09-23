@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { bangkokDayRange } from "@/lib/datetime";
+import { canManageUsers } from "@/lib/roles";
 
 export async function authenticate(
   prevState: string | undefined,
@@ -66,7 +67,7 @@ export async function createActivityLog(action: string, details?: string) {
 export async function getUsers({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
   try {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    if (!canManageUsers(session?.user?.role)) return { success: false, error: "Unauthorized" };
 
     const skip = (page - 1) * limit;
     const [users, totalCount] = await Promise.all([
@@ -214,7 +215,7 @@ export async function changePassword(
 export async function unlinkLineAccount(userId: string) {
   try {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    if (!canManageUsers(session?.user?.role)) return { success: false, error: "Unauthorized" };
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return { success: false, error: "User not found" };
