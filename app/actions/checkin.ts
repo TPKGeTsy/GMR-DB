@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
-import { buildDailySummary } from "@/lib/attendance";
+import { buildDailySummary, REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
 import { bangkokDateKey, bangkokDayRange, bangkokDateAt } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -611,6 +611,137 @@ export async function getDaySummary(dateKey: string): Promise<
   } catch (error) {
     logError("Error building day summary:", error);
     return { success: false, error: "Failed to load day summary" };
+  }
+}
+
+/** Computes an IN/OUT instant pair timed so buildDailySummary's hour math
+ *  (the same untracked-lunch subtraction past 8h used everywhere else)
+ *  lands on exactly the total/OT hours an admin typed, so they can record a
+ *  forgotten day by hours worked instead of reverse-engineering clock times. */
+function synthesizeDaySession(dateKey: string, hours: number, otHours: number): { start: Date; end: Date } {
+  const total = hours + otHours;
+  const elapsedHours = total > REGULAR_HOURS_CAP ? total + LUNCH_BREAK_HOURS : total;
+  const start = new Date(`${dateKey}T09:00:00+07:00`);
+  const end = new Date(start.getTime() + elapsedHours * 3_600_000);
+  return { start, end };
+}
+
+function manualAttendanceNote(prefix: string, hours: number, otHours: number): string {
+  return `${prefix}: ${hours.toFixed(1)} ชม.${otHours > 0 ? ` (OT ${otHours.toFixed(1)} ชม.)` : ""}`;
+}
+
+interface ManualAttendanceInput {
+  userId: string;
+  dateKey: string;
+  hours: number;
+  otHours: number;
+  note?: string;
+}
+
+function validateManualAttendanceInput(data: ManualAttendanceInput): string | null {
+  if (!Number.isFinite(data.hours) || !Number.isFinite(data.otHours) || data.hours < 0 || data.otHours < 0) {
+    return "ชั่วโมงไม่ถูกต้อง";
+  }
+  if (data.hours + data.otHours <= 0) return "กรุณาระบุจำนวนชั่วโมง";
+  return null;
+}
+
+/** Records a full missed day for someone who forgot to check in — admin
+ *  types hours worked (+OT) directly rather than exact clock times. */
+export async function addManualAttendanceDay(data: ManualAttendanceInput) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const validationError = validateManualAttendanceInput(data);
+    if (validationError) return { success: false, error: validationError };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+    const note = data.note?.trim() || manualAttendanceNote("เพิ่มโดยแอดมิน", data.hours, data.otHours);
+
+    await prisma.$transaction([
+      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location: "OFFICE", createdAt: start, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location: "OFFICE", createdAt: end, note } }),
+    ]);
+
+    await createActivityLog(
+      "ADD_MANUAL_ATTENDANCE",
+      `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${data.userId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error adding manual attendance:", error);
+    return { success: false, error: "เพิ่มรายการไม่สำเร็จ" };
+  }
+}
+
+/** Replaces a whole day's check-in/out records for one employee with a
+ *  freshly synthesized IN/OUT pair matching the admin-typed hours/OT —
+ *  simplest correct way to "edit the day's total" when the underlying
+ *  scans may be one pair, several (lunch break), or a mess to fix by hand. */
+export async function editManualAttendanceDay(data: ManualAttendanceInput) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const validationError = validateManualAttendanceInput(data);
+    if (validationError) return { success: false, error: validationError };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    const { start: dayStart, end: dayEnd } = bangkokDayRange(data.dateKey);
+    const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+    const note = data.note?.trim() || manualAttendanceNote("แก้ไขโดยแอดมิน", data.hours, data.otHours);
+
+    await prisma.$transaction([
+      prisma.checkIn.deleteMany({ where: { userId: data.userId, createdAt: { gte: dayStart, lt: dayEnd } } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location: "OFFICE", createdAt: start, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location: "OFFICE", createdAt: end, note } }),
+    ]);
+
+    await createActivityLog(
+      "EDIT_MANUAL_ATTENDANCE",
+      `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${data.userId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error editing manual attendance:", error);
+    return { success: false, error: "แก้ไขรายการไม่สำเร็จ" };
+  }
+}
+
+/** Removes every check-in/out record for one employee on one day — the
+ *  whole-row counterpart to deleteCheckIn's single-scan delete, since the
+ *  day-summary panel shows one row per employee per day, not per raw scan. */
+export async function deleteAttendanceDay(data: { userId: string; dateKey: string }) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    const { start, end } = bangkokDayRange(data.dateKey);
+    await prisma.checkIn.deleteMany({ where: { userId: data.userId, createdAt: { gte: start, lt: end } } });
+
+    await createActivityLog("DELETE_ATTENDANCE_DAY", `Admin deleted all check-ins for ${targetUser.username} on ${data.dateKey}`);
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${data.userId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting attendance day:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
 

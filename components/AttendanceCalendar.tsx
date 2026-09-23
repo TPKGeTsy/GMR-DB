@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 import {
   getMonthActivity,
   getDaySummary,
+  getEmployeeOptions,
+  deleteAttendanceDay,
   type DaySummaryRow,
   type DayLoanRow,
+  type EmployeeOption,
 } from "@/app/actions/checkin";
 import { formatThaiTime } from "@/lib/datetime";
 import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
-import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import DayAttendanceModal from "./DayAttendanceModal";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const MONTH_LABELS = [
@@ -76,6 +80,15 @@ export default function AttendanceCalendar() {
   const [summary, setSummary] = useState<{ attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[] } | null>(null);
   const [loadingMonth, setLoadingMonth] = useState(true);
   const [loadingDay, setLoadingDay] = useState(true);
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+  const [modal, setModal] = useState<"add" | "edit" | null>(null);
+  const [editingRow, setEditingRow] = useState<DaySummaryRow | null>(null);
+
+  useEffect(() => {
+    getEmployeeOptions().then((result) => {
+      if (result.success && result.data) setEmployeeOptions(result.data);
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +102,13 @@ export default function AttendanceCalendar() {
     };
   }, [viewYear, viewMonth]);
 
+  const reloadDaySummary = () => {
+    getDaySummary(selectedDate).then((result) => {
+      setSummary(result.success && result.data ? result.data : { attendance: [], borrowed: [], returned: [] });
+      setLoadingDay(false);
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     getDaySummary(selectedDate).then((result) => {
@@ -100,6 +120,16 @@ export default function AttendanceCalendar() {
       cancelled = true;
     };
   }, [selectedDate]);
+
+  const handleDeleteRow = async (row: DaySummaryRow) => {
+    if (!confirm(`ลบรายการเข้างานของ "${row.employeeName}" วันที่ ${selectedDate} ทั้งหมดถาวร?`)) return;
+    const result = await deleteAttendanceDay({ userId: row.userId, dateKey: selectedDate });
+    if (!result.success) {
+      alert(result.error || "ลบไม่สำเร็จ");
+      return;
+    }
+    reloadDaySummary();
+  };
 
   const goToMonth = (delta: number) => {
     let newMonth = viewMonth + delta;
@@ -181,7 +211,19 @@ export default function AttendanceCalendar() {
           </div>
 
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1.5">การเข้างาน</p>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-medium text-gray-500">การเข้างาน</p>
+              <button
+                onClick={() => {
+                  setEditingRow(null);
+                  setModal("add");
+                }}
+                className="inline-flex items-center gap-1 text-[11px] text-orange-600 hover:text-orange-700 font-medium"
+              >
+                <Plus className="w-3 h-3" />
+                เพิ่มรายการ
+              </button>
+            </div>
             {!loadingDay && summary?.attendance.length === 0 ? (
               <p className="text-xs text-gray-400">ไม่มีใครเช็คอินในวันนี้</p>
             ) : (
@@ -198,6 +240,19 @@ export default function AttendanceCalendar() {
                         )}
                         {row.otHours > 0 && `(OT ${row.otHours.toFixed(1)} ชม.)`}
                         {row.stillWorking && <span className="text-green-600 font-semibold">กำลังทำงาน</span>}
+                        <button
+                          onClick={() => {
+                            setEditingRow(row);
+                            setModal("edit");
+                          }}
+                          title="แก้ไข"
+                          className="text-gray-400 hover:text-orange-600"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button onClick={() => handleDeleteRow(row)} title="ลบ" className="text-gray-400 hover:text-red-600">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
@@ -251,6 +306,20 @@ export default function AttendanceCalendar() {
           </div>
         </div>
       </div>
+
+      {modal && (
+        <DayAttendanceModal
+          dateKey={selectedDate}
+          employeeOptions={employeeOptions}
+          editing={
+            modal === "edit" && editingRow
+              ? { userId: editingRow.userId, hours: Math.min(editingRow.totalHours, REGULAR_HOURS_CAP), otHours: editingRow.otHours }
+              : undefined
+          }
+          onClose={() => setModal(null)}
+          onSaved={reloadDaySummary}
+        />
+      )}
     </div>
   );
 }
