@@ -290,6 +290,24 @@ export default function NewAssetPage() {
               </div>
             </div>
 
+            <div className="sm:col-span-2">
+              <label htmlFor="issueType" className="block text-sm font-medium text-gray-900">
+                วิธีจ่ายออก (เบิก/ยืม)
+              </label>
+              <div className="mt-1">
+                <select
+                  id="issueType"
+                  name="issueType"
+                  required
+                  defaultValue="BORROW"
+                  className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border h-[42px] placeholder-gray-500 text-gray-900"
+                >
+                  <option value="BORROW">ยืม (ต้องคืน)</option>
+                  <option value="CONSUME">เบิก (ไม่ต้องคืน)</option>
+                </select>
+              </div>
+            </div>
+
             <div className="sm:col-span-6">
               <label htmlFor="imageFile" className="block text-sm font-medium text-gray-900">
                 รูปภาพอุปกรณ์ (Upload Image)

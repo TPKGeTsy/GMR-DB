@@ -1,8 +1,9 @@
-import { getCatalogAssets } from "@/app/actions/assets";
+import { getCatalogAssets, getCatalogCategories } from "@/app/actions/assets";
 import { auth } from "@/auth";
 import CatalogCard from "@/components/CatalogCard";
 import Pagination from "@/components/Pagination";
 import Search from "@/components/Search";
+import CategoryFilter from "@/components/CategoryFilter";
 import { ShoppingBag } from "lucide-react";
 import { Asset } from "@prisma/client";
 
@@ -14,18 +15,22 @@ export default async function CatalogPage({
   searchParams: Promise<{
     page?: string;
     query?: string;
+    category?: string;
   }>;
 }) {
   const params = await searchParams;
   const currentPage = Number(params.page) || 1;
   const query = params.query || "";
+  const category = params.category || "";
   const limit = 12;
 
-  const [result, session] = await Promise.all([
-    getCatalogAssets({ page: currentPage, limit, query }),
+  const [result, session, categoriesResult] = await Promise.all([
+    getCatalogAssets({ page: currentPage, limit, query, category }),
     auth(),
+    getCatalogCategories(),
   ]);
   const isLoggedIn = !!session?.user;
+  const categories = categoriesResult.success && categoriesResult.data ? categoriesResult.data : [];
 
   if (!result.success || !result.data) {
     return (
@@ -51,8 +56,11 @@ export default async function CatalogPage({
             เรียกดูและค้นหาอุปกรณ์วิศวกรรมทั้งหมดในระบบ
           </p>
         </div>
-        <div className="w-full md:w-96">
-          <Search placeholder="ค้นหาชื่ออุปกรณ์, รุ่น หรือหมวดหมู่..." />
+        <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
+          <div className="w-full sm:w-72">
+            <Search placeholder="ค้นหาชื่ออุปกรณ์, รุ่น หรือหมวดหมู่..." />
+          </div>
+          <CategoryFilter categories={categories} />
         </div>
       </div>
 

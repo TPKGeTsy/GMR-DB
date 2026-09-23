@@ -34,20 +34,31 @@ export async function borrowAsset(assetId: string, quantity: number) {
         data: { quantity: asset.quantity - quantity },
       });
 
-      const dueDate = new Date(Date.now() + DEFAULT_LOAN_DAYS * 24 * 60 * 60 * 1000);
+      const isConsume = asset.issueType === "CONSUME";
+      // A CONSUME item (เบิก) is taken permanently — the Loan row is created
+      // already "returned" (same instant) so it never shows up as something
+      // to return, and its stock deduction is never reversed by returnLoan
+      // (which refuses to touch an already-returned loan).
+      const now = new Date();
       const loan = await tx.loan.create({
-        data: { assetId, userId: session.user.id!, quantity, dueDate },
+        data: {
+          assetId,
+          userId: session.user.id!,
+          quantity,
+          dueDate: isConsume ? null : new Date(now.getTime() + DEFAULT_LOAN_DAYS * 24 * 60 * 60 * 1000),
+          returnedAt: isConsume ? now : null,
+        },
       });
 
-      return { asset, loan };
+      return { asset, loan, isConsume };
     });
 
     await createActivityLog(
-      "BORROW_ASSET",
-      `Borrowed ${quantity} x ${result.asset.name} (${result.asset.modelOrSize})`
+      result.isConsume ? "CONSUME_ASSET" : "BORROW_ASSET",
+      `${result.isConsume ? "Requisitioned" : "Borrowed"} ${quantity} x ${result.asset.name} (${result.asset.modelOrSize})`
     );
     await notifyAdminsFYI(
-      `📦 ${session.user.name || session.user.username} ยืม ${result.asset.name} (${result.asset.modelOrSize}) x${quantity} ${result.asset.unit}`
+      `📦 ${session.user.name || session.user.username} ${result.isConsume ? "เบิก" : "ยืม"} ${result.asset.name} (${result.asset.modelOrSize}) x${quantity} ${result.asset.unit}`
     );
 
     revalidatePath("/catalog");

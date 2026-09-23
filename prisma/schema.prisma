@@ -25,6 +25,10 @@ model Asset {
   quantity        Int
   unit            String
   categoryStatus  String   @map("category_status") // 'R', 'Y', 'G', or 'B'
+  // 'BORROW' (ยืม — expected back, e.g. a screwdriver) or 'CONSUME' (เบิก —
+  // taken permanently, e.g. screws/nuts). Drives whether borrowAsset's Loan
+  // row is left open for a later return or auto-marked returned immediately.
+  issueType       String   @default("BORROW") @map("issue_type")
   unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { Package, Tag, HandHelping } from "lucide-react";
+import { Package, Tag, HandHelping, PackageMinus } from "lucide-react";
 import { Asset } from "@prisma/client";
 import { borrowAsset } from "@/app/actions/loans";
 
@@ -15,6 +15,8 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const isConsume = asset.issueType === "CONSUME";
+
   const handleBorrow = async () => {
     setIsSubmitting(true);
     setMessage(null);
@@ -24,7 +26,7 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
       setQty(1);
       router.refresh();
     } else {
-      setMessage(result.error || "ยืมของไม่สำเร็จ");
+      setMessage(result.error || (isConsume ? "เบิกของไม่สำเร็จ" : "ยืมของไม่สำเร็จ"));
     }
     setIsSubmitting(false);
   };
@@ -55,6 +57,15 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
             {asset.category.toUpperCase()}
           </div>
         )}
+
+        {/* เบิก/ยืม Badge */}
+        <div
+          className={`absolute bottom-2 left-2 px-2 py-1 rounded text-[10px] font-bold shadow-sm z-10 ${
+            isConsume ? "bg-rose-100/90 text-rose-700" : "bg-blue-100/90 text-blue-700"
+          }`}
+        >
+          {isConsume ? "เบิก (ไม่คืน)" : "ยืม (ต้องคืน)"}
+        </div>
 
         {/* Status indicator Dot */}
         <div className="absolute top-2 right-2 z-10">
@@ -96,7 +107,7 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
             className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 text-xs font-medium transition-colors"
           >
             <HandHelping className="w-3.5 h-3.5" />
-            เข้าสู่ระบบเพื่อยืม
+            เข้าสู่ระบบเพื่อ{isConsume ? "เบิก" : "ยืม"}
           </Link>
         ) : asset.quantity <= 0 ? (
           <span className="inline-flex items-center justify-center px-2 py-1.5 rounded-md bg-gray-100 text-gray-400 text-xs font-medium">
@@ -107,8 +118,8 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
             onClick={() => setShowForm(true)}
             className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-orange-600 text-white hover:bg-orange-700 text-xs font-semibold transition-colors"
           >
-            <HandHelping className="w-3.5 h-3.5" />
-            ยืมของ
+            {isConsume ? <PackageMinus className="w-3.5 h-3.5" /> : <HandHelping className="w-3.5 h-3.5" />}
+            {isConsume ? "เบิกของ" : "ยืมของ"}
           </button>
         ) : (
           <div className="space-y-1.5">
@@ -126,7 +137,7 @@ export default function CatalogCard({ asset, isLoggedIn }: { asset: Asset; isLog
                 disabled={isSubmitting}
                 className="flex-1 px-2 py-1 rounded-md bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 text-xs font-semibold transition-colors"
               >
-                {isSubmitting ? "กำลังยืม..." : "ยืนยันยืม"}
+                {isSubmitting ? "กำลังบันทึก..." : isConsume ? "ยืนยันเบิก" : "ยืนยันยืม"}
               </button>
               <button
                 onClick={() => { setShowForm(false); setMessage(null); }}

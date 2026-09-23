@@ -30,6 +30,7 @@ interface EditAssetFormProps {
     quantity: number;
     unit: string;
     categoryStatus: string;
+    issueType: string;
     unitPrice: number;
     imageUrl: string | null;
     imagePosition: string | null;
@@ -302,6 +303,24 @@ export default function EditAssetForm({ asset }: EditAssetFormProps) {
                   <option value="Y">Y (Yellow)</option>
                   <option value="G">G (Green)</option>
                   <option value="B">B (Blue)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="issueType" className="block text-sm font-medium text-gray-900">
+                วิธีจ่ายออก (เบิก/ยืม)
+              </label>
+              <div className="mt-1 text-gray-500">
+                <select
+                  id="issueType"
+                  name="issueType"
+                  defaultValue={asset.issueType}
+                  required
+                  className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-700 rounded-md p-2 border h-[42px] text-gray-500"
+                >
+                  <option value="BORROW">ยืม (ต้องคืน)</option>
+                  <option value="CONSUME">เบิก (ไม่ต้องคืน)</option>
                 </select>
               </div>
             </div>

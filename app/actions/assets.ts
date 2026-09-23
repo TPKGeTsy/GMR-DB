@@ -25,6 +25,7 @@ const assetFormSchema = z.object({
   quantity: z.coerce.number().int("จำนวนต้องเป็นเลขจำนวนเต็ม").min(0, "จำนวนต้องไม่ติดลบ"),
   unit: z.string().trim().min(1, "กรุณากรอกหน่วย"),
   categoryStatus: z.enum(["R", "Y", "G", "B"], { message: "สถานะไม่ถูกต้อง" }),
+  issueType: z.enum(["BORROW", "CONSUME"], { message: "ประเภทการเบิก/ยืมไม่ถูกต้อง" }),
   unitPrice: z.coerce.number().min(0, "ราคาต้องไม่ติดลบ"),
   imagePosition: z.string().trim().optional(),
 });
@@ -111,13 +112,14 @@ export async function createAsset(formData: FormData) {
       quantity: formData.get("quantity"),
       unit: formData.get("unit"),
       categoryStatus: formData.get("categoryStatus"),
+      issueType: formData.get("issueType"),
       unitPrice: formData.get("unitPrice"),
       imagePosition: (formData.get("imagePosition") as string | null) || undefined,
     });
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
     }
-    const { name, category, modelOrSize, quantity, unit, categoryStatus, unitPrice, imagePosition } = parsed.data;
+    const { name, category, modelOrSize, quantity, unit, categoryStatus, issueType, unitPrice, imagePosition } = parsed.data;
 
     let imageUrl: string | null = null;
     const imageFile = formData.get("imageFile") as File;
@@ -136,6 +138,7 @@ export async function createAsset(formData: FormData) {
         quantity,
         unit,
         categoryStatus,
+        issueType,
         unitPrice,
         imageUrl,
         imagePosition: imagePosition || "50% 50%",
@@ -168,13 +171,14 @@ export async function updateAsset(id: string, formData: FormData) {
       quantity: formData.get("quantity"),
       unit: formData.get("unit"),
       categoryStatus: formData.get("categoryStatus"),
+      issueType: formData.get("issueType"),
       unitPrice: formData.get("unitPrice"),
       imagePosition: (formData.get("imagePosition") as string | null) || undefined,
     });
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0]?.message || "ข้อมูลไม่ถูกต้อง" };
     }
-    const { name, category, modelOrSize, quantity, unit, categoryStatus, unitPrice, imagePosition } = parsed.data;
+    const { name, category, modelOrSize, quantity, unit, categoryStatus, issueType, unitPrice, imagePosition } = parsed.data;
 
     let imageUrl: string | undefined = undefined;
     const imageFile = formData.get("imageFile") as File;
@@ -194,6 +198,7 @@ export async function updateAsset(id: string, formData: FormData) {
         quantity,
         unit,
         categoryStatus,
+        issueType,
         unitPrice,
         ...(imageUrl && { imageUrl }),
         ...(imagePosition && { imagePosition }),
@@ -312,25 +317,32 @@ export async function getDashboardStats() {
   }
 }
 
-export async function getCatalogAssets({ 
-  page = 1, 
-  limit = 12, 
-  query = "" 
-}: { 
-  page?: number; 
-  limit?: number; 
-  query?: string 
+export async function getCatalogAssets({
+  page = 1,
+  limit = 12,
+  query = "",
+  category = "",
+}: {
+  page?: number;
+  limit?: number;
+  query?: string;
+  category?: string;
 }) {
   try {
     const skip = (page - 1) * limit;
-    
-    const where: Prisma.AssetWhereInput = query ? {
-      OR: [
-        { name: { contains: query, mode: "insensitive" } },
-        { modelOrSize: { contains: query, mode: "insensitive" } },
-        { category: { contains: query, mode: "insensitive" } },
-      ],
-    } : {};
+
+    const where: Prisma.AssetWhereInput = {
+      ...(query
+        ? {
+            OR: [
+              { name: { contains: query, mode: "insensitive" } },
+              { modelOrSize: { contains: query, mode: "insensitive" } },
+              { category: { contains: query, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+      ...(category ? { category } : {}),
+    };
 
     const [assets, totalCount] = await Promise.all([
       prisma.asset.findMany({
@@ -356,5 +368,22 @@ export async function getCatalogAssets({
   } catch (error) {
     logError("Error fetching catalog assets:", error);
     return { success: false, error: "Failed to fetch catalog assets" };
+  }
+}
+
+/** Distinct categories in use, for the Catalog page's category filter
+ *  dropdown. */
+export async function getCatalogCategories() {
+  try {
+    const rows = await prisma.asset.findMany({
+      where: { category: { not: null } },
+      select: { category: true },
+      distinct: ["category"],
+      orderBy: { category: "asc" },
+    });
+    return { success: true, data: rows.map((r) => r.category).filter((c): c is string => !!c) };
+  } catch (error) {
+    logError("Error fetching catalog categories:", error);
+    return { success: false, error: "Failed to fetch catalog categories" };
   }
 }
