@@ -7,6 +7,7 @@ import ChangePasswordPanel from "@/components/ChangePasswordPanel";
 import LineAccountPanel from "@/components/LineAccountPanel";
 import NicknamePanel from "@/components/NicknamePanel";
 import ActivityLogFilters from "@/components/ActivityLogFilters";
+import ProfileSummaryFilters from "@/components/ProfileSummaryFilters";
 import Pagination from "@/components/Pagination";
 import { buildDailySummary } from "@/lib/attendance";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
@@ -20,10 +21,13 @@ export default async function UserProfilePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ logFrom?: string; logTo?: string; logAction?: string; logPage?: string }>;
+  searchParams: Promise<{
+    logFrom?: string; logTo?: string; logAction?: string; logPage?: string;
+    sumFrom?: string; sumTo?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { logFrom, logTo, logAction, logPage } = await searchParams;
+  const { logFrom, logTo, logAction, logPage, sumFrom, sumTo } = await searchParams;
   const session = await auth();
   const currentUser = session?.user;
 
@@ -57,14 +61,18 @@ export default async function UserProfilePage({
   const latestCheckIn = user.checkIns[0];
   const isOnline = latestCheckIn?.type === "IN";
 
-  // This calendar month's worked/OT hours, for a quick workload summary at a
-  // glance — reuses the same per-day totals the Daily Timesheet already computes.
-  const currentMonthKey = bangkokDateKey(new Date()).slice(0, 7); // YYYY-MM
-  const monthRows = dailyRows.filter((row) => row.dateKey.startsWith(currentMonthKey));
-  const monthSummary = {
-    days: monthRows.length,
-    totalHours: monthRows.reduce((sum, row) => sum + row.totalHours, 0),
-    otHours: monthRows.reduce((sum, row) => sum + row.otHours, 0),
+  // Worked/OT hours over an admin-picked date range (defaults to this
+  // calendar month), for a quick workload summary at a glance — reuses the
+  // same per-day totals the Daily Timesheet already computes.
+  const today = bangkokDateKey(new Date());
+  const defaultSumFrom = `${today.slice(0, 7)}-01`; // start of this month
+  const rangeFrom = sumFrom || defaultSumFrom;
+  const rangeTo = sumTo || today;
+  const summaryRows = dailyRows.filter((row) => row.dateKey >= rangeFrom && row.dateKey <= rangeTo);
+  const periodSummary = {
+    days: summaryRows.length,
+    totalHours: summaryRows.reduce((sum, row) => sum + row.totalHours, 0),
+    otHours: summaryRows.reduce((sum, row) => sum + row.otHours, 0),
   };
 
   return (
@@ -158,19 +166,20 @@ export default async function UserProfilePage({
           {canSeeAttendance && (
             <div className="bg-white shadow rounded-lg border border-gray-100 p-6">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                สรุปชั่วโมงทำงานเดือนนี้
+                สรุปชั่วโมงทำงาน
               </h2>
+              <ProfileSummaryFilters defaultFrom={defaultSumFrom} defaultTo={today} />
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{monthSummary.days}</p>
+                  <p className="text-2xl font-bold text-gray-900">{periodSummary.days}</p>
                   <p className="text-xs text-gray-400 mt-1">วันทำงาน</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{monthSummary.totalHours.toFixed(1)}</p>
+                  <p className="text-2xl font-bold text-gray-900">{periodSummary.totalHours.toFixed(1)}</p>
                   <p className="text-xs text-gray-400 mt-1">ชั่วโมงรวม</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-orange-600">{monthSummary.otHours.toFixed(1)}</p>
+                  <p className="text-2xl font-bold text-orange-600">{periodSummary.otHours.toFixed(1)}</p>
                   <p className="text-xs text-gray-400 mt-1">ชั่วโมง OT</p>
                 </div>
               </div>
