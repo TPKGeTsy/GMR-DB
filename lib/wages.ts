@@ -9,8 +9,9 @@ export interface WageGradeRate {
 
 // Extends CheckInEvent (needs `type` for buildDailySummary to pair IN/OUT
 // sessions correctly, including ones spanning past midnight) rather than
-// just {location, createdAt}.
-export type WageCheckInEvent = CheckInEvent;
+// just {location, createdAt}, plus `note` so an outside day's location
+// detail (e.g. "ออกหน้างาน: Aisin") can be surfaced in the wage report.
+export type WageCheckInEvent = CheckInEvent & { note?: string | null };
 
 export interface DailyWageRow {
   dateKey: string;
@@ -19,6 +20,9 @@ export interface DailyWageRow {
   baseRate: number;
   otPay: number;
   rate: number; // baseRate + otPay
+  // The first non-empty note from an OUTSIDE check-in that day, if any —
+  // usually where the person went (see Attendance's "went outside" note).
+  note: string | null;
 }
 
 const OT_MULTIPLIER = 1.5;
@@ -33,10 +37,21 @@ const REGULAR_HOURS_PER_DAY = 8;
  *  (rate/8 * 1.5), rounded to the nearest baht. */
 export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRate): DailyWageRow[] {
   const outsideByDate = new Map<string, boolean>();
+  const noteByDate = new Map<string, string>();
   for (const c of checkIns) {
     const dateKey = bangkokDateKey(c.createdAt);
     const wentOutside = (outsideByDate.get(dateKey) ?? false) || c.location === "OUTSIDE";
     outsideByDate.set(dateKey, wentOutside);
+    if (c.location === "OUTSIDE" && c.note?.trim() && !noteByDate.has(dateKey)) {
+      // The manual-entry note is prefixed with the hours summary (e.g.
+      // "แก้ไขโดยแอดมิน: 8.0 ชม. — ออกหน้างาน: Aisin") — strip that down to
+      // just the location detail. A trip/kiosk note has no such prefix, so
+      // it's used as-is.
+      const raw = c.note.trim();
+      const marker = "ออกหน้างาน: ";
+      const markerIndex = raw.indexOf(marker);
+      noteByDate.set(dateKey, markerIndex >= 0 ? raw.slice(markerIndex + marker.length) : raw);
+    }
   }
 
   const summaryRows = buildDailySummary(checkIns);
@@ -46,7 +61,15 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
       const wentOutside = outsideByDate.get(row.dateKey) ?? false;
       const baseRate = wentOutside ? grade.outsideRate : grade.onsiteRate;
       const otPay = Math.round(row.otHours * (baseRate / REGULAR_HOURS_PER_DAY) * OT_MULTIPLIER);
-      return { dateKey: row.dateKey, wentOutside, otHours: row.otHours, baseRate, otPay, rate: baseRate + otPay };
+      return {
+        dateKey: row.dateKey,
+        wentOutside,
+        otHours: row.otHours,
+        baseRate,
+        otPay,
+        rate: baseRate + otPay,
+        note: noteByDate.get(row.dateKey) ?? null,
+      };
     })
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 }

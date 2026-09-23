@@ -75,10 +75,12 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                 className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
                                   d.wentOutside ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-700"
                                 }`}
+                                title={d.note || undefined}
                               >
                                 <MapPin className="w-2.5 h-2.5 mr-1" />
                                 {d.wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                               </span>
+                              {d.note && <span className="text-gray-400 italic">({d.note})</span>}
                               <span className="text-gray-500">{d.baseRate.toLocaleString()} บาท</span>
                               {d.otHours > 0 && (
                                 <span className="text-orange-600">

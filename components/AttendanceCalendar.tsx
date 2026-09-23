@@ -230,6 +230,14 @@ export default function AttendanceCalendar() {
               <ul className="divide-y divide-gray-100 border border-gray-100 rounded-md overflow-hidden">
                 {summary?.attendance.map((row) => {
                   const wentOutside = row.events.some((e) => e.location === "OUTSIDE");
+                  const outsideNoteRaw = row.events.find((e) => e.location === "OUTSIDE" && e.note)?.note;
+                  const outsideMarker = "ออกหน้างาน: ";
+                  const outsideNote = outsideNoteRaw
+                    ? (() => {
+                        const idx = outsideNoteRaw.indexOf(outsideMarker);
+                        return idx >= 0 ? outsideNoteRaw.slice(idx + outsideMarker.length) : outsideNoteRaw;
+                      })()
+                    : null;
                   return (
                   <li key={row.userId} className="px-3 py-2 bg-white">
                     <div className="flex items-center justify-between flex-wrap gap-1">
@@ -243,6 +251,7 @@ export default function AttendanceCalendar() {
                           <MapPin className="w-2.5 h-2.5 mr-0.5" />
                           {wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                         </span>
+                        {outsideNote && <span className="text-[10px] text-gray-400 italic font-normal">({outsideNote})</span>}
                       </span>
                       <span className="text-[10px] text-gray-500 inline-flex items-center gap-1.5">
                         {row.stillWorking && row.openSince ? (

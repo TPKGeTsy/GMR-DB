@@ -4,14 +4,19 @@ import { buildDailyWages, countMealDays, type WageGradeRate, type WageCheckInEve
 const GRADE_A: WageGradeRate = { code: "A", onsiteRate: 300, outsideRate: 350 };
 const GRADE_B: WageGradeRate = { code: "B", onsiteRate: 250, outsideRate: 300 };
 
-function ev(type: "IN" | "OUT", isoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): WageCheckInEvent {
-  return { type, location, createdAt: new Date(isoTime) };
+function ev(
+  type: "IN" | "OUT",
+  isoTime: string,
+  location: "OFFICE" | "OUTSIDE" = "OFFICE",
+  note?: string
+): WageCheckInEvent {
+  return { type, location, createdAt: new Date(isoTime), note };
 }
 
 describe("buildDailyWages", () => {
   it("pays just the flat onsite rate for a normal day with no OT", () => {
     const rows = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T17:00:00")], GRADE_A);
-    expect(rows).toEqual([{ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 300, otPay: 0, rate: 300 }]);
+    expect(rows).toEqual([{ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 300, otPay: 0, rate: 300, note: null }]);
   });
 
   it("uses the outside rate as the day's base rate when any check-in that day was OUTSIDE", () => {
@@ -48,7 +53,7 @@ describe("buildDailyWages", () => {
   it("pays the full flat day-rate for any check-in that day, no partial-day proration", () => {
     // A single IN with no OUT yet still counts as a full paid day, no OT.
     const rows = buildDailyWages([ev("IN", "2026-01-05T23:50:00")], GRADE_B);
-    expect(rows[0]).toEqual({ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 250, otPay: 0, rate: 250 });
+    expect(rows[0]).toEqual({ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 250, otPay: 0, rate: 250, note: null });
   });
 
   it("returns one row per distinct calendar day, sorted ascending", () => {
@@ -77,6 +82,27 @@ describe("buildDailyWages", () => {
 
   it("returns nothing for an empty check-in list", () => {
     expect(buildDailyWages([], GRADE_A)).toEqual([]);
+  });
+
+  it("surfaces an OUTSIDE check-in's note as-is when it has no admin-edit prefix", () => {
+    const rows = buildDailyWages(
+      [ev("IN", "2026-01-05T09:00:00", "OUTSIDE", "ไซต์งาน ABC"), ev("OUT", "2026-01-05T17:00:00", "OUTSIDE")],
+      GRADE_A
+    );
+    expect(rows[0].note).toBe("ไซต์งาน ABC");
+  });
+
+  it("strips the manual-entry note down to just the location after the ออกหน้างาน marker", () => {
+    const rows = buildDailyWages(
+      [ev("IN", "2026-01-05T09:00:00", "OUTSIDE", "แก้ไขโดยแอดมิน: 8.0 ชม. — ออกหน้างาน: Aisin")],
+      GRADE_A
+    );
+    expect(rows[0].note).toBe("Aisin");
+  });
+
+  it("has no note for a day with no OUTSIDE check-in", () => {
+    const rows = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T17:00:00")], GRADE_A);
+    expect(rows[0].note).toBeNull();
   });
 });
 
