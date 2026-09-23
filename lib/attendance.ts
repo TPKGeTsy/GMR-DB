@@ -144,3 +144,41 @@ export function buildDailySummary(checkIns: CheckInEvent[]): DailySummaryRow[] {
 
   return rows.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 }
+
+export interface IdentifiedCheckInEvent extends CheckInEvent {
+  id: string;
+}
+
+/** Row ids (IN and its matching OUT, if any) for every session whose
+ *  *start* falls on the given Bangkok calendar day — the same "attributed
+ *  to the day it started" rule buildDailySummary uses, but returning the
+ *  underlying check-in row ids instead of computed hours. For an admin
+ *  editing or deleting a manually-recorded day: a session that spills past
+ *  midnight (e.g. a large OT entry) has its OUT on the *next* calendar day,
+ *  which a plain "delete everything created on this day" query would miss
+ *  and leave stranded as an orphan row. */
+export function findSessionRowIdsStartingOn(checkIns: IdentifiedCheckInEvent[], dateKey: string): string[] {
+  const sorted = [...checkIns].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const matchedIds: string[] = [];
+  let openStart: Date | null = null;
+  let openIds: string[] = [];
+  for (const event of sorted) {
+    if (event.type === "IN") {
+      if (!openStart) {
+        openStart = event.createdAt;
+        openIds = [event.id];
+      }
+    } else if (event.type === "OUT" && openStart) {
+      openIds.push(event.id);
+      if (bangkokDateKey(openStart) === dateKey) matchedIds.push(...openIds);
+      openStart = null;
+      openIds = [];
+    }
+  }
+  if (openStart && bangkokDateKey(openStart) === dateKey) {
+    matchedIds.push(...openIds);
+  }
+
+  return matchedIds;
+}

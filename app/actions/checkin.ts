@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
-import { buildDailySummary, REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
+import { buildDailySummary, findSessionRowIdsStartingOn, REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
 import { bangkokDateKey, bangkokDayRange, bangkokDateAt } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -536,7 +536,7 @@ export async function getDaySummary(dateKey: string): Promise<
 
     const { start, end } = bangkokDayRange(dateKey);
 
-    const [checkIns, borrowedLoans, returnedLoans] = await Promise.all([
+    const [dayCheckIns, borrowedLoans, returnedLoans] = await Promise.all([
       prisma.checkIn.findMany({
         where: { createdAt: { gte: start, lt: end } },
         orderBy: { createdAt: "asc" },
@@ -554,26 +554,42 @@ export async function getDaySummary(dateKey: string): Promise<
       }),
     ]);
 
-    const byUser = new Map<
+    // buildDailySummary needs each active user's *full* history, not just
+    // this day's slice — a session that started today but crosses midnight
+    // (e.g. a large OT day) has its OUT dated tomorrow, and a day-scoped
+    // query can't see it, which used to make the day panel show that person
+    // as still working with a nonsense multi-day "elapsed" duration.
+    const activeUserIds = Array.from(new Set(dayCheckIns.map((c) => c.userId)));
+    const fullHistory = activeUserIds.length
+      ? await prisma.checkIn.findMany({
+          where: { userId: { in: activeUserIds } },
+          orderBy: { createdAt: "asc" },
+          select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
+        })
+      : [];
+
+    const namesByUser = new Map(dayCheckIns.map((c) => [c.userId, c.user.fullName || c.user.username]));
+    const historyByUser = new Map<string, { type: string; location: string; createdAt: Date; otStartOverride: Date | null }[]>();
+    for (const c of fullHistory) {
+      if (!historyByUser.has(c.userId)) historyByUser.set(c.userId, []);
+      historyByUser.get(c.userId)!.push({ type: c.type, location: c.location, createdAt: c.createdAt, otStartOverride: c.otStartOverride });
+    }
+    const dayEventsByUser = new Map<
       string,
-      { name: string; events: { type: string; location: string; createdAt: Date; confidence: number | null; note: string | null }[] }
+      { type: string; location: string; createdAt: Date; confidence: number | null; note: string | null }[]
     >();
-    for (const c of checkIns) {
-      if (!byUser.has(c.userId)) byUser.set(c.userId, { name: c.user.fullName || c.user.username, events: [] });
-      byUser.get(c.userId)!.events.push({
-        type: c.type,
-        location: c.location,
-        createdAt: c.createdAt,
-        confidence: c.confidence,
-        note: c.note,
-      });
+    for (const c of dayCheckIns) {
+      if (!dayEventsByUser.has(c.userId)) dayEventsByUser.set(c.userId, []);
+      dayEventsByUser.get(c.userId)!.push({ type: c.type, location: c.location, createdAt: c.createdAt, confidence: c.confidence, note: c.note });
     }
 
-    const attendance: DaySummaryRow[] = Array.from(byUser.entries()).map(([userId, { name, events }]) => {
-      const [daily] = buildDailySummary(events);
+    const attendance: DaySummaryRow[] = activeUserIds.map((userId) => {
+      const dailyRows = buildDailySummary(historyByUser.get(userId) || []);
+      const daily = dailyRows.find((r) => r.dateKey === dateKey);
+      const events = dayEventsByUser.get(userId) || [];
       return {
         userId,
-        employeeName: name,
+        employeeName: namesByUser.get(userId) || "",
         events: events
           .slice()
           .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
@@ -696,12 +712,22 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
     const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
-    const { start: dayStart, end: dayEnd } = bangkokDayRange(data.dateKey);
+    // Delete the exact rows belonging to whatever session(s) started this
+    // day — not just rows *created* within this day's window. A prior
+    // large-OT entry can have its OUT land on the *next* calendar day; a
+    // plain day-range delete would miss it and leave it stranded as an
+    // orphan duplicate (see findSessionRowIdsStartingOn's doc comment).
+    const history = await prisma.checkIn.findMany({
+      where: { userId: data.userId },
+      select: { id: true, type: true, location: true, createdAt: true },
+    });
+    const idsToDelete = findSessionRowIdsStartingOn(history, data.dateKey);
+
     const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
     const note = data.note?.trim() || manualAttendanceNote("แก้ไขโดยแอดมิน", data.hours, data.otHours);
 
     await prisma.$transaction([
-      prisma.checkIn.deleteMany({ where: { userId: data.userId, createdAt: { gte: dayStart, lt: dayEnd } } }),
+      prisma.checkIn.deleteMany({ where: { id: { in: idsToDelete } } }),
       prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location: "OFFICE", createdAt: start, note } }),
       prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location: "OFFICE", createdAt: end, note } }),
     ]);
@@ -731,8 +757,15 @@ export async function deleteAttendanceDay(data: { userId: string; dateKey: strin
     const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
-    const { start, end } = bangkokDayRange(data.dateKey);
-    await prisma.checkIn.deleteMany({ where: { userId: data.userId, createdAt: { gte: start, lt: end } } });
+    // Same session-aware deletion as editManualAttendanceDay — a session
+    // that started this day but spilled its OUT into the next day must be
+    // deleted in full, not left with a stranded OUT.
+    const history = await prisma.checkIn.findMany({
+      where: { userId: data.userId },
+      select: { id: true, type: true, location: true, createdAt: true },
+    });
+    const idsToDelete = findSessionRowIdsStartingOn(history, data.dateKey);
+    await prisma.checkIn.deleteMany({ where: { id: { in: idsToDelete } } });
 
     await createActivityLog("DELETE_ATTENDANCE_DAY", `Admin deleted all check-ins for ${targetUser.username} on ${data.dateKey}`);
 

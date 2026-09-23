@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildDailySummary, type CheckInEvent } from "./attendance";
+import { buildDailySummary, findSessionRowIdsStartingOn, type CheckInEvent, type IdentifiedCheckInEvent } from "./attendance";
 
 function ev(type: "IN" | "OUT", isoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): CheckInEvent {
   return { type, location, createdAt: new Date(isoTime) };
+}
+
+function idEv(id: string, type: "IN" | "OUT", isoTime: string): IdentifiedCheckInEvent {
+  return { id, type, location: "OFFICE", createdAt: new Date(isoTime) };
 }
 
 function evWithOverride(isoTime: string, overrideIsoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): CheckInEvent {
@@ -199,5 +203,60 @@ describe("buildDailySummary", () => {
       ev("OUT", "2026-01-05T19:00:00"), // 10h elapsed, over 8h so -1h lunch = 9h total — 1.0h OT
     ]);
     expect(rows[0].otHours).toBeCloseTo(1, 5);
+  });
+});
+
+describe("findSessionRowIdsStartingOn", () => {
+  it("returns the IN and OUT ids for a same-day session", () => {
+    const ids = findSessionRowIdsStartingOn(
+      [idEv("in1", "IN", "2026-01-05T09:00:00"), idEv("out1", "OUT", "2026-01-05T17:00:00")],
+      "2026-01-05"
+    );
+    expect(ids.sort()).toEqual(["in1", "out1"]);
+  });
+
+  it("includes the OUT even when it lands on the next calendar day", () => {
+    const ids = findSessionRowIdsStartingOn(
+      [idEv("in1", "IN", "2026-01-05T13:00:00"), idEv("out1", "OUT", "2026-01-06T07:00:00")],
+      "2026-01-05"
+    );
+    expect(ids.sort()).toEqual(["in1", "out1"]);
+  });
+
+  it("doesn't pull in a session that started a different day, even if its OUT lands on the target day", () => {
+    // Same shape as the previous case, but asking for the day the OUT landed
+    // on (the day after the session started) — that session belongs to the
+    // day *before*, not this one.
+    const ids = findSessionRowIdsStartingOn(
+      [idEv("in1", "IN", "2026-01-05T13:00:00"), idEv("out1", "OUT", "2026-01-06T07:00:00")],
+      "2026-01-06"
+    );
+    expect(ids).toEqual([]);
+  });
+
+  it("includes a still-open session's IN if it started on the target day", () => {
+    const ids = findSessionRowIdsStartingOn([idEv("in1", "IN", "2026-01-05T22:00:00")], "2026-01-05");
+    expect(ids).toEqual(["in1"]);
+  });
+
+  it("returns ids for every session that started that day, not just the first", () => {
+    const ids = findSessionRowIdsStartingOn(
+      [
+        idEv("in1", "IN", "2026-01-05T09:00:00"),
+        idEv("out1", "OUT", "2026-01-05T12:00:00"),
+        idEv("in2", "IN", "2026-01-05T13:00:00"),
+        idEv("out2", "OUT", "2026-01-06T07:00:00"),
+      ],
+      "2026-01-05"
+    );
+    expect(ids.sort()).toEqual(["in1", "in2", "out1", "out2"]);
+  });
+
+  it("returns nothing for a day with no sessions starting on it", () => {
+    const ids = findSessionRowIdsStartingOn(
+      [idEv("in1", "IN", "2026-01-05T09:00:00"), idEv("out1", "OUT", "2026-01-05T17:00:00")],
+      "2026-01-06"
+    );
+    expect(ids).toEqual([]);
   });
 });
