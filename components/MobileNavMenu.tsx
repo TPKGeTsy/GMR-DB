@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet,
 } from "lucide-react";
 import { isOtManagerRole } from "@/lib/roles";
 
@@ -132,6 +132,10 @@ export default function MobileNavMenu({
                   <Link href="/attendance" className={linkClass} onClick={close}>
                     <ClipboardList className="w-4 h-4" />
                     Attendance Report (รายงานเข้างาน)
+                  </Link>
+                  <Link href="/wages" className={linkClass} onClick={close}>
+                    <Wallet className="w-4 h-4" />
+                    ค่าแรงเด็กฝึกงาน (Wages)
                   </Link>
                 </>
               )}

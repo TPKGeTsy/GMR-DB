@@ -10,6 +10,7 @@ import ActivityLogFilters from "@/components/ActivityLogFilters";
 import ProfileSummaryFilters from "@/components/ProfileSummaryFilters";
 import Pagination from "@/components/Pagination";
 import { buildDailySummary } from "@/lib/attendance";
+import { countMealDays } from "@/lib/wages";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
 import { canManageUsers } from "@/lib/roles";
@@ -60,6 +61,9 @@ export default async function UserProfilePage({
   const dailyRows = canSeeAttendance ? buildDailySummary(user.checkIns) : [];
   const latestCheckIn = user.checkIns[0];
   const isOnline = latestCheckIn?.type === "IN";
+  // Accumulated "meal" count — one per calendar day this person went out to
+  // work outside the office, for whoever settles those meals later.
+  const mealDays = canSeeAttendance ? countMealDays(user.checkIns) : 0;
 
   // Worked/OT hours over an admin-picked date range (defaults to this
   // calendar month), for a quick workload summary at a glance — reuses the
@@ -117,6 +121,18 @@ export default async function UserProfilePage({
                   {user.role}
                 </span>
               </div>
+              {user.internGrade && (
+                <div>
+                  <p className="text-xs text-gray-400">เกรดเด็กฝึกงาน</p>
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                    user.internGrade === "A" ? "bg-emerald-100 text-emerald-700" :
+                    user.internGrade === "B" ? "bg-amber-100 text-amber-700" :
+                    "bg-rose-100 text-rose-700"
+                  }`}>
+                    {user.internGrade}
+                  </span>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-gray-400">Check-in status</p>
                 {!latestCheckIn ? (
@@ -169,7 +185,7 @@ export default async function UserProfilePage({
                 สรุปชั่วโมงทำงาน
               </h2>
               <ProfileSummaryFilters defaultFrom={defaultSumFrom} defaultTo={today} />
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-4 gap-4 text-center">
                 <div>
                   <p className="text-2xl font-bold text-gray-900">{periodSummary.days}</p>
                   <p className="text-xs text-gray-400 mt-1">วันทำงาน</p>
@@ -181,6 +197,10 @@ export default async function UserProfilePage({
                 <div>
                   <p className="text-2xl font-bold text-orange-600">{periodSummary.otHours.toFixed(1)}</p>
                   <p className="text-xs text-gray-400 mt-1">ชั่วโมง OT</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-blue-600">{mealDays}</p>
+                  <p className="text-xs text-gray-400 mt-1">มื้อสะสม (ตลอดกาล)</p>
                 </div>
               </div>
             </div>

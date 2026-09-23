@@ -55,6 +55,10 @@ model User {
   fullName  String?  @map("full_name")
   nickname  String?  @unique
   role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'SENIOR', 'USER'
+  // Intern pay grade — 'A', 'B', 'C', or null for non-intern staff. Separate
+  // from `role` (which only governs app permissions) since it drives daily
+  // wage calculation instead.
+  internGrade String? @map("intern_grade")
   lineUserId String? @unique @map("line_user_id")
   faceDescriptor   Float[]   @map("face_descriptor")
   faceRegisteredAt DateTime? @map("face_registered_at")
@@ -488,4 +492,19 @@ model RateLimitBucket {
   windowStart DateTime @default(now()) @map("window_start")
 
   @@map("rate_limit_buckets")
+}
+
+// Singleton row (id is always 1) holding the admin-editable daily wage rates
+// for graded interns — kept in the DB instead of hardcoded so HR can adjust
+// rates without a code deploy.
+model WageSettings {
+  id                     Int      @id @default(1)
+  gradeARate             Int      @default(300) @map("grade_a_rate")
+  gradeBRate             Int      @default(250) @map("grade_b_rate")
+  gradeCRate             Int      @default(150) @map("grade_c_rate")
+  outsideFlatRate        Int      @default(300) @map("outside_flat_rate") // grade B/C's rate on an outside-work day
+  gradeAOutsideAllowance Int      @default(0)   @map("grade_a_outside_allowance") // added on top of gradeARate on an outside-work day
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("wage_settings")
 }

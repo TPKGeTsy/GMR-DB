@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getUsers } from "@/app/actions/auth";
 import { getUserStatuses } from "@/app/actions/checkin";
 import RoleSelect from "@/components/RoleSelect";
+import InternGradeSelect from "@/components/InternGradeSelect";
 import Pagination from "@/components/Pagination";
 import { User, Shield, Activity, Calendar, MapPin } from "lucide-react";
 import Link from "next/link";
@@ -14,6 +15,7 @@ interface UserRow {
   username: string;
   fullName: string | null;
   role: string;
+  internGrade: string | null;
   createdAt: string;
   _count: { logs: number };
 }
@@ -63,6 +65,7 @@ export default async function UsersPage({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">User</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Grade</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Joined</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Activity</th>
               </tr>
@@ -114,6 +117,11 @@ export default async function UsersPage({
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-32">
                         <RoleSelect userId={user.id} initialRole={user.role} readOnly={!isAdmin} />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="w-28">
+                        <InternGradeSelect userId={user.id} initialGrade={user.internGrade} readOnly={!isAdmin} />
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
