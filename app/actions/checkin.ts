@@ -651,6 +651,8 @@ interface ManualAttendanceInput {
   dateKey: string;
   hours: number;
   otHours: number;
+  wentOutside?: boolean;
+  outsideNote?: string;
   note?: string;
 }
 
@@ -659,7 +661,26 @@ function validateManualAttendanceInput(data: ManualAttendanceInput): string | nu
     return "ชั่วโมงไม่ถูกต้อง";
   }
   if (data.hours + data.otHours <= 0) return "กรุณาระบุจำนวนชั่วโมง";
+  if (data.wentOutside && !data.outsideNote?.trim()) return "กรุณาระบุว่าออกหน้างานไปที่ไหน";
   return null;
+}
+
+/** Location + note for a synthesized day session — folds the "went
+ *  outside" checkbox's location detail into the auto-generated note (e.g.
+ *  "เพิ่มโดยแอดมิน: 8.0 ชม. — ออกหน้างาน: ไซต์งาน ABC") so it shows up
+ *  wherever check-in notes already do, and sets location: OUTSIDE so wage
+ *  calc / meal-day counting pick this day up correctly. */
+function manualAttendanceLocationAndNote(
+  prefix: string,
+  data: ManualAttendanceInput
+): { location: string; note: string } {
+  const baseNote = manualAttendanceNote(prefix, data.hours, data.otHours);
+  if (data.note?.trim()) return { location: data.wentOutside ? "OUTSIDE" : "OFFICE", note: data.note.trim() };
+  const outsideDetail = data.wentOutside ? data.outsideNote?.trim() : undefined;
+  return {
+    location: data.wentOutside ? "OUTSIDE" : "OFFICE",
+    note: outsideDetail ? `${baseNote} — ออกหน้างาน: ${outsideDetail}` : baseNote,
+  };
 }
 
 /** Records a full missed day for someone who forgot to check in — admin
@@ -676,11 +697,11 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
     if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
     const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
-    const note = data.note?.trim() || manualAttendanceNote("เพิ่มโดยแอดมิน", data.hours, data.otHours);
+    const { location, note } = manualAttendanceLocationAndNote("เพิ่มโดยแอดมิน", data);
 
     await prisma.$transaction([
-      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location: "OFFICE", createdAt: start, note } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location: "OFFICE", createdAt: end, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location, createdAt: start, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location, createdAt: end, note } }),
     ]);
 
     await createActivityLog(
@@ -724,12 +745,12 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
     const idsToDelete = findSessionRowIdsStartingOn(history, data.dateKey);
 
     const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
-    const note = data.note?.trim() || manualAttendanceNote("แก้ไขโดยแอดมิน", data.hours, data.otHours);
+    const { location, note } = manualAttendanceLocationAndNote("แก้ไขโดยแอดมิน", data);
 
     await prisma.$transaction([
       prisma.checkIn.deleteMany({ where: { id: { in: idsToDelete } } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location: "OFFICE", createdAt: start, note } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location: "OFFICE", createdAt: end, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location, createdAt: start, note } }),
+      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location, createdAt: end, note } }),
     ]);
 
     await createActivityLog(

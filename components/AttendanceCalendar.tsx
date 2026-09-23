@@ -313,7 +313,12 @@ export default function AttendanceCalendar() {
           employeeOptions={employeeOptions}
           editing={
             modal === "edit" && editingRow
-              ? { userId: editingRow.userId, hours: Math.min(editingRow.totalHours, REGULAR_HOURS_CAP), otHours: editingRow.otHours }
+              ? {
+                  userId: editingRow.userId,
+                  hours: Math.min(editingRow.totalHours, REGULAR_HOURS_CAP),
+                  otHours: editingRow.otHours,
+                  wentOutside: editingRow.events.some((e) => e.location === "OUTSIDE"),
+                }
               : undefined
           }
           onClose={() => setModal(null)}

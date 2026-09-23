@@ -15,13 +15,15 @@ interface DayAttendanceModalProps {
   onSaved: () => void;
   /** Present when editing an existing row — prefills the form and switches
    *  the submit action to the replace-the-day edit path. */
-  editing?: { userId: string; hours: number; otHours: number };
+  editing?: { userId: string; hours: number; otHours: number; wentOutside: boolean };
 }
 
 export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, onSaved, editing }: DayAttendanceModalProps) {
   const [userId, setUserId] = useState(editing?.userId || employeeOptions[0]?.id || "");
   const [hours, setHours] = useState(String(editing?.hours ?? 8));
   const [otHours, setOtHours] = useState(String(editing?.otHours ?? 0));
+  const [wentOutside, setWentOutside] = useState(editing?.wentOutside ?? false);
+  const [outsideNote, setOutsideNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +37,8 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
       dateKey,
       hours: Number(hours) || 0,
       otHours: Number(otHours) || 0,
+      wentOutside,
+      outsideNote,
     };
     const result = editing ? await editManualAttendanceDay(payload) : await addManualAttendanceDay(payload);
 
@@ -105,6 +109,28 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
           <p className="text-[10px] text-gray-400">
             ไม่ต้องระบุเวลาเข้า-ออก ระบุแค่จำนวนชั่วโมงรวมที่ทำงานวันนี้ก็พอ
           </p>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={wentOutside}
+                onChange={(e) => setWentOutside(e.target.checked)}
+                className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+              />
+              วันนี้ออกหน้างานหรือไม่
+            </label>
+            {wentOutside && (
+              <input
+                type="text"
+                value={outsideNote}
+                onChange={(e) => setOutsideNote(e.target.value)}
+                placeholder="ไปที่ไหน เช่น ไซต์งาน ABC"
+                required
+                className="mt-1.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+            )}
+          </div>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
 
