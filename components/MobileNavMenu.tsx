@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet, MapPin,
 } from "lucide-react";
 import { isOtManagerRole } from "@/lib/roles";
 
@@ -67,6 +67,10 @@ export default function MobileNavMenu({
               <Link href="/work-schedule" className={linkClass} onClick={close}>
                 <CalendarRange className="w-4 h-4" />
                 ตารางงาน (Work Schedule)
+              </Link>
+              <Link href="/outside-trip" className={linkClass} onClick={close}>
+                <MapPin className="w-4 h-4" />
+                ออกหน้างาน (Outside Trip)
               </Link>
               {isOtManagerRole(role) && (
                 <>

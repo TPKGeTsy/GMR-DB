@@ -23,6 +23,7 @@ export default async function Navbar() {
   const workItems: NavDropdownItem[] = [
     { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
     { href: "/work-schedule", label: "ตารางงาน (Work Schedule)", icon: "CalendarRange" },
+    { href: "/outside-trip", label: "ออกหน้างาน (Outside Trip)", icon: "MapPin" },
     ...(isOtManagerRole(role)
       ? [
           { href: "/ot", label: "OT", icon: "Timer" } as NavDropdownItem,
