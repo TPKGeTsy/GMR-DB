@@ -12,7 +12,7 @@ import {
 } from "@/app/actions/checkin";
 import { formatThaiTime } from "@/lib/datetime";
 import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
-import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2, MapPin } from "lucide-react";
 import DayAttendanceModal from "./DayAttendanceModal";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -228,10 +228,22 @@ export default function AttendanceCalendar() {
               <p className="text-xs text-gray-400">ไม่มีใครเช็คอินในวันนี้</p>
             ) : (
               <ul className="divide-y divide-gray-100 border border-gray-100 rounded-md overflow-hidden">
-                {summary?.attendance.map((row) => (
+                {summary?.attendance.map((row) => {
+                  const wentOutside = row.events.some((e) => e.location === "OUTSIDE");
+                  return (
                   <li key={row.userId} className="px-3 py-2 bg-white">
                     <div className="flex items-center justify-between flex-wrap gap-1">
-                      <span className="text-sm text-gray-900 font-medium">{row.employeeName}</span>
+                      <span className="text-sm text-gray-900 font-medium flex items-center gap-1.5">
+                        {row.employeeName}
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                            wentOutside ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-700"
+                          }`}
+                        >
+                          <MapPin className="w-2.5 h-2.5 mr-0.5" />
+                          {wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
+                        </span>
+                      </span>
                       <span className="text-[10px] text-gray-500 inline-flex items-center gap-1.5">
                         {row.stillWorking && row.openSince ? (
                           <LiveElapsedHours priorHours={row.totalHours} openSince={row.openSince} />
@@ -268,7 +280,8 @@ export default function AttendanceCalendar() {
                       ))}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>
