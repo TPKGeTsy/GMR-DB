@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getOtSummary } from "@/app/actions/ot";
 import OtSummaryFilters from "@/components/OtSummaryFilters";
 import { isOtManagerRole } from "@/lib/roles";
+import { formatHoursTenths } from "@/lib/attendance";
 import { BarChart3 } from "lucide-react";
 import Link from "next/link";
 
@@ -64,18 +65,18 @@ export default async function OtSummaryPage({
                       </Link>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{r.daysWorked} วัน</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{r.totalHours.toFixed(1)} ชม.</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatHoursTenths(r.totalHours)} ชม.</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {r.totalOtHours > 0 ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-semibold">
-                          +{r.totalOtHours.toFixed(1)} ชม.
+                          +{formatHoursTenths(r.totalOtHours)} ชม.
                         </span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {r.formalOtHours > 0 ? `${r.formalOtHours.toFixed(1)} ชม.` : <span className="text-gray-300">-</span>}
+                      {r.formalOtHours > 0 ? `${formatHoursTenths(r.formalOtHours)} ชม.` : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {r.mealEligibleDays > 0 ? (

@@ -29,6 +29,14 @@ export interface DailyWageRow {
   // without relying on RSC's Date handling).
   startTime: string | null;
   endTime: string | null;
+  // Set by the caller (getWageReport), not by buildDailyWages itself, when
+  // an admin has manually overridden this day's pay — buildDailyWages stays
+  // a pure grade-math function and knows nothing about WageOverride rows.
+  overridden: boolean;
+  // The grade-computed rate before the override, kept for context when
+  // overridden is true; null otherwise.
+  originalRate: number | null;
+  overrideNote: string | null;
 }
 
 const OT_MULTIPLIER = 1.5;
@@ -77,6 +85,9 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
         note: noteByDate.get(row.dateKey) ?? null,
         startTime: row.startTime ? row.startTime.toISOString() : null,
         endTime: row.endTime ? row.endTime.toISOString() : null,
+        overridden: false,
+        originalRate: null,
+        overrideNote: null,
       };
     })
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey));

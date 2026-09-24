@@ -39,6 +39,23 @@ export const LUNCH_BREAK_HOURS = 1;
 // gets zeroed out.
 export const MIN_OT_HOURS = 1;
 
+/** Formats decimal hours the way the boss reads them on paper timesheets:
+ *  each ".1" is 10 minutes, not 6 — so 1h30m is "1.3", not "1.5", and a
+ *  fractional part only ever runs 0-5 before rolling into the next whole
+ *  hour (55-59 minutes rounds up to the next hour, ".6" never appears).
+ *  Display-only — every actual hour/OT/pay calculation elsewhere still uses
+ *  true decimal hours; only this formatting changes. */
+export function formatHoursTenths(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  let wholeHours = Math.floor(totalMinutes / 60);
+  let tenths = Math.round((totalMinutes % 60) / 10);
+  if (tenths >= 6) {
+    wholeHours += 1;
+    tenths = 0;
+  }
+  return `${wholeHours}.${tenths}`;
+}
+
 export function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;

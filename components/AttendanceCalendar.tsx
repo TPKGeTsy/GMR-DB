@@ -10,8 +10,8 @@ import {
   type DayLoanRow,
   type EmployeeOption,
 } from "@/app/actions/checkin";
-import { formatThaiTime } from "@/lib/datetime";
-import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
+import { formatThaiTime, bangkokTimeHHMM } from "@/lib/datetime";
+import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS, formatHoursTenths } from "@/lib/attendance";
 import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2, MapPin } from "lucide-react";
 import DayAttendanceModal from "./DayAttendanceModal";
 
@@ -50,7 +50,7 @@ function LiveElapsedHours({ priorHours, openSince }: { priorHours: number; openS
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
         <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
       </span>
-      {liveHours.toFixed(1)} ชม.
+      {formatHoursTenths(liveHours)} ชม.
     </span>
   );
 }
@@ -257,9 +257,9 @@ export default function AttendanceCalendar() {
                         {row.stillWorking && row.openSince ? (
                           <LiveElapsedHours priorHours={row.totalHours} openSince={row.openSince} />
                         ) : (
-                          `${row.totalHours.toFixed(1)} ชม.`
+                          `${formatHoursTenths(row.totalHours)} ชม.`
                         )}
-                        {row.otHours > 0 && `(OT ${row.otHours.toFixed(1)} ชม.)`}
+                        {row.otHours > 0 && `(OT ${formatHoursTenths(row.otHours)} ชม.)`}
                         {row.stillWorking && <span className="text-green-600 font-semibold">กำลังทำงาน</span>}
                         <button
                           onClick={() => {
@@ -337,8 +337,8 @@ export default function AttendanceCalendar() {
             modal === "edit" && editingRow
               ? {
                   userId: editingRow.userId,
-                  hours: Math.min(editingRow.totalHours, REGULAR_HOURS_CAP),
-                  otHours: editingRow.otHours,
+                  startTime: editingRow.startTime ? bangkokTimeHHMM(editingRow.startTime) : "09:00",
+                  endTime: editingRow.endTime ? bangkokTimeHHMM(editingRow.endTime) : "17:00",
                   wentOutside: editingRow.events.some((e) => e.location === "OUTSIDE"),
                 }
               : undefined

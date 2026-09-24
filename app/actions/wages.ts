@@ -212,12 +212,28 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
       historyByUser.get(c.userId)!.push(c);
     }
 
+    // Admin overrides of specific (user, day) rates within this range — a
+    // day with one has its computed `rate` replaced but keeps baseRate/OT
+    // as informational context for why the grade math alone got it wrong.
+    const overrides = userIds.length
+      ? await prisma.wageOverride.findMany({
+          where: { userId: { in: userIds }, dateKey: { gte: from, lte: to } },
+        })
+      : [];
+    const overrideByUserAndDate = new Map(overrides.map((o) => [`${o.userId}|${o.dateKey}`, o]));
+
     const data: EmployeeWageReportRow[] = activeUsers
       .filter((u) => u.internGrade && gradeByCode.has(u.internGrade))
       .map((u) => {
         const gradeRate = gradeByCode.get(u.internGrade!)!;
         const allDays = buildDailyWages(historyByUser.get(u.id) || [], gradeRate);
-        const days = allDays.filter((d) => d.dateKey >= from && d.dateKey <= to);
+        const days = allDays
+          .filter((d) => d.dateKey >= from && d.dateKey <= to)
+          .map((d) => {
+            const override = overrideByUserAndDate.get(`${u.id}|${d.dateKey}`);
+            if (!override) return d;
+            return { ...d, rate: override.rate, overridden: true, originalRate: d.rate, overrideNote: override.note };
+          });
         return {
           userId: u.id,
           employeeName: u.nickname || u.fullName || u.username,
@@ -236,5 +252,60 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
   } catch (error) {
     logError("Error building wage report:", error);
     return { success: false, error: "โหลดรายงานค่าแรงไม่สำเร็จ" };
+  }
+}
+
+/** Sets (upserts) an admin override of one employee's pay for one specific
+ *  day — replaces the grade-computed `rate` in the wage report without
+ *  touching the underlying check-in data, for the rare case the automatic
+ *  in-office/outside + OT math doesn't match what should actually be paid. */
+export async function setWageOverride(userId: string, dateKey: string, rate: number, note?: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return { success: false, error: "วันที่ไม่ถูกต้อง" };
+    if (!Number.isFinite(rate) || rate < 0) return { success: false, error: "ค่าแรงไม่ถูกต้อง" };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    await prisma.wageOverride.upsert({
+      where: { userId_dateKey: { userId, dateKey } },
+      create: { userId, dateKey, rate, note: note?.trim() || null },
+      update: { rate, note: note?.trim() || null },
+    });
+
+    await createActivityLog(
+      "SET_WAGE_OVERRIDE",
+      `Admin set ${targetUser.username}'s pay for ${dateKey} to ${rate} บาท${note ? ` (${note})` : ""}`
+    );
+
+    revalidatePath("/wages");
+    return { success: true };
+  } catch (error) {
+    logError("Error setting wage override:", error);
+    return { success: false, error: "บันทึกค่าแรงไม่สำเร็จ" };
+  }
+}
+
+/** Removes a day's override, reverting it back to the grade-computed rate. */
+export async function clearWageOverride(userId: string, dateKey: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    await prisma.wageOverride.deleteMany({ where: { userId, dateKey } });
+
+    await createActivityLog("CLEAR_WAGE_OVERRIDE", `Admin cleared ${targetUser.username}'s pay override for ${dateKey}`);
+
+    revalidatePath("/wages");
+    return { success: true };
+  } catch (error) {
+    logError("Error clearing wage override:", error);
+    return { success: false, error: "ลบค่าแรงที่แก้ไขไม่สำเร็จ" };
   }
 }

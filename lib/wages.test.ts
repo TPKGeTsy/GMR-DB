@@ -27,6 +27,9 @@ describe("buildDailyWages", () => {
         note: null,
         startTime: new Date("2026-01-05T09:00:00").toISOString(),
         endTime: new Date("2026-01-05T17:00:00").toISOString(),
+        overridden: false,
+        originalRate: null,
+        overrideNote: null,
       },
     ]);
   });
@@ -75,6 +78,9 @@ describe("buildDailyWages", () => {
       note: null,
       startTime: new Date("2026-01-05T23:50:00").toISOString(),
       endTime: null,
+      overridden: false,
+      originalRate: null,
+      overrideNote: null,
     });
   });
 

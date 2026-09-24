@@ -27,6 +27,18 @@ export function formatThaiTime(date: Date | string): string {
   });
 }
 
+/** "HH:MM" (24h, Bangkok time) — for prefilling `<input type="time">`
+ *  fields, unlike formatThaiTime which is for display (Thai locale, 12/24h
+ *  depending on browser settings). */
+export function bangkokTimeHHMM(date: Date | string): string {
+  return new Date(date).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: BANGKOK_TZ,
+  });
+}
+
 export function formatThaiDateTime(date: Date | string): string {
   return new Date(date).toLocaleString("th-TH", { timeZone: BANGKOK_TZ });
 }

@@ -92,6 +92,7 @@ model User {
   decidedOtApprovalRequests OtApprovalRequest[] @relation("OtApprovalRequestDecider")
   createdOutsideTrips       OutsideWorkTrip[]   @relation("OutsideTripCreatedBy")
   outsideWorkTripMemberships OutsideWorkTripMember[]
+  wageOverrides             WageOverride[]
 
   @@map("users")
 }
@@ -520,4 +521,25 @@ model WageGrade {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("wage_grades")
+}
+
+// Admin override of one employee's computed rate for one calendar day —
+// replaces buildDailyWages' grade-derived `rate` for that (userId, dateKey)
+// pair when the automatic in-office/outside day-rate + OT calculation
+// doesn't match what should actually be paid (e.g. a manually agreed
+// one-off rate). dateKey is a plain "YYYY-MM-DD" Bangkok calendar day, same
+// convention as everywhere else hours are grouped by day.
+model WageOverride {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  dateKey   String   @map("date_key")
+  rate      Int // บาท — replaces the whole day's computed total, not added on top
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey])
+  @@map("wage_overrides")
 }

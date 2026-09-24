@@ -15,17 +15,17 @@ interface DayAttendanceModalProps {
   onSaved: () => void;
   /** Present when editing an existing row — prefills the form and switches
    *  the submit action to the replace-the-day edit path. */
-  editing?: { userId: string; hours: number; otHours: number; wentOutside: boolean };
+  editing?: { userId: string; startTime: string; endTime: string; wentOutside: boolean };
 }
 
 export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, onSaved, editing }: DayAttendanceModalProps) {
   const [userId, setUserId] = useState(editing?.userId || employeeOptions[0]?.id || "");
-  const [hours, setHours] = useState(String(editing?.hours ?? 8));
-  const [otHours, setOtHours] = useState(String(editing?.otHours ?? 0));
+  const [startTime, setStartTime] = useState(editing?.startTime || "09:00");
+  const [endTime, setEndTime] = useState(editing?.endTime || "17:00");
   const [wentOutside, setWentOutside] = useState(editing?.wentOutside ?? false);
   const [outsideNote, setOutsideNote] = useState("");
-  const [outsideStartTime, setOutsideStartTime] = useState("09:00");
-  const [outsideEndTime, setOutsideEndTime] = useState("17:00");
+  const [outsideStartTime, setOutsideStartTime] = useState(editing?.startTime || "09:00");
+  const [outsideEndTime, setOutsideEndTime] = useState(editing?.endTime || "17:00");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,8 +37,8 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
     const payload = {
       userId,
       dateKey,
-      hours: Number(hours) || 0,
-      otHours: Number(otHours) || 0,
+      startTime,
+      endTime,
       wentOutside,
       outsideNote,
       outsideStartTime,
@@ -61,7 +61,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
       <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
-            {editing ? "แก้ไขชั่วโมงทำงานวันนี้" : "เพิ่มรายการเข้างาน (ลืมเช็คอิน)"}
+            {editing ? "แก้ไขเวลาทำงานวันนี้" : "เพิ่มรายการเข้างาน (ลืมเช็คอิน)"}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
@@ -85,38 +85,28 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
             </select>
           </div>
 
-          {!wentOutside && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-400">ชั่วโมงทำงาน</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={hours}
-                    onChange={(e) => setHours(e.target.value)}
-                    required
-                    className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">ชั่วโมง OT</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={otHours}
-                    onChange={(e) => setOtHours(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-                  />
-                </div>
-              </div>
-              <p className="text-[10px] text-gray-400">
-                ไม่ต้องระบุเวลาเข้า-ออก ระบุแค่จำนวนชั่วโมงรวมที่ทำงานวันนี้ก็พอ
-              </p>
-            </>
-          )}
+          <div>
+            <label className="text-xs text-gray-400">ทำงานกี่โมงถึงกี่โมง</label>
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                required
+                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                required
+                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">
+              ถ้าเลิกงานหลังเที่ยงคืน ระบบจะเลื่อนเวลาออกไปเป็นวันถัดไปให้อัตโนมัติ
+            </p>
+          </div>
 
           <div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -138,31 +128,31 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                   required
                   className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
                 />
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-400">เวลาออก</label>
-                    <input
-                      type="time"
-                      value={outsideStartTime}
-                      onChange={(e) => setOutsideStartTime(e.target.value)}
-                      required
-                      className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400">เวลากลับ</label>
-                    <input
-                      type="time"
-                      value={outsideEndTime}
-                      onChange={(e) => setOutsideEndTime(e.target.value)}
-                      required
-                      className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-                    />
+                <div>
+                  <label className="text-xs text-gray-400">ออกหน้างานช่วงเวลาไหน (ในวันทำงานนี้)</label>
+                  <div className="grid grid-cols-2 gap-3 mt-1">
+                    <div>
+                      <label className="text-[10px] text-gray-400">เวลาออก</label>
+                      <input
+                        type="time"
+                        value={outsideStartTime}
+                        onChange={(e) => setOutsideStartTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">เวลากลับ</label>
+                      <input
+                        type="time"
+                        value={outsideEndTime}
+                        onChange={(e) => setOutsideEndTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
-                <p className="text-[10px] text-gray-400">
-                  ถ้ากลับหลังเที่ยงคืน ระบบจะเลื่อนเวลากลับไปเป็นวันถัดไปให้อัตโนมัติ
-                </p>
               </div>
             )}
           </div>

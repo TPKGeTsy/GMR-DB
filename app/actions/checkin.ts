@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
-import { buildDailySummary, findSessionRowIdsStartingOn, REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
+import { buildDailySummary, findSessionRowIdsStartingOn } from "@/lib/attendance";
 import { bangkokDateKey, bangkokDayRange, bangkokDateAt, paddedCheckInWindow } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
@@ -516,6 +516,10 @@ export interface DaySummaryRow {
   otHours: number;
   stillWorking: boolean;
   openSince: string | null;
+  // The day's overall session bounds (buildDailySummary's startTime/endTime)
+  // — lets the edit-day form prefill actual clock times instead of hours.
+  startTime: string | null;
+  endTime: string | null;
 }
 
 export interface DayLoanRow {
@@ -602,6 +606,8 @@ export async function getDaySummary(dateKey: string): Promise<
         otHours: daily?.otHours ?? 0,
         stillWorking: daily?.stillWorking ?? false,
         openSince: daily?.openSince ? daily.openSince.toISOString() : null,
+        startTime: daily?.startTime ? daily.startTime.toISOString() : null,
+        endTime: daily?.endTime ? daily.endTime.toISOString() : null,
       };
     });
     attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -634,33 +640,20 @@ export async function getDaySummary(dateKey: string): Promise<
   }
 }
 
-/** Computes an IN/OUT instant pair timed so buildDailySummary's hour math
- *  (the same untracked-lunch subtraction past 8h used everywhere else)
- *  lands on exactly the total/OT hours an admin typed, so they can record a
- *  forgotten day by hours worked instead of reverse-engineering clock times. */
-function synthesizeDaySession(dateKey: string, hours: number, otHours: number): { start: Date; end: Date } {
-  const total = hours + otHours;
-  const elapsedHours = total > REGULAR_HOURS_CAP ? total + LUNCH_BREAK_HOURS : total;
-  const start = new Date(`${dateKey}T09:00:00+07:00`);
-  const end = new Date(start.getTime() + elapsedHours * 3_600_000);
-  return { start, end };
-}
-
-function manualAttendanceNote(prefix: string, hours: number, otHours: number): string {
-  return `${prefix}: ${hours.toFixed(1)} ชม.${otHours > 0 ? ` (OT ${otHours.toFixed(1)} ชม.)` : ""}`;
-}
-
 interface ManualAttendanceInput {
   userId: string;
   dateKey: string;
-  hours: number;
-  otHours: number;
+  // Overall work day, as clock times ("HH:MM") — always required, same as
+  // a normal check-in/check-out pair.
+  startTime: string;
+  endTime: string;
   wentOutside?: boolean;
   outsideNote?: string;
-  // When wentOutside is set, these ("HH:MM") take over entirely — the
-  // real departure/return clock times are known, so there's no need to
-  // reverse-engineer them from a typed hours total the way the plain
-  // "forgot to check in" flow below still does.
+  // A sub-range *within* [startTime, endTime] for when specifically they
+  // were out — recorded for the note only; the day's one IN/OUT pair still
+  // spans the whole [startTime, endTime] work day, and its location is
+  // OUTSIDE for the whole day whenever wentOutside is set (same day-level
+  // classification the wage report already uses).
   outsideStartTime?: string;
   outsideEndTime?: string;
   note?: string;
@@ -672,10 +665,10 @@ function parseTimeOnDate(dateKey: string, time: string): Date | null {
   return isNaN(date.getTime()) ? null : date;
 }
 
-/** Builds the IN/OUT instants directly from admin-typed clock times for an
- *  outside-work entry, rolling the return time to the next calendar day if
- *  it isn't after the departure time (e.g. left 20:00, back 02:00). */
-function outsideTripSession(dateKey: string, startTime: string, endTime: string): { start: Date; end: Date } | null {
+/** Builds an IN/OUT instant pair directly from admin-typed clock times,
+ *  rolling the end time to the next calendar day if it isn't after the
+ *  start time (e.g. in 20:00, out 02:00). */
+function timeRangeSession(dateKey: string, startTime: string, endTime: string): { start: Date; end: Date } | null {
   const start = parseTimeOnDate(dateKey, startTime);
   let end = parseTimeOnDate(dateKey, endTime);
   if (!start || !end) return null;
@@ -684,50 +677,49 @@ function outsideTripSession(dateKey: string, startTime: string, endTime: string)
 }
 
 function validateManualAttendanceInput(data: ManualAttendanceInput): string | null {
+  if (!data.startTime || !data.endTime) return "กรุณาระบุเวลาเข้าและเวลาออก";
+  if (!timeRangeSession(data.dateKey, data.startTime, data.endTime)) return "เวลาที่ระบุไม่ถูกต้อง";
+
   if (data.wentOutside) {
     if (!data.outsideNote?.trim()) return "กรุณาระบุว่าออกหน้างานไปที่ไหน";
-    if (!data.outsideStartTime || !data.outsideEndTime) return "กรุณาระบุเวลาออกและเวลากลับ";
-    if (!outsideTripSession(data.dateKey, data.outsideStartTime, data.outsideEndTime)) {
-      return "เวลาที่ระบุไม่ถูกต้อง";
+    if (!data.outsideStartTime || !data.outsideEndTime) return "กรุณาระบุช่วงเวลาที่ออกหน้างาน";
+    if (!timeRangeSession(data.dateKey, data.outsideStartTime, data.outsideEndTime)) {
+      return "ช่วงเวลาที่ออกหน้างานไม่ถูกต้อง";
     }
-    return null;
   }
-  if (!Number.isFinite(data.hours) || !Number.isFinite(data.otHours) || data.hours < 0 || data.otHours < 0) {
-    return "ชั่วโมงไม่ถูกต้อง";
-  }
-  if (data.hours + data.otHours <= 0) return "กรุณาระบุจำนวนชั่วโมง";
   return null;
 }
 
-/** The IN/OUT instants for this entry — explicit clock times for an
- *  outside-work day, or the hours-derived synthesis otherwise. */
+/** The overall work day's IN/OUT instants — the outside excursion (if any)
+ *  is a sub-range recorded in the note only, not a separate session. */
 function resolveManualSession(data: ManualAttendanceInput): { start: Date; end: Date } {
-  if (data.wentOutside && data.outsideStartTime && data.outsideEndTime) {
-    const session = outsideTripSession(data.dateKey, data.outsideStartTime, data.outsideEndTime);
-    if (session) return session;
-  }
-  return synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+  return timeRangeSession(data.dateKey, data.startTime, data.endTime)!;
 }
 
-/** Location + note for a synthesized day session — folds the "went
- *  outside" checkbox's location detail (and, for that case, the actual
- *  departure/return times) into the note so it shows up wherever check-in
- *  notes already do, and sets location: OUTSIDE so wage calc / meal-day
- *  counting pick this day up correctly. */
+/** Location + note for a manually-entered day — sets location: OUTSIDE for
+ *  the whole day whenever the "went outside" checkbox is set (so wage calc
+ *  / meal-day counting pick this day up correctly, same day-level
+ *  classification used everywhere else), and folds the overall work time
+ *  plus the specific outside excursion (site + sub-range) into the note. */
 function manualAttendanceLocationAndNote(
   prefix: string,
   data: ManualAttendanceInput
 ): { location: string; note: string } {
   if (data.note?.trim()) return { location: data.wentOutside ? "OUTSIDE" : "OFFICE", note: data.note.trim() };
 
+  const workRange = `${prefix} ${data.startTime}-${data.endTime} น.`;
   if (data.wentOutside) {
     const detail = data.outsideNote?.trim() || "";
-    const timeRange = data.outsideStartTime && data.outsideEndTime ? ` ${data.outsideStartTime}-${data.outsideEndTime} น.` : "";
-    const note = `${prefix}${timeRange} — ออกหน้างาน: ${detail}`;
-    return { location: "OUTSIDE", note };
+    // "ออกหน้างาน: " must be immediately followed by the site name with
+    // nothing after it — lib/wages.ts's note parser finds this exact
+    // marker and takes everything past it as the site, so the outside
+    // sub-range goes *before* the marker instead.
+    const outsideRange =
+      data.outsideStartTime && data.outsideEndTime ? ` (ช่วงออก ${data.outsideStartTime}-${data.outsideEndTime} น.)` : "";
+    return { location: "OUTSIDE", note: `${workRange}${outsideRange} — ออกหน้างาน: ${detail}` };
   }
 
-  return { location: "OFFICE", note: manualAttendanceNote(prefix, data.hours, data.otHours) };
+  return { location: "OFFICE", note: workRange };
 }
 
 /** Records a full missed day for someone who forgot to check in — admin
@@ -754,8 +746,8 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
     await createActivityLog(
       "ADD_MANUAL_ATTENDANCE",
       data.wentOutside
-        ? `Admin added outside-work attendance for ${targetUser.username} on ${data.dateKey}: ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
-        : `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+        ? `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.startTime}-${data.endTime}, outside ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
+        : `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.startTime}-${data.endTime}`
     );
 
     revalidatePath("/attendance");
@@ -768,9 +760,9 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
 }
 
 /** Replaces a whole day's check-in/out records for one employee with a
- *  freshly synthesized IN/OUT pair matching the admin-typed hours/OT —
- *  simplest correct way to "edit the day's total" when the underlying
- *  scans may be one pair, several (lunch break), or a mess to fix by hand. */
+ *  fresh IN/OUT pair matching the admin-typed work time range — simplest
+ *  correct way to "edit the day's total" when the underlying scans may be
+ *  one pair, several (lunch break), or a mess to fix by hand. */
 export async function editManualAttendanceDay(data: ManualAttendanceInput) {
   try {
     const session = await auth();
@@ -805,8 +797,8 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
     await createActivityLog(
       "EDIT_MANUAL_ATTENDANCE",
       data.wentOutside
-        ? `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to outside-work ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
-        : `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+        ? `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.startTime}-${data.endTime}, outside ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
+        : `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.startTime}-${data.endTime}`
     );
 
     revalidatePath("/attendance");

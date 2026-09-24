@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getMealOtSummary } from "@/app/actions/summary";
 import WageReportFilters from "@/components/WageReportFilters";
 import { bangkokDateKey } from "@/lib/datetime";
+import { formatHoursTenths } from "@/lib/attendance";
 import { Utensils, Timer, BarChart3 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +73,7 @@ export default async function SummaryPage({
                     <td className="px-4 py-2 text-sm font-medium text-gray-900">{row.employeeName}</td>
                     <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalDays}</td>
                     <td className="px-4 py-2 text-right text-sm text-gray-700">{row.mealDays}</td>
-                    <td className="px-4 py-2 text-right text-sm font-semibold text-orange-600">{row.totalOtHours.toFixed(1)}</td>
+                    <td className="px-4 py-2 text-right text-sm font-semibold text-orange-600">{formatHoursTenths(row.totalOtHours)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -82,7 +83,7 @@ export default async function SummaryPage({
                     รวมทั้งหมด
                   </td>
                   <td className="px-4 py-2 text-right text-sm font-bold text-gray-900">{grandTotalMeals}</td>
-                  <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">{grandTotalOt.toFixed(1)}</td>
+                  <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">{formatHoursTenths(grandTotalOt)}</td>
                 </tr>
               </tfoot>
             </table>

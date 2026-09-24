@@ -9,7 +9,7 @@ import NicknamePanel from "@/components/NicknamePanel";
 import ActivityLogFilters from "@/components/ActivityLogFilters";
 import ProfileSummaryFilters from "@/components/ProfileSummaryFilters";
 import Pagination from "@/components/Pagination";
-import { buildDailySummary } from "@/lib/attendance";
+import { buildDailySummary, formatHoursTenths } from "@/lib/attendance";
 import { countMealDays } from "@/lib/wages";
 import { gradeBadgeClass } from "@/lib/gradeColor";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
@@ -188,11 +188,11 @@ export default async function UserProfilePage({
                   <p className="text-xs text-gray-400 mt-1">วันทำงาน</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{periodSummary.totalHours.toFixed(1)}</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatHoursTenths(periodSummary.totalHours)}</p>
                   <p className="text-xs text-gray-400 mt-1">ชั่วโมงรวม</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-orange-600">{periodSummary.otHours.toFixed(1)}</p>
+                  <p className="text-2xl font-bold text-orange-600">{formatHoursTenths(periodSummary.otHours)}</p>
                   <p className="text-xs text-gray-400 mt-1">ชั่วโมง OT</p>
                 </div>
                 <div>
@@ -249,12 +249,12 @@ export default async function UserProfilePage({
                           )}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
-                          {row.totalHours > 0 ? `${row.totalHours.toFixed(1)} ชม.` : "-"}
+                          {row.totalHours > 0 ? `${formatHoursTenths(row.totalHours)} ชม.` : "-"}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-xs">
                           {row.otHours > 0 ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-semibold">
-                              +{row.otHours.toFixed(1)} ชม.
+                              +{formatHoursTenths(row.otHours)} ชม.
                             </span>
                           ) : (
                             <span className="text-gray-300">-</span>

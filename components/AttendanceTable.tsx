@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Columns3, Check, Pencil, UtensilsCrossed } from "lucide-react";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
+import { formatHoursTenths } from "@/lib/attendance";
 import { setMealCounted, type AttendanceTableRow, type EmployeeOption } from "@/app/actions/checkin";
 import EditCheckInModal from "./EditCheckInModal";
 
@@ -132,11 +133,11 @@ export default function AttendanceTable({
           </span>
         );
       case "dailyTotalHours":
-        return row.dailyTotalHours !== null && row.dailyTotalHours > 0 ? `${row.dailyTotalHours.toFixed(1)} ชม.` : "-";
+        return row.dailyTotalHours !== null && row.dailyTotalHours > 0 ? `${formatHoursTenths(row.dailyTotalHours)} ชม.` : "-";
       case "dailyOtHours":
         return row.dailyOtHours !== null && row.dailyOtHours > 0 ? (
           <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-orange-100 text-orange-700">
-            +{row.dailyOtHours.toFixed(1)} ชม.
+            +{formatHoursTenths(row.dailyOtHours)} ชม.
           </span>
         ) : (
           <span className="text-gray-300">-</span>

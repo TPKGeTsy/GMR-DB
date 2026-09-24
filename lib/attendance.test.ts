@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDailySummary, findSessionRowIdsStartingOn, type CheckInEvent, type IdentifiedCheckInEvent } from "./attendance";
+import { buildDailySummary, findSessionRowIdsStartingOn, formatHoursTenths, type CheckInEvent, type IdentifiedCheckInEvent } from "./attendance";
 
 function ev(type: "IN" | "OUT", isoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): CheckInEvent {
   return { type, location, createdAt: new Date(isoTime) };
@@ -12,6 +12,26 @@ function idEv(id: string, type: "IN" | "OUT", isoTime: string): IdentifiedCheckI
 function evWithOverride(isoTime: string, overrideIsoTime: string, location: "OFFICE" | "OUTSIDE" = "OFFICE"): CheckInEvent {
   return { type: "IN", location, createdAt: new Date(isoTime), otStartOverride: new Date(overrideIsoTime) };
 }
+
+describe("formatHoursTenths", () => {
+  it("formats whole hours with no fraction", () => {
+    expect(formatHoursTenths(2)).toBe("2.0");
+  });
+
+  it("uses .1 per 10 minutes, not per 6", () => {
+    expect(formatHoursTenths(1.5)).toBe("1.3"); // 1h30m -> 1 hour + 3*10min
+    expect(formatHoursTenths(2 + 20 / 60)).toBe("2.2"); // 2h20m
+  });
+
+  it("rounds to the nearest 10 minutes", () => {
+    expect(formatHoursTenths(1 + 4 / 60)).toBe("1.0"); // 4min rounds down
+    expect(formatHoursTenths(1 + 6 / 60)).toBe("1.1"); // 6min rounds up
+  });
+
+  it("rolls 55-59 minutes up into the next whole hour instead of showing .6", () => {
+    expect(formatHoursTenths(1 + 56 / 60)).toBe("2.0");
+  });
+});
 
 describe("buildDailySummary", () => {
   it("returns nothing for an empty list", () => {
