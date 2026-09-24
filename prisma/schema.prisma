@@ -265,6 +265,18 @@ model CheckIn {
   // no effect on hour/wage math.
   workSummary String? @map("work_summary")
 
+  // check_ins has no secondary indexes at all until this — every query
+  // filtering by user, date range, or trip (almost every read in this app:
+  // wage/OT/summary reports, the attendance table, the day panel, the
+  // outside-trip log) was a full table scan regardless of how tightly the
+  // application code bounded the date range. (userId, createdAt) covers
+  // per-user date-range lookups and the "latest check-in per user" distinct
+  // query; createdAt alone covers the whole-table date-range reports
+  // (getAttendanceTableRows, getRecentOutsideTrips); tripId covers the
+  // outside-trip detail/log lookups.
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([tripId])
   @@map("check_ins")
 }
 
@@ -389,6 +401,7 @@ model OutsideWorkTrip {
   report      String?
   members     OutsideWorkTripMember[]
 
+  @@index([createdAt])
   @@map("outside_work_trips")
 }
 
@@ -510,6 +523,7 @@ model ActivityLog {
   details   String?  // JSON string or descriptive text
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([userId, createdAt])
   @@map("activity_logs")
 }
 

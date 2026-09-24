@@ -138,10 +138,20 @@ async function buildOutsideTripRows(
     : [];
   const inById = new Map(inCheckIns.map((c) => [c.id, c.createdAt]));
 
+  // Bounded to a window around these trips instead of each member's entire
+  // OUT history — a "next OUT after they left" only ever needs to look a
+  // few days past the latest trip in this batch, not scan the whole table.
   const memberUserIds = Array.from(new Set(trips.flatMap((t) => t.members.map((m) => m.userId))));
+  const OUT_LOOKAHEAD_DAYS = 3;
+  const earliestTrip = trips.reduce((min, t) => (t.createdAt < min ? t.createdAt : min), trips[0]?.createdAt ?? new Date());
+  const latestTrip = trips.reduce((max, t) => (t.createdAt > max ? t.createdAt : max), trips[0]?.createdAt ?? new Date());
   const allOuts = memberUserIds.length
     ? await prisma.checkIn.findMany({
-        where: { userId: { in: memberUserIds }, type: "OUT" },
+        where: {
+          userId: { in: memberUserIds },
+          type: "OUT",
+          createdAt: { gte: earliestTrip, lt: new Date(latestTrip.getTime() + OUT_LOOKAHEAD_DAYS * 24 * 3_600_000) },
+        },
         orderBy: { createdAt: "asc" },
         select: { userId: true, createdAt: true },
       })
