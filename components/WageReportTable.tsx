@@ -178,14 +178,31 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                           </span>
                                         )}
                                         <span className="text-gray-400">
-                                          ออกหน้างาน {formatThaiTime(d.outsideStartTime)}–{formatThaiTime(d.outsideEndTime)}
+                                          ออกหน้างาน{" "}
+                                          {d.tripId ? (
+                                            <Link href={`/outside-trip/${d.tripId}`} className="underline hover:text-orange-600">
+                                              {formatThaiTime(d.outsideStartTime)}–{formatThaiTime(d.outsideEndTime)}
+                                            </Link>
+                                          ) : (
+                                            <>
+                                              {formatThaiTime(d.outsideStartTime)}–{formatThaiTime(d.outsideEndTime)}
+                                            </>
+                                          )}
                                         </span>
                                       </>
                                     ) : (
                                       d.workStartTime &&
                                       d.workEndTime && (
                                         <span className="text-gray-400">
-                                          {formatThaiTime(d.workStartTime)}–{formatThaiTime(d.workEndTime)}
+                                          {d.tripId ? (
+                                            <Link href={`/outside-trip/${d.tripId}`} className="underline hover:text-orange-600">
+                                              {formatThaiTime(d.workStartTime)}–{formatThaiTime(d.workEndTime)}
+                                            </Link>
+                                          ) : (
+                                            <>
+                                              {formatThaiTime(d.workStartTime)}–{formatThaiTime(d.workEndTime)}
+                                            </>
+                                          )}
                                         </span>
                                       )
                                     ))}

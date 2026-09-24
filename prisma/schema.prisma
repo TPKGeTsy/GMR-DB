@@ -383,6 +383,10 @@ model OutsideWorkTrip {
   createdById String   @map("created_by_id")
   createdBy   User     @relation("OutsideTripCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now()) @map("created_at")
+  // Free-text follow-up log — filled in later from the trip's detail page
+  // with whatever a proper trip report needs (what was done, issues found,
+  // etc.), separate from the one-line `location`.
+  report      String?
   members     OutsideWorkTripMember[]
 
   @@map("outside_work_trips")

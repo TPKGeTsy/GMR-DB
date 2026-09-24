@@ -7,6 +7,7 @@ import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { pushLineMessage } from "@/lib/line";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { bangkokRangeFilter } from "@/lib/datetime";
 
 export interface OutsideTripEmployeeOption {
   id: string;
@@ -113,69 +114,146 @@ export interface OutsideTripRow {
   id: string;
   location: string;
   createdAt: string;
+  createdByName: string;
+  report: string | null;
   members: OutsideTripMemberRow[];
 }
 
-/** Recent group outside-work trips (both the LINE bot flow and the web
+/** Shared trip-row builder for both getRecentOutsideTrips and
+ *  getOutsideTripDetail — same "actual departure / next check-back-in"
+ *  time-matching logic either way. */
+async function buildOutsideTripRows(
+  trips: {
+    id: string;
+    location: string;
+    createdAt: Date;
+    report: string | null;
+    createdBy: { username: string; fullName: string | null; nickname: string | null };
+    members: { userId: string; checkInId: string | null; user: { id: string; username: string; fullName: string | null; nickname: string | null } }[];
+  }[]
+): Promise<OutsideTripRow[]> {
+  const checkInIds = trips.flatMap((t) => t.members.map((m) => m.checkInId).filter((id): id is string => !!id));
+  const inCheckIns = checkInIds.length
+    ? await prisma.checkIn.findMany({ where: { id: { in: checkInIds } }, select: { id: true, createdAt: true } })
+    : [];
+  const inById = new Map(inCheckIns.map((c) => [c.id, c.createdAt]));
+
+  const memberUserIds = Array.from(new Set(trips.flatMap((t) => t.members.map((m) => m.userId))));
+  const allOuts = memberUserIds.length
+    ? await prisma.checkIn.findMany({
+        where: { userId: { in: memberUserIds }, type: "OUT" },
+        orderBy: { createdAt: "asc" },
+        select: { userId: true, createdAt: true },
+      })
+    : [];
+  const outsByUser = new Map<string, Date[]>();
+  for (const c of allOuts) {
+    if (!outsByUser.has(c.userId)) outsByUser.set(c.userId, []);
+    outsByUser.get(c.userId)!.push(c.createdAt);
+  }
+  const nextOutAfter = (userId: string, after: Date): Date | null =>
+    (outsByUser.get(userId) || []).find((d) => d.getTime() > after.getTime()) ?? null;
+
+  return trips.map((trip) => ({
+    id: trip.id,
+    location: trip.location,
+    createdAt: trip.createdAt.toISOString(),
+    createdByName: trip.createdBy.nickname || trip.createdBy.fullName || trip.createdBy.username,
+    report: trip.report,
+    members: trip.members.map((m) => {
+      const outAt = (m.checkInId ? inById.get(m.checkInId) : undefined) ?? trip.createdAt;
+      const backAt = nextOutAfter(m.userId, outAt);
+      return {
+        userId: m.userId,
+        name: m.user.nickname || m.user.fullName || m.user.username,
+        outAt: outAt.toISOString(),
+        backAt: backAt ? backAt.toISOString() : null,
+      };
+    }),
+  }));
+}
+
+/** Group outside-work trips (both the LINE bot flow and the web
  *  /outside-trip page create OutsideWorkTrip rows the same way), with each
  *  member's actual departure time (their tagged IN) and return time (the
  *  next OUT after it, if they've checked back in yet) — for the Work
- *  Schedule page's "who went where" section. */
-export async function getRecentOutsideTrips({ days = 14 }: { days?: number } = {}): Promise<
+ *  Schedule page's "who went where" section and the /outside-trip log.
+ *  `from`/`to` (Bangkok calendar dates) filter to that range instead of the
+ *  rolling `days` window when given — used by the full trip-log browser. */
+export async function getRecentOutsideTrips({
+  days = 14,
+  from,
+  to,
+}: { days?: number; from?: string; to?: string } = {}): Promise<
   { success: true; data: OutsideTripRow[] } | { success: false; error: string }
 > {
   try {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const createdAtFilter = from || to ? bangkokRangeFilter(from, to) : { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
     const trips = await prisma.outsideWorkTrip.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: createdAtFilter },
       orderBy: { createdAt: "desc" },
-      include: { members: { include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } } } },
+      include: {
+        createdBy: { select: { username: true, fullName: true, nickname: true } },
+        members: { include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } } },
+      },
     });
 
-    const checkInIds = trips.flatMap((t) => t.members.map((m) => m.checkInId).filter((id): id is string => !!id));
-    const inCheckIns = checkInIds.length
-      ? await prisma.checkIn.findMany({ where: { id: { in: checkInIds } }, select: { id: true, createdAt: true } })
-      : [];
-    const inById = new Map(inCheckIns.map((c) => [c.id, c.createdAt]));
-
-    const memberUserIds = Array.from(new Set(trips.flatMap((t) => t.members.map((m) => m.userId))));
-    const allOuts = memberUserIds.length
-      ? await prisma.checkIn.findMany({
-          where: { userId: { in: memberUserIds }, type: "OUT" },
-          orderBy: { createdAt: "asc" },
-          select: { userId: true, createdAt: true },
-        })
-      : [];
-    const outsByUser = new Map<string, Date[]>();
-    for (const c of allOuts) {
-      if (!outsByUser.has(c.userId)) outsByUser.set(c.userId, []);
-      outsByUser.get(c.userId)!.push(c.createdAt);
-    }
-    const nextOutAfter = (userId: string, after: Date): Date | null =>
-      (outsByUser.get(userId) || []).find((d) => d.getTime() > after.getTime()) ?? null;
-
-    const data: OutsideTripRow[] = trips.map((trip) => ({
-      id: trip.id,
-      location: trip.location,
-      createdAt: trip.createdAt.toISOString(),
-      members: trip.members.map((m) => {
-        const outAt = (m.checkInId ? inById.get(m.checkInId) : undefined) ?? trip.createdAt;
-        const backAt = nextOutAfter(m.userId, outAt);
-        return {
-          userId: m.userId,
-          name: m.user.nickname || m.user.fullName || m.user.username,
-          outAt: outAt.toISOString(),
-          backAt: backAt ? backAt.toISOString() : null,
-        };
-      }),
-    }));
+    const data = await buildOutsideTripRows(trips);
 
     return { success: true, data };
   } catch (error) {
     logError("Error fetching recent outside trips:", error);
     return { success: false, error: "โหลดข้อมูลทริปไม่สำเร็จ" };
+  }
+}
+
+/** One trip's full detail — for the /outside-trip/[id] page that a click on
+ *  any "ออกหน้างาน" time link (Attendance day panel, Wage report) lands on. */
+export async function getOutsideTripDetail(id: string): Promise<
+  { success: true; data: OutsideTripRow } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const trip = await prisma.outsideWorkTrip.findUnique({
+      where: { id },
+      include: {
+        createdBy: { select: { username: true, fullName: true, nickname: true } },
+        members: { include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } } },
+      },
+    });
+    if (!trip) return { success: false, error: "ไม่พบทริปนี้" };
+
+    const [data] = await buildOutsideTripRows([trip]);
+    return { success: true, data };
+  } catch (error) {
+    logError("Error fetching outside trip detail:", error);
+    return { success: false, error: "โหลดข้อมูลทริปไม่สำเร็จ" };
+  }
+}
+
+/** Sets the trip's follow-up report/notes — the detail page's editable
+ *  "หมายเหตุ" field for whatever wasn't captured when the trip was created
+ *  (arrival time detail, issues on site, etc.). */
+export async function updateOutsideTripReport(id: string, report: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const trip = await prisma.outsideWorkTrip.update({ where: { id }, data: { report: report.trim() || null } });
+
+    await createActivityLog("UPDATE_OUTSIDE_TRIP_REPORT", `Admin updated the report for the "${trip.location}" outside trip`);
+
+    revalidatePath(`/outside-trip/${id}`);
+    revalidatePath("/outside-trip");
+    revalidatePath("/work-schedule");
+    return { success: true };
+  } catch (error) {
+    logError("Error updating outside trip report:", error);
+    return { success: false, error: "บันทึกหมายเหตุไม่สำเร็จ" };
   }
 }

@@ -203,7 +203,16 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
       ? await prisma.checkIn.findMany({
           where: { userId: { in: userIds }, createdAt: paddedCheckInWindow(from, to) },
           orderBy: { createdAt: "asc" },
-          select: { userId: true, type: true, location: true, createdAt: true, note: true, outsideStartAt: true, outsideEndAt: true },
+          select: {
+            userId: true,
+            type: true,
+            location: true,
+            createdAt: true,
+            note: true,
+            outsideStartAt: true,
+            outsideEndAt: true,
+            tripId: true,
+          },
         })
       : [];
     const historyByUser = new Map<string, typeof fullHistory>();

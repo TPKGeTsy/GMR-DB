@@ -99,10 +99,13 @@ export default async function WorkSchedulePage() {
                 {outsideTrips.map((trip) => (
                   <li key={trip.id} className="px-6 py-4">
                     <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-                      <span className="text-sm font-semibold text-gray-900 flex items-center">
+                      <Link
+                        href={`/outside-trip/${trip.id}`}
+                        className="text-sm font-semibold text-gray-900 hover:text-orange-600 flex items-center"
+                      >
                         <MapPin className="w-4 h-4 mr-1.5 text-orange-600" />
                         {trip.location}
-                      </span>
+                      </Link>
                       <span className="text-xs text-gray-400 flex items-center">
                         {formatThaiDateLong(trip.createdAt)}
                         <span className="mx-2 text-gray-300">•</span>

@@ -93,3 +93,13 @@ export function paddedCheckInWindow(from?: string, to?: string): { gte?: Date; l
   filter.lt = new Date(bangkokDayRange(toKey).end.getTime() + CHECKIN_WINDOW_PADDING_DAYS * 24 * 60 * 60 * 1000);
   return filter;
 }
+
+/** An exact (no padding) `createdAt` filter for [from, to] as Bangkok
+ *  calendar dates — for report queries that group rows by the day they
+ *  actually happened on (not sessions needing boundary-pairing). */
+export function bangkokRangeFilter(from?: string, to?: string): { gte?: Date; lt?: Date } {
+  const filter: { gte?: Date; lt?: Date } = {};
+  if (from) filter.gte = bangkokDayRange(from).start;
+  if (to) filter.lt = bangkokDayRange(to).end;
+  return filter;
+}

@@ -18,6 +18,7 @@ export type WageCheckInEvent = CheckInEvent & {
   note?: string | null;
   outsideStartAt?: Date | null;
   outsideEndAt?: Date | null;
+  tripId?: string | null;
 };
 
 export interface DailyWageRow {
@@ -43,6 +44,10 @@ export interface DailyWageRow {
   // outside period, i.e. workStartTime/workEndTime already cover it.
   outsideStartTime: string | null;
   outsideEndTime: string | null;
+  // Set when this day's outside work is tied to an OutsideWorkTrip record
+  // — lets the UI link the outside-time text through to that trip's
+  // /outside-trip/[id] detail page.
+  tripId: string | null;
   // Set by the caller (getWageReport), not by buildDailyWages itself, when
   // an admin has manually overridden this day's pay — buildDailyWages stays
   // a pure grade-math function and knows nothing about WageOverride rows.
@@ -68,6 +73,7 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
   const noteByDate = new Map<string, string>();
   const outsideStartByDate = new Map<string, Date>();
   const outsideEndByDate = new Map<string, Date>();
+  const tripIdByDate = new Map<string, string>();
   for (const c of checkIns) {
     const dateKey = bangkokDateKey(c.createdAt);
     const wentOutside = (outsideByDate.get(dateKey) ?? false) || c.location === "OUTSIDE";
@@ -85,6 +91,9 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
     if (c.outsideStartAt && c.outsideEndAt && !outsideStartByDate.has(dateKey)) {
       outsideStartByDate.set(dateKey, c.outsideStartAt);
       outsideEndByDate.set(dateKey, c.outsideEndAt);
+    }
+    if (c.tripId && !tripIdByDate.has(dateKey)) {
+      tripIdByDate.set(dateKey, c.tripId);
     }
   }
 
@@ -109,6 +118,7 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
         workEndTime: row.endTime ? row.endTime.toISOString() : null,
         outsideStartTime: outsideStart ? outsideStart.toISOString() : null,
         outsideEndTime: outsideEnd ? outsideEnd.toISOString() : null,
+        tripId: tripIdByDate.get(row.dateKey) ?? null,
         overridden: false,
         originalRate: null,
         overrideNote: null,

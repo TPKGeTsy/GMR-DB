@@ -525,6 +525,10 @@ export interface DaySummaryRow {
   // null when the day has no such recorded sub-range.
   outsideStartTime: string | null;
   outsideEndTime: string | null;
+  // Set when this day's outside work is tied to an OutsideWorkTrip record
+  // (see CheckIn.tripId) — lets the UI link the outside-time text through
+  // to that trip's /outside-trip/[id] detail page.
+  tripId: string | null;
 }
 
 export interface DayLoanRow {
@@ -598,6 +602,7 @@ export async function getDaySummary(dateKey: string): Promise<
         note: string | null;
         outsideStartAt: Date | null;
         outsideEndAt: Date | null;
+        tripId: string | null;
       }[]
     >();
     for (const c of dayCheckIns) {
@@ -610,6 +615,7 @@ export async function getDaySummary(dateKey: string): Promise<
         note: c.note,
         outsideStartAt: c.outsideStartAt,
         outsideEndAt: c.outsideEndAt,
+        tripId: c.tripId,
       });
     }
 
@@ -618,6 +624,7 @@ export async function getDaySummary(dateKey: string): Promise<
       const daily = dailyRows.find((r) => r.dateKey === dateKey);
       const events = dayEventsByUser.get(userId) || [];
       const withOutsideRange = events.find((e) => e.outsideStartAt && e.outsideEndAt);
+      const tripId = events.find((e) => e.tripId)?.tripId ?? null;
       return {
         userId,
         employeeName: namesByUser.get(userId) || "",
@@ -633,6 +640,7 @@ export async function getDaySummary(dateKey: string): Promise<
         endTime: daily?.endTime ? daily.endTime.toISOString() : null,
         outsideStartTime: withOutsideRange?.outsideStartAt ? withOutsideRange.outsideStartAt.toISOString() : null,
         outsideEndTime: withOutsideRange?.outsideEndAt ? withOutsideRange.outsideEndAt.toISOString() : null,
+        tripId,
       };
     });
     attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -859,12 +867,26 @@ export async function addManualOutsideTripDay(data: ManualOutsideTripInput) {
     const { start, end } = resolveManualSession(attendanceData);
     const fields = manualCheckInFields("เพิ่มโดยแอดมิน", attendanceData);
 
-    await prisma.$transaction(
-      data.userIds.flatMap((userId) => [
-        prisma.checkIn.create({ data: { userId, type: "IN", createdAt: start, ...fields } }),
-        prisma.checkIn.create({ data: { userId, type: "OUT", createdAt: end, ...fields } }),
-      ])
-    );
+    // Also creates an OutsideWorkTrip (+ one member row per person, tagged
+    // to their IN check-in) — the same record a live LINE-triggered trip
+    // creates — so this backfilled day shows up in the /outside-trip log
+    // and its detail page, not just as raw attendance rows.
+    await prisma.$transaction(async (tx) => {
+      const trip = await tx.outsideWorkTrip.create({
+        data: {
+          location: data.outsideNote.trim(),
+          createdById: session.user!.id!,
+          createdAt: start,
+          report: data.workSummary?.trim() || null,
+        },
+      });
+
+      for (const userId of data.userIds) {
+        const checkIn = await tx.checkIn.create({ data: { userId, type: "IN", createdAt: start, tripId: trip.id, ...fields } });
+        await tx.checkIn.create({ data: { userId, type: "OUT", createdAt: end, ...fields } });
+        await tx.outsideWorkTripMember.create({ data: { tripId: trip.id, userId, checkInId: checkIn.id } });
+      }
+    });
 
     await createActivityLog(
       "ADD_MANUAL_ATTENDANCE",
@@ -873,6 +895,8 @@ export async function addManualOutsideTripDay(data: ManualOutsideTripInput) {
     );
 
     revalidatePath("/attendance");
+    revalidatePath("/outside-trip");
+    revalidatePath("/work-schedule");
     for (const userId of data.userIds) revalidatePath(`/users/${userId}`);
     return { success: true };
   } catch (error) {

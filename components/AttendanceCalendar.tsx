@@ -257,7 +257,16 @@ export default function AttendanceCalendar() {
                         {outsideNote && <span className="text-[10px] text-gray-400 italic font-normal">({outsideNote})</span>}
                         {row.outsideStartTime && row.outsideEndTime && (
                           <span className="text-[10px] text-gray-400 font-normal">
-                            ออกหน้างาน {formatThaiTime(row.outsideStartTime)}–{formatThaiTime(row.outsideEndTime)}
+                            ออกหน้างาน{" "}
+                            {row.tripId ? (
+                              <Link href={`/outside-trip/${row.tripId}`} className="underline hover:text-orange-600">
+                                {formatThaiTime(row.outsideStartTime)}–{formatThaiTime(row.outsideEndTime)}
+                              </Link>
+                            ) : (
+                              <>
+                                {formatThaiTime(row.outsideStartTime)}–{formatThaiTime(row.outsideEndTime)}
+                              </>
+                            )}
                           </span>
                         )}
                       </span>
