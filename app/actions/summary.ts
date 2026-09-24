@@ -3,7 +3,7 @@
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
-import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
 import { buildDailySummary } from "@/lib/attendance";
 import { countMealDays } from "@/lib/wages";
 
@@ -17,11 +17,12 @@ export interface EmployeeMealOtSummaryRow {
 
 /** Per-employee OT hours + accumulated meal count over a date range, for
  *  everyone who had at least one check-in in range — the /summary page's
- *  data source. Fetches each active employee's *full* check-in history
- *  (not just the range) before computing daily totals, same reasoning as
- *  the wage report and Attendance day-panel fixes: a session crossing the
- *  range's edge needs its whole pair to compute hours correctly, then the
- *  resulting per-day rows are filtered down to the requested range. */
+ *  data source. Fetches each active employee's check-ins in a padded
+ *  window around the range (not the whole table) before computing daily
+ *  totals, same reasoning as the wage report and Attendance day-panel
+ *  fixes: a session crossing the range's edge needs its whole pair to
+ *  compute hours correctly, then the resulting per-day rows are filtered
+ *  down to the requested range. */
 export async function getMealOtSummary({ from, to }: { from: string; to: string }): Promise<
   { success: true; data: EmployeeMealOtSummaryRow[] } | { success: false; error: string }
 > {
@@ -40,7 +41,7 @@ export async function getMealOtSummary({ from, to }: { from: string; to: string 
     const userIds = activeUsers.map((u) => u.id);
     const fullHistory = userIds.length
       ? await prisma.checkIn.findMany({
-          where: { userId: { in: userIds } },
+          where: { userId: { in: userIds }, createdAt: paddedCheckInWindow(from, to) },
           orderBy: { createdAt: "asc" },
           select: { userId: true, type: true, location: true, createdAt: true, mealCounted: true, otStartOverride: true },
         })

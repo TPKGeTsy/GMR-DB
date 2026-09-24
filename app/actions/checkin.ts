@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { buildDailySummary, findSessionRowIdsStartingOn, REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS } from "@/lib/attendance";
-import { bangkokDateKey, bangkokDayRange, bangkokDateAt } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange, bangkokDateAt, paddedCheckInWindow } from "@/lib/datetime";
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { pushLineMessage } from "@/lib/line";
@@ -261,6 +261,7 @@ export async function getAttendanceTableRows({
 
     const allCheckInsQuery = () =>
       prisma.checkIn.findMany({
+        where: { createdAt: paddedCheckInWindow(from, to) },
         orderBy: { createdAt: "asc" },
         select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
       });
@@ -273,12 +274,12 @@ export async function getAttendanceTableRows({
         include: { user: { select: { username: true, fullName: true, nickname: true } } },
       });
 
-    // otOnly needs the full unfiltered history fetched *before* logs/totalCount
+    // otOnly needs the unfiltered-by-type history fetched *before* logs/totalCount
     // can run, since it decides which days qualify for the `where` clause
     // below — but that's the uncommon path. The plain view's `where` never
     // depends on allCheckIns, so keep it running concurrently with
     // logs/totalCount like before, rather than serializing every request
-    // behind a full-table scan (which is what allCheckIns always is).
+    // behind it.
     let allCheckIns: Awaited<ReturnType<typeof allCheckInsQuery>>;
     let logs: Awaited<ReturnType<typeof logsQuery>>;
     let totalCount: number;
@@ -556,15 +557,16 @@ export async function getDaySummary(dateKey: string): Promise<
       }),
     ]);
 
-    // buildDailySummary needs each active user's *full* history, not just
-    // this day's slice — a session that started today but crosses midnight
-    // (e.g. a large OT day) has its OUT dated tomorrow, and a day-scoped
-    // query can't see it, which used to make the day panel show that person
-    // as still working with a nonsense multi-day "elapsed" duration.
+    // buildDailySummary needs each active user's check-ins in a window
+    // around this day, not their whole history — a session that started
+    // today but crosses midnight (e.g. a large OT day) has its OUT dated
+    // tomorrow, and a day-scoped query can't see it, which used to make the
+    // day panel show that person as still working with a nonsense
+    // multi-day "elapsed" duration.
     const activeUserIds = Array.from(new Set(dayCheckIns.map((c) => c.userId)));
     const fullHistory = activeUserIds.length
       ? await prisma.checkIn.findMany({
-          where: { userId: { in: activeUserIds } },
+          where: { userId: { in: activeUserIds }, createdAt: paddedCheckInWindow(dateKey, dateKey) },
           orderBy: { createdAt: "asc" },
           select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
         })

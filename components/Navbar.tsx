@@ -1,59 +1,20 @@
 import Link from "next/link";
 import { LogOut, User, ScanFace } from "lucide-react";
 import { auth, signOut } from "@/auth";
-import { getPendingBookingsCount } from "@/app/actions/carbooking";
-import { getPendingLeaveRequestsCount } from "@/app/actions/leave";
-import MobileNavMenu from "./MobileNavMenu";
-import NavDropdown, { type NavDropdownItem } from "./NavDropdown";
-import { isOtManagerRole } from "@/lib/roles";
+import NavBadges from "./NavBadges";
 
 const linkClass =
   "inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-gray-300 hover:text-orange-400 hover:border-orange-500 transition-colors";
 
+// The badge counts (pending bookings/leave requests) used to be fetched
+// here and awaited before anything could render — since Navbar sits in the
+// root layout, that meant every single page on the site paid for those two
+// DB queries before its first byte. NavBadges fetches them client-side
+// after the nav has already painted, so this component now only needs the
+// session (fast — JWT decode, no DB round trip).
 export default async function Navbar() {
   const session = await auth();
   const role = session?.user?.role;
-  const isApprover = role === "ADMIN" || role === "OPERATOR";
-  const [pendingBookingsResult, pendingLeaveResult] = isApprover
-    ? await Promise.all([getPendingBookingsCount(), getPendingLeaveRequestsCount()])
-    : [null, null];
-  const pendingBookingsCount = pendingBookingsResult?.success ? pendingBookingsResult.data : 0;
-  const pendingLeaveCount = pendingLeaveResult?.success ? pendingLeaveResult.data : 0;
-
-  const workItems: NavDropdownItem[] = [
-    { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
-    { href: "/work-schedule", label: "ตารางงาน (Work Schedule)", icon: "CalendarRange" },
-    { href: "/outside-trip", label: "ออกหน้างาน (Outside Trip)", icon: "MapPin" },
-    ...(isOtManagerRole(role)
-      ? [
-          { href: "/ot", label: "OT", icon: "Timer" } as NavDropdownItem,
-          { href: "/ot/summary", label: "สรุป OT (OT Summary)", icon: "BarChart3" } as NavDropdownItem,
-        ]
-      : []),
-  ];
-
-  const resourceItems: NavDropdownItem[] = [
-    { href: "/dashboard", label: "Dashboard (ภาพรวม)", icon: "LayoutDashboard" },
-    { href: "/catalog", label: "Catalog (รายการอุปกรณ์)", icon: "ShoppingBag" },
-    { href: "/my-loans", label: "My Loans (ของที่ยืม)", icon: "PackageCheck" },
-    { href: "/carbook", label: "Car Booking (จองรถ)", icon: "Car", badge: pendingBookingsCount },
-    ...(role === "ADMIN" || role === "OPERATOR"
-      ? [{ href: "/inventory", label: "Inventory (คลังอุปกรณ์)", icon: "ListFilter" } as NavDropdownItem]
-      : []),
-  ];
-
-  const projectItems: NavDropdownItem[] = [
-    { href: "/projects", label: "Projects (โปรเจกต์)", icon: "Briefcase" },
-    { href: "/circuit", label: "Circuit (วงจรไฟฟ้า)", icon: "Cpu" },
-    { href: "/diagrams", label: "Wiring (การเดินสาย)", icon: "Share2" },
-  ];
-
-  const adminItems: NavDropdownItem[] = [
-    { href: "/users", label: "Users (ผู้ใช้งาน)", icon: "User" },
-    { href: "/attendance", label: "Attendance Report (รายงานเข้างาน)", icon: "ClipboardList" },
-    { href: "/wages", label: "ค่าแรงเด็กฝึกงาน (Wages)", icon: "Wallet" },
-    { href: "/summary", label: "สรุปมื้อ + OT (Summary)", icon: "BarChart3" },
-  ];
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-40 relative">
@@ -64,28 +25,12 @@ export default async function Navbar() {
               <span className="text-xl font-bold text-orange-500">GMR</span>
               <span className="text-xl font-bold text-white">AssetManager</span>
             </Link>
-            <MobileNavMenu
-              isLoggedIn={!!session}
-              role={role}
-              pendingBookingsCount={pendingBookingsCount}
-              pendingLeaveCount={pendingLeaveCount}
-            />
-            <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:items-center sm:space-x-6">
+            <NavBadges isLoggedIn={!!session} role={role}>
               <Link href="/checkin" className={linkClass}>
                 <ScanFace className="w-4 h-4 mr-1" />
                 Check-In (สแกนหน้าเข้างาน)
               </Link>
-              {session && (
-                <>
-                  <NavDropdown label="งาน" icon="Briefcase" items={workItems} badge={pendingLeaveCount} />
-                  <NavDropdown label="ทรัพยากร" icon="Boxes" items={resourceItems} badge={pendingBookingsCount} />
-                  <NavDropdown label="โปรเจกต์" icon="Cpu" items={projectItems} />
-                  {role === "ADMIN" && (
-                    <NavDropdown label="ผู้ดูแลระบบ" icon="ShieldCheck" items={adminItems} />
-                  )}
-                </>
-              )}
-            </div>
+            </NavBadges>
           </div>
           <div className="flex items-center flex-shrink-0">
             {session ? (

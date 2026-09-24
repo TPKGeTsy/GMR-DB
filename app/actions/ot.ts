@@ -9,7 +9,7 @@ import { isOtManagerRole } from "@/lib/roles";
 import { notifyUser } from "@/lib/lineApprovals";
 import { grantOtToUser, getOpenCheckIn } from "@/lib/otGrant";
 import { buildDailySummary, type CheckInEvent } from "@/lib/attendance";
-import { bangkokDayRange } from "@/lib/datetime";
+import { bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
 
 export interface OtGrantRow {
   id: string;
@@ -241,6 +241,7 @@ export async function getOtSummary({ from, to }: { from?: string; to?: string })
     });
 
     const allCheckIns = await prisma.checkIn.findMany({
+      where: { createdAt: paddedCheckInWindow(from, to) },
       orderBy: { createdAt: "asc" },
       select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
     });

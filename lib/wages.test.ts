@@ -16,7 +16,19 @@ function ev(
 describe("buildDailyWages", () => {
   it("pays just the flat onsite rate for a normal day with no OT", () => {
     const rows = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T17:00:00")], GRADE_A);
-    expect(rows).toEqual([{ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 300, otPay: 0, rate: 300, note: null }]);
+    expect(rows).toEqual([
+      {
+        dateKey: "2026-01-05",
+        wentOutside: false,
+        otHours: 0,
+        baseRate: 300,
+        otPay: 0,
+        rate: 300,
+        note: null,
+        startTime: new Date("2026-01-05T09:00:00").toISOString(),
+        endTime: new Date("2026-01-05T17:00:00").toISOString(),
+      },
+    ]);
   });
 
   it("uses the outside rate as the day's base rate when any check-in that day was OUTSIDE", () => {
@@ -53,7 +65,17 @@ describe("buildDailyWages", () => {
   it("pays the full flat day-rate for any check-in that day, no partial-day proration", () => {
     // A single IN with no OUT yet still counts as a full paid day, no OT.
     const rows = buildDailyWages([ev("IN", "2026-01-05T23:50:00")], GRADE_B);
-    expect(rows[0]).toEqual({ dateKey: "2026-01-05", wentOutside: false, otHours: 0, baseRate: 250, otPay: 0, rate: 250, note: null });
+    expect(rows[0]).toEqual({
+      dateKey: "2026-01-05",
+      wentOutside: false,
+      otHours: 0,
+      baseRate: 250,
+      otPay: 0,
+      rate: 250,
+      note: null,
+      startTime: new Date("2026-01-05T23:50:00").toISOString(),
+      endTime: null,
+    });
   });
 
   it("returns one row per distinct calendar day, sorted ascending", () => {

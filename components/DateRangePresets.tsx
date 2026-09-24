@@ -32,6 +32,25 @@ function endOfMonth(monthStartKey: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+// Payroll runs the 21st of one month through the 20th of the next (cutoff
+// on the 20th, recount starts the 21st) — not a calendar month.
+function payrollCycleContaining(dateKey: string): { from: string; to: string } {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const monthStart = `${y}-${String(m).padStart(2, "0")}-01`;
+  if (d >= 21) {
+    const nextMonthStart = shiftMonths(monthStart, 1);
+    return { from: `${monthStart.slice(0, 7)}-21`, to: `${nextMonthStart.slice(0, 7)}-20` };
+  }
+  const prevMonthStart = shiftMonths(monthStart, -1);
+  return { from: `${prevMonthStart.slice(0, 7)}-21`, to: `${monthStart.slice(0, 7)}-20` };
+}
+
+function shiftPayrollCycle(cycleFromKey: string, cycles: number): { from: string; to: string } {
+  const monthStart = shiftMonths(`${cycleFromKey.slice(0, 7)}-01`, cycles);
+  const nextMonthStart = shiftMonths(monthStart, 1);
+  return { from: `${monthStart.slice(0, 7)}-21`, to: `${nextMonthStart.slice(0, 7)}-20` };
+}
+
 export default function DateRangePresets({
   fromParam = "from",
   toParam = "to",
@@ -73,6 +92,11 @@ export default function DateRangePresets({
         const lastMonthStart = shiftMonths(startOfMonth(today), -1);
         return { from: lastMonthStart, to: endOfMonth(lastMonthStart) };
       },
+    },
+    { label: "รอบเงินเดือนนี้ (21-20)", range: () => payrollCycleContaining(today) },
+    {
+      label: "รอบเงินเดือนที่แล้ว",
+      range: () => shiftPayrollCycle(payrollCycleContaining(today).from, -1),
     },
   ];
 

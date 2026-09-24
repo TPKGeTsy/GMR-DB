@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, MapPin } from "lucide-react";
-import { formatThaiDateLong } from "@/lib/datetime";
+import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
 import InternGradeSelect from "./InternGradeSelect";
 import type { EmployeeWageReportRow } from "@/app/actions/wages";
 
@@ -81,6 +81,11 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                 {d.wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                               </span>
                               {d.note && <span className="text-gray-400 italic">({d.note})</span>}
+                              {d.wentOutside && d.startTime && d.endTime && (
+                                <span className="text-gray-400">
+                                  {formatThaiTime(d.startTime)}–{formatThaiTime(d.endTime)}
+                                </span>
+                              )}
                               <span className="text-gray-500">{d.baseRate.toLocaleString()} บาท</span>
                               {d.otHours > 0 && (
                                 <span className="text-orange-600">

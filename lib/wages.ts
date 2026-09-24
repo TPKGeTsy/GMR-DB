@@ -23,6 +23,12 @@ export interface DailyWageRow {
   // The first non-empty note from an OUTSIDE check-in that day, if any —
   // usually where the person went (see Attendance's "went outside" note).
   note: string | null;
+  // First check-in / last check-out of the day, for showing what time an
+  // outside-work day actually ran (ISO strings — same convention as
+  // getRecentOutsideTrips — so this crosses the server action boundary
+  // without relying on RSC's Date handling).
+  startTime: string | null;
+  endTime: string | null;
 }
 
 const OT_MULTIPLIER = 1.5;
@@ -69,6 +75,8 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
         otPay,
         rate: baseRate + otPay,
         note: noteByDate.get(row.dateKey) ?? null,
+        startTime: row.startTime ? row.startTime.toISOString() : null,
+        endTime: row.endTime ? row.endTime.toISOString() : null,
       };
     })
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey));

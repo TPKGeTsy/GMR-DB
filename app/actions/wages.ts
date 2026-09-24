@@ -6,7 +6,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
-import { bangkokDayRange } from "@/lib/datetime";
+import { bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
 import { buildDailyWages, type WageGradeRate, type DailyWageRow } from "@/lib/wages";
 
 /** Sets or clears (null) an employee's intern pay grade. Separate from
@@ -192,14 +192,16 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
       grades.map((g) => [g.code, { code: g.code, onsiteRate: g.onsiteRate, outsideRate: g.outsideRate }])
     );
 
-    // Each active user's *full* check-in history, not just this range — a
-    // session that started inside the range but crosses midnight past `to`
-    // (or started just before `from`) needs its whole pair to compute hours
-    // correctly, the same reasoning as the day-panel fix in getDaySummary.
+    // Each active user's check-ins in a padded window around the range, not
+    // their *entire* history — a session that started inside the range but
+    // crosses midnight past `to` (or started just before `from`) needs its
+    // whole pair to compute hours correctly, the same reasoning as the
+    // day-panel fix in getDaySummary, but bounded so this doesn't grow into
+    // a full-table scan as the check-in table accumulates months of data.
     const userIds = activeUsers.map((u) => u.id);
     const fullHistory = userIds.length
       ? await prisma.checkIn.findMany({
-          where: { userId: { in: userIds } },
+          where: { userId: { in: userIds }, createdAt: paddedCheckInWindow(from, to) },
           orderBy: { createdAt: "asc" },
           select: { userId: true, type: true, location: true, createdAt: true, note: true },
         })
