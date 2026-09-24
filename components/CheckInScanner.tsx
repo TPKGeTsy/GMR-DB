@@ -120,7 +120,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
         setModelsLoading(false);
         setStatusText(
           initialRoster.length === 0
-            ? "No faces registered yet. Ask an admin to register faces on the Users page."
+            ? "คุณยังไม่ได้ลงทะเบียนใบหน้า — ไปที่หน้าโปรไฟล์ของคุณเพื่อลงทะเบียนก่อน"
             : "Ready. Start the camera to check in."
         );
       } catch (err) {
@@ -164,7 +164,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
 
   const handleScan = async () => {
     if (initialRoster.length === 0) {
-      setStatusText("No faces registered yet.");
+      setStatusText("คุณยังไม่ได้ลงทะเบียนใบหน้า");
       return;
     }
     if (!videoRef.current || !canvasRef.current) return;
@@ -259,7 +259,6 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
     const photoDataUrl = captureSnapshot();
 
     const result = await recordCheckIn(
-      pendingMatch.userId,
       pendingMatch.confidence,
       type,
       outsideOffice ? "OUTSIDE" : "OFFICE",
@@ -464,7 +463,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
         {initialRoster.length === 0 && (
           <div className="px-6 py-4 border-t border-gray-100 bg-yellow-50 text-xs text-yellow-800 flex items-start">
             <XCircle className="w-4 h-4 mr-2 flex-shrink-0" />
-            No one has a registered face yet.
+            คุณยังไม่ได้ลงทะเบียนใบหน้า ไปที่หน้าโปรไฟล์ของคุณเพื่อลงทะเบียนก่อน
           </div>
         )}
       </div>

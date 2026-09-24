@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { isOtManagerRole, canManageUsers } from "@/lib/roles";
+import { isOtManagerRole, canManageUsers, isOwner } from "@/lib/roles";
 
 export const authConfig = {
   pages: {
@@ -23,15 +23,10 @@ export const authConfig = {
       const isOnOt = nextUrl.pathname.startsWith("/ot");
       const isOnLoginPage = nextUrl.pathname.startsWith("/login");
       const isOnRegisterPage = nextUrl.pathname.startsWith("/register");
-      const isOnCheckInPage = nextUrl.pathname.startsWith("/checkin");
+      const isOnUsersPending = nextUrl.pathname.startsWith("/users/pending");
 
       if (isOnLoginPage || isOnRegisterPage) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
-        return true;
-      }
-
-      // /checkin is a public kiosk page — no login required, that's the point of face check-in
-      if (isOnCheckInPage) {
         return true;
       }
 
@@ -41,6 +36,13 @@ export const authConfig = {
 
       const role = auth.user?.role;
       const isOwnProfile = isOnUsers && nextUrl.pathname === `/users/${auth.user?.id}`;
+
+      // /users/pending (approving new registrations) is for the account
+      // owner only — deliberately narrower than the ADMIN/OPERATOR check
+      // below, so other admins aren't pulled into approval duty.
+      if (isOnUsersPending && !isOwner(auth.user?.username)) {
+        return Response.redirect(new URL("/users", nextUrl));
+      }
 
       // /users is ADMIN or OPERATOR, except a user's own profile page (e.g.
       // to register their own face) which anyone logged in can reach

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { getPendingBookingsCount } from "@/app/actions/carbooking";
 import { getPendingLeaveRequestsCount } from "@/app/actions/leave";
-import { isOtManagerRole } from "@/lib/roles";
+import { getPendingUsersCount } from "@/app/actions/auth";
+import { isOtManagerRole, isOwner } from "@/lib/roles";
 import MobileNavMenu from "./MobileNavMenu";
 import NavDropdown, { type NavDropdownItem } from "./NavDropdown";
 
@@ -15,18 +16,22 @@ import NavDropdown, { type NavDropdownItem } from "./NavDropdown";
 export default function NavBadges({
   isLoggedIn,
   role,
+  username,
   children,
 }: {
   isLoggedIn: boolean;
   role?: string;
+  username?: string;
   /** Desktop-only links rendered before the dropdowns inside the same flex
    *  row (e.g. the always-visible Check-In link), so spacing stays
    *  consistent with a single flex container instead of two adjacent ones. */
   children?: React.ReactNode;
 }) {
   const isApprover = role === "ADMIN" || role === "OPERATOR";
+  const isAccountOwner = isOwner(username);
   const [pendingBookingsCount, setPendingBookingsCount] = useState(0);
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingUsersCount, setPendingUsersCount] = useState(0);
 
   useEffect(() => {
     if (!isApprover) return;
@@ -40,6 +45,17 @@ export default function NavBadges({
       cancelled = true;
     };
   }, [isApprover]);
+
+  useEffect(() => {
+    if (!isAccountOwner) return;
+    let cancelled = false;
+    getPendingUsersCount().then((result) => {
+      if (!cancelled && result.success) setPendingUsersCount(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAccountOwner]);
 
   if (!isLoggedIn) {
     return (
@@ -80,6 +96,9 @@ export default function NavBadges({
 
   const adminItems: NavDropdownItem[] = [
     { href: "/users", label: "Users (ผู้ใช้งาน)", icon: "User" },
+    ...(isAccountOwner
+      ? [{ href: "/users/pending", label: "บัญชีรออนุมัติ", icon: "UserPlus", badge: pendingUsersCount } as NavDropdownItem]
+      : []),
     { href: "/attendance", label: "Attendance Report (รายงานเข้างาน)", icon: "ClipboardList" },
     { href: "/wages", label: "ค่าแรงเด็กฝึกงาน (Wages)", icon: "Wallet" },
     { href: "/summary", label: "สรุปมื้อ + OT (Summary)", icon: "BarChart3" },
@@ -90,15 +109,19 @@ export default function NavBadges({
       <MobileNavMenu
         isLoggedIn
         role={role}
+        username={username}
         pendingBookingsCount={pendingBookingsCount}
         pendingLeaveCount={pendingLeaveCount}
+        pendingUsersCount={pendingUsersCount}
       />
       <div className="hidden sm:-my-px sm:ml-6 sm:flex sm:items-center sm:space-x-6">
         {children}
         <NavDropdown label="งาน" icon="Briefcase" items={workItems} badge={pendingLeaveCount} />
         <NavDropdown label="ทรัพยากร" icon="Boxes" items={resourceItems} badge={pendingBookingsCount} />
         <NavDropdown label="โปรเจกต์" icon="Cpu" items={projectItems} />
-        {role === "ADMIN" && <NavDropdown label="ผู้ดูแลระบบ" icon="ShieldCheck" items={adminItems} />}
+        {role === "ADMIN" && (
+          <NavDropdown label="ผู้ดูแลระบบ" icon="ShieldCheck" items={adminItems} badge={isAccountOwner ? pendingUsersCount : 0} />
+        )}
       </div>
     </>
   );

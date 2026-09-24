@@ -15,6 +15,7 @@ const linkClass =
 export default async function Navbar() {
   const session = await auth();
   const role = session?.user?.role;
+  const username = session?.user?.username;
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-40 relative">
@@ -25,7 +26,7 @@ export default async function Navbar() {
               <span className="text-xl font-bold text-orange-500">GMR</span>
               <span className="text-xl font-bold text-white">AssetManager</span>
             </Link>
-            <NavBadges isLoggedIn={!!session} role={role}>
+            <NavBadges isLoggedIn={!!session} role={role} username={username}>
               <Link href="/checkin" className={linkClass}>
                 <ScanFace className="w-4 h-4 mr-1" />
                 Check-In (สแกนหน้าเข้างาน)

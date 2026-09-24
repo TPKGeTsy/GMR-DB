@@ -18,3 +18,12 @@ export const MANAGE_USERS_ROLES = ["ADMIN", "OPERATOR"];
 export function canManageUsers(role: string | undefined | null): boolean {
   return !!role && MANAGE_USERS_ROLES.includes(role);
 }
+
+// The only account allowed to approve new self-registrations. Deliberately
+// one specific person rather than every ADMIN — other admins shouldn't have
+// to deal with approval requests.
+export const OWNER_USERNAME = "Gamer";
+
+export function isOwner(username: string | undefined | null): boolean {
+  return username === OWNER_USERNAME;
+}

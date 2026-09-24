@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ChevronDown, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
+  ChevronDown, LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
   ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
   Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin, type LucideIcon,
 } from "lucide-react";
@@ -14,7 +14,7 @@ import {
 // across the server->client prop boundary the way it can plain elements.
 // Passing a lookup key instead keeps the props trivially serializable.
 const ICONS = {
-  LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
+  LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
   ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
   Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin,
 } satisfies Record<string, LucideIcon>;
