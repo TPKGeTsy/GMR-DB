@@ -9,9 +9,10 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { bangkokDayRange } from "@/lib/datetime";
-import { canManageUsers } from "@/lib/roles";
+import { canManageUsers, isOwner, OWNER_USERNAME } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { headers } from "next/headers";
+import { pushLineMessage } from "@/lib/line";
 
 export async function authenticate(
   prevState: string | undefined,
@@ -22,11 +23,14 @@ export async function authenticate(
   if (username) {
     const user = await prisma.user.findUnique({
       where: { username },
-      select: { lockedUntil: true },
+      select: { lockedUntil: true, approved: true },
     });
     if (user?.lockedUntil && user.lockedUntil > new Date()) {
       const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
       return `บัญชีถูกล็อกชั่วคราวจากการใส่รหัสผ่านผิดหลายครั้ง กรุณาลองใหม่ในอีก ${minutesLeft} นาที`;
+    }
+    if (user && !user.approved) {
+      return "บัญชียังไม่ได้รับการอนุมัติ กรุณารอแอดมินอนุมัติก่อนเข้าสู่ระบบ";
     }
   }
 
@@ -165,14 +169,113 @@ export async function registerUser(
         password: hashedPassword,
         fullName,
         role: "USER",
+        approved: false,
       },
     });
+
+    const owner = await prisma.user.findUnique({
+      where: { username: OWNER_USERNAME },
+      select: { lineUserId: true },
+    });
+    if (owner?.lineUserId) {
+      // Best-effort — a failed LINE push shouldn't block registration.
+      pushLineMessage(
+        owner.lineUserId,
+        `มีคนสมัครบัญชีใหม่รออนุมัติ: ${fullName || username} (${username})\nไปที่ /users/pending เพื่ออนุมัติ`
+      ).catch((error) => logError("Failed to notify owner of new registration:", error));
+    }
   } catch (error) {
     logError("Registration error:", error);
     return "Failed to register user.";
   }
 
-  redirect("/login");
+  redirect("/register/pending");
+}
+
+export interface PendingUserRow {
+  id: string;
+  username: string;
+  fullName: string | null;
+  createdAt: string;
+}
+
+/** New self-registrations awaiting approval — visible only to the account
+ *  owner (see lib/roles.ts's isOwner), not every ADMIN. */
+export async function getPendingUsers(): Promise<
+  { success: true; data: PendingUserRow[] } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (!isOwner(session?.user?.username)) return { success: false, error: "Unauthorized" };
+
+    const users = await prisma.user.findMany({
+      where: { approved: false },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, username: true, fullName: true, createdAt: true },
+    });
+
+    return {
+      success: true,
+      data: users.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() })),
+    };
+  } catch (error) {
+    logError("Error fetching pending users:", error);
+    return { success: false, error: "Failed to load pending users" };
+  }
+}
+
+export async function getPendingUsersCount(): Promise<{ success: true; data: number } | { success: false; error: string }> {
+  try {
+    const session = await auth();
+    if (!isOwner(session?.user?.username)) return { success: false, error: "Unauthorized" };
+
+    const count = await prisma.user.count({ where: { approved: false } });
+    return { success: true, data: count };
+  } catch (error) {
+    logError("Error counting pending users:", error);
+    return { success: false, error: "Failed to count pending users" };
+  }
+}
+
+export async function approveUser(userId: string) {
+  try {
+    const session = await auth();
+    if (!isOwner(session?.user?.username)) return { success: false, error: "Unauthorized" };
+
+    const user = await prisma.user.update({ where: { id: userId }, data: { approved: true } });
+
+    await createActivityLog("APPROVE_USER", `Approved registration for ${user.username}`);
+
+    revalidatePath("/users/pending");
+    revalidatePath("/users");
+    return { success: true };
+  } catch (error) {
+    logError("Error approving user:", error);
+    return { success: false, error: "Failed to approve user" };
+  }
+}
+
+/** Rejects a pending registration by deleting it outright — an unapproved
+ *  account can't have logged in or accumulated any real data, so there's
+ *  nothing to preserve, and they're free to just register again. */
+export async function rejectUser(userId: string) {
+  try {
+    const session = await auth();
+    if (!isOwner(session?.user?.username)) return { success: false, error: "Unauthorized" };
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.approved) return { success: false, error: "User not found or already approved" };
+
+    await prisma.user.delete({ where: { id: userId } });
+
+    await createActivityLog("REJECT_USER", `Rejected registration for ${user.username}`);
+
+    revalidatePath("/users/pending");
+    return { success: true };
+  } catch (error) {
+    logError("Error rejecting user:", error);
+    return { success: false, error: "Failed to reject user" };
+  }
 }
 
 export async function changePassword(

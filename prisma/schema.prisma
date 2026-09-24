@@ -69,6 +69,11 @@ model User {
   faceConsentAt    DateTime? @map("face_consent_at")
   failedLoginAttempts Int    @default(0) @map("failed_login_attempts")
   lockedUntil      DateTime? @map("locked_until")
+  // Self-registered accounts start unapproved and can't log in until Gamer
+  // (the sole approver — see lib/roles.ts's isOwner) approves them. Default
+  // true so existing/seeded/admin-created rows are never accidentally
+  // locked out; registerUser explicitly sets this false.
+  approved         Boolean   @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   logs      ActivityLog[]

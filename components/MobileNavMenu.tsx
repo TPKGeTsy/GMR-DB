@@ -3,10 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Menu, X, LayoutDashboard, ListFilter, User, ShoppingBag, Cpu, Share2,
+  Menu, X, LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
   ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet, MapPin,
 } from "lucide-react";
-import { isOtManagerRole } from "@/lib/roles";
+import { isOtManagerRole, isOwner } from "@/lib/roles";
 
 const linkClass =
   "flex items-center gap-2.5 px-3 py-3 rounded-md text-sm font-medium text-gray-200 hover:bg-gray-800 hover:text-orange-400 transition-colors";
@@ -26,13 +26,17 @@ function Badge({ count }: { count: number }) {
 export default function MobileNavMenu({
   isLoggedIn,
   role,
+  username,
   pendingBookingsCount,
   pendingLeaveCount,
+  pendingUsersCount = 0,
 }: {
   isLoggedIn: boolean;
   role?: string;
+  username?: string;
   pendingBookingsCount: number;
   pendingLeaveCount: number;
+  pendingUsersCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -133,6 +137,15 @@ export default function MobileNavMenu({
                     <User className="w-4 h-4" />
                     Users (ผู้ใช้งาน)
                   </Link>
+                  {isOwner(username) && (
+                    <Link href="/users/pending" className={`${linkClass} justify-between`} onClick={close}>
+                      <span className="flex items-center gap-2.5">
+                        <UserPlus className="w-4 h-4" />
+                        บัญชีรออนุมัติ
+                      </span>
+                      <Badge count={pendingUsersCount} />
+                    </Link>
+                  )}
                   <Link href="/attendance" className={linkClass} onClick={close}>
                     <ClipboardList className="w-4 h-4" />
                     Attendance Report (รายงานเข้างาน)
