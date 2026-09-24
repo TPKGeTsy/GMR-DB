@@ -250,6 +250,16 @@ model CheckIn {
   // admin can turn it off per person/day from the Attendance table for a
   // trip that didn't actually include a meal. Meaningless on an OFFICE row.
   mealCounted Boolean @default(true) @map("meal_counted")
+  // For a manually-entered day where the admin recorded an overall work
+  // time range plus a separate "went outside" sub-range within it (see
+  // manualAttendanceLocationAndNote in app/actions/checkin.ts) — the
+  // specific outside-excursion clock times, stored as their own columns
+  // instead of only being embedded in `note` text, so the wage report can
+  // read them back directly rather than re-parsing a note string. Null for
+  // a normal OFFICE day, and null for a real outside-trip check-in (there
+  // the whole session *is* the outside period, i.e. createdAt itself).
+  outsideStartAt DateTime? @map("outside_start_at")
+  outsideEndAt   DateTime? @map("outside_end_at")
 
   @@map("check_ins")
 }

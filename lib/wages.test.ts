@@ -8,9 +8,17 @@ function ev(
   type: "IN" | "OUT",
   isoTime: string,
   location: "OFFICE" | "OUTSIDE" = "OFFICE",
-  note?: string
+  note?: string,
+  outsideRange?: { start: string; end: string }
 ): WageCheckInEvent {
-  return { type, location, createdAt: new Date(isoTime), note };
+  return {
+    type,
+    location,
+    createdAt: new Date(isoTime),
+    note,
+    outsideStartAt: outsideRange ? new Date(outsideRange.start) : undefined,
+    outsideEndAt: outsideRange ? new Date(outsideRange.end) : undefined,
+  };
 }
 
 describe("buildDailyWages", () => {
@@ -25,8 +33,10 @@ describe("buildDailyWages", () => {
         otPay: 0,
         rate: 300,
         note: null,
-        startTime: new Date("2026-01-05T09:00:00").toISOString(),
-        endTime: new Date("2026-01-05T17:00:00").toISOString(),
+        workStartTime: new Date("2026-01-05T09:00:00").toISOString(),
+        workEndTime: new Date("2026-01-05T17:00:00").toISOString(),
+        outsideStartTime: null,
+        outsideEndTime: null,
         overridden: false,
         originalRate: null,
         overrideNote: null,
@@ -76,8 +86,10 @@ describe("buildDailyWages", () => {
       otPay: 0,
       rate: 250,
       note: null,
-      startTime: new Date("2026-01-05T23:50:00").toISOString(),
-      endTime: null,
+      workStartTime: new Date("2026-01-05T23:50:00").toISOString(),
+      workEndTime: null,
+      outsideStartTime: null,
+      outsideEndTime: null,
       overridden: false,
       originalRate: null,
       overrideNote: null,
@@ -131,6 +143,30 @@ describe("buildDailyWages", () => {
   it("has no note for a day with no OUTSIDE check-in", () => {
     const rows = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T17:00:00")], GRADE_A);
     expect(rows[0].note).toBeNull();
+  });
+
+  it("surfaces a recorded outside-excursion sub-range separately from the overall work time", () => {
+    const outsideRange = { start: "2026-01-05T13:00:00", end: "2026-01-05T15:00:00" };
+    const rows = buildDailyWages(
+      [
+        ev("IN", "2026-01-05T09:00:00", "OUTSIDE", "เพิ่มโดยแอดมิน: Aisin", outsideRange),
+        ev("OUT", "2026-01-05T17:00:00", "OUTSIDE", "เพิ่มโดยแอดมิน: Aisin", outsideRange),
+      ],
+      GRADE_A
+    );
+    expect(rows[0].workStartTime).toBe(new Date("2026-01-05T09:00:00").toISOString());
+    expect(rows[0].workEndTime).toBe(new Date("2026-01-05T17:00:00").toISOString());
+    expect(rows[0].outsideStartTime).toBe(new Date(outsideRange.start).toISOString());
+    expect(rows[0].outsideEndTime).toBe(new Date(outsideRange.end).toISOString());
+  });
+
+  it("leaves outsideStartTime/outsideEndTime null for a real full-day outside trip with no recorded sub-range", () => {
+    const rows = buildDailyWages(
+      [ev("IN", "2026-01-05T09:00:00", "OUTSIDE"), ev("OUT", "2026-01-05T17:00:00", "OUTSIDE")],
+      GRADE_A
+    );
+    expect(rows[0].outsideStartTime).toBeNull();
+    expect(rows[0].outsideEndTime).toBeNull();
   });
 });
 

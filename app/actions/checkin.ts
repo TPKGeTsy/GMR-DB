@@ -694,9 +694,19 @@ function validateManualAttendanceInput(data: ManualAttendanceInput): string | nu
 }
 
 /** The overall work day's IN/OUT instants — the outside excursion (if any)
- *  is a sub-range recorded in the note only, not a separate session. */
+ *  is a sub-range within it, stored separately (see resolveOutsideExcursion),
+ *  not a separate session. */
 function resolveManualSession(data: ManualAttendanceInput): { start: Date; end: Date } {
   return timeRangeSession(data.dateKey, data.startTime, data.endTime)!;
+}
+
+/** The specific outside-excursion instants, as their own columns
+ *  (outsideStartAt/outsideEndAt) rather than only embedded in the note
+ *  text — lets the wage report read them back directly. Null when the day
+ *  isn't an outside day. */
+function resolveOutsideExcursion(data: ManualAttendanceInput): { start: Date; end: Date } | null {
+  if (!data.wentOutside || !data.outsideStartTime || !data.outsideEndTime) return null;
+  return timeRangeSession(data.dateKey, data.outsideStartTime, data.outsideEndTime);
 }
 
 /** Location + note for a manually-entered day — sets location: OUTSIDE for
@@ -739,11 +749,32 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
     if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
     const { start, end } = resolveManualSession(data);
+    const outsideExcursion = resolveOutsideExcursion(data);
     const { location, note } = manualAttendanceLocationAndNote("เพิ่มโดยแอดมิน", data);
 
     await prisma.$transaction([
-      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location, createdAt: start, note } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location, createdAt: end, note } }),
+      prisma.checkIn.create({
+        data: {
+          userId: data.userId,
+          type: "IN",
+          location,
+          createdAt: start,
+          note,
+          outsideStartAt: outsideExcursion?.start,
+          outsideEndAt: outsideExcursion?.end,
+        },
+      }),
+      prisma.checkIn.create({
+        data: {
+          userId: data.userId,
+          type: "OUT",
+          location,
+          createdAt: end,
+          note,
+          outsideStartAt: outsideExcursion?.start,
+          outsideEndAt: outsideExcursion?.end,
+        },
+      }),
     ]);
 
     await createActivityLog(
@@ -789,12 +820,33 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
     const idsToDelete = findSessionRowIdsStartingOn(history, data.dateKey);
 
     const { start, end } = resolveManualSession(data);
+    const outsideExcursion = resolveOutsideExcursion(data);
     const { location, note } = manualAttendanceLocationAndNote("แก้ไขโดยแอดมิน", data);
 
     await prisma.$transaction([
       prisma.checkIn.deleteMany({ where: { id: { in: idsToDelete } } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "IN", location, createdAt: start, note } }),
-      prisma.checkIn.create({ data: { userId: data.userId, type: "OUT", location, createdAt: end, note } }),
+      prisma.checkIn.create({
+        data: {
+          userId: data.userId,
+          type: "IN",
+          location,
+          createdAt: start,
+          note,
+          outsideStartAt: outsideExcursion?.start,
+          outsideEndAt: outsideExcursion?.end,
+        },
+      }),
+      prisma.checkIn.create({
+        data: {
+          userId: data.userId,
+          type: "OUT",
+          location,
+          createdAt: end,
+          note,
+          outsideStartAt: outsideExcursion?.start,
+          outsideEndAt: outsideExcursion?.end,
+        },
+      }),
     ]);
 
     await createActivityLog(

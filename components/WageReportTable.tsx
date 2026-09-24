@@ -169,11 +169,26 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                     {d.wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                                   </span>
                                   {d.note && <span className="text-gray-400 italic">({d.note})</span>}
-                                  {d.wentOutside && d.startTime && d.endTime && (
-                                    <span className="text-gray-400">
-                                      {formatThaiTime(d.startTime)}–{formatThaiTime(d.endTime)}
-                                    </span>
-                                  )}
+                                  {d.wentOutside &&
+                                    (d.outsideStartTime && d.outsideEndTime ? (
+                                      <>
+                                        {d.workStartTime && d.workEndTime && (
+                                          <span className="text-gray-400">
+                                            ทำงาน {formatThaiTime(d.workStartTime)}–{formatThaiTime(d.workEndTime)}
+                                          </span>
+                                        )}
+                                        <span className="text-gray-400">
+                                          ออกหน้างาน {formatThaiTime(d.outsideStartTime)}–{formatThaiTime(d.outsideEndTime)}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      d.workStartTime &&
+                                      d.workEndTime && (
+                                        <span className="text-gray-400">
+                                          {formatThaiTime(d.workStartTime)}–{formatThaiTime(d.workEndTime)}
+                                        </span>
+                                      )
+                                    ))}
                                   {!d.overridden && <span className="text-gray-500">{d.baseRate.toLocaleString()} บาท</span>}
                                   {!d.overridden && d.otHours > 0 && (
                                     <span className="text-orange-600">
