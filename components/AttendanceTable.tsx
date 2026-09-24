@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Columns3, Check, Pencil } from "lucide-react";
+import { Columns3, Check, Pencil, UtensilsCrossed } from "lucide-react";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
-import type { AttendanceTableRow, EmployeeOption } from "@/app/actions/checkin";
+import { setMealCounted, type AttendanceTableRow, type EmployeeOption } from "@/app/actions/checkin";
 import EditCheckInModal from "./EditCheckInModal";
 
 const STORAGE_KEY = "gmr-attendance-columns-v1";
@@ -54,11 +55,24 @@ export default function AttendanceTable({
   rows: AttendanceTableRow[];
   employeeOptions: EmployeeOption[];
 }) {
+  const router = useRouter();
   const [visible, setVisible] = useState<Set<ColumnKey>>(new Set(COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key)));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [editingRow, setEditingRow] = useState<AttendanceTableRow | null>(null);
+  const [togglingMealId, setTogglingMealId] = useState<string | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  const handleToggleMeal = async (row: AttendanceTableRow) => {
+    setTogglingMealId(row.id);
+    const result = await setMealCounted(row.id, !row.mealCounted);
+    if (!result.success) {
+      alert(result.error || "แก้ไขไม่สำเร็จ");
+    } else {
+      router.refresh();
+    }
+    setTogglingMealId(null);
+  };
 
   useEffect(() => {
     // Reads from localStorage, a client-only external system unavailable
@@ -218,13 +232,25 @@ export default function AttendanceTable({
                     </td>
                   ))}
                   <td className="px-4 py-3 whitespace-nowrap text-right">
-                    <button
-                      onClick={() => setEditingRow(row)}
-                      className="text-gray-400 hover:text-orange-600"
-                      title="แก้ไขรายการนี้"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      {row.location === "OUTSIDE" && (
+                        <button
+                          onClick={() => handleToggleMeal(row)}
+                          disabled={togglingMealId === row.id}
+                          className={row.mealCounted ? "text-orange-600 hover:text-orange-700" : "text-gray-300 hover:text-gray-500"}
+                          title={row.mealCounted ? "ได้ข้าวมื้อนี้ — กดเพื่อยกเลิก" : "ไม่ได้ข้าวมื้อนี้ — กดเพื่อนับข้าว"}
+                        >
+                          <UtensilsCrossed className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setEditingRow(row)}
+                        className="text-gray-400 hover:text-orange-600"
+                        title="แก้ไขรายการนี้"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

@@ -141,6 +141,10 @@ export default function MobileNavMenu({
                     <Wallet className="w-4 h-4" />
                     ค่าแรงเด็กฝึกงาน (Wages)
                   </Link>
+                  <Link href="/summary" className={linkClass} onClick={close}>
+                    <BarChart3 className="w-4 h-4" />
+                    สรุปมื้อ + OT (Summary)
+                  </Link>
                 </>
               )}
             </>

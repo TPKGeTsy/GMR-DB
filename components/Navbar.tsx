@@ -52,6 +52,7 @@ export default async function Navbar() {
     { href: "/users", label: "Users (ผู้ใช้งาน)", icon: "User" },
     { href: "/attendance", label: "Attendance Report (รายงานเข้างาน)", icon: "ClipboardList" },
     { href: "/wages", label: "ค่าแรงเด็กฝึกงาน (Wages)", icon: "Wallet" },
+    { href: "/summary", label: "สรุปมื้อ + OT (Summary)", icon: "BarChart3" },
   ];
 
   return (

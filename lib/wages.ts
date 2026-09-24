@@ -74,13 +74,20 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 }
 
-/** Distinct Bangkok calendar days with at least one OUTSIDE check-in — the
- *  "accumulated meals" count shown on a profile, one per person per day they
- *  went out ("คนละมื้อ"). Applies to everyone, not just graded interns. */
-export function countMealDays(checkIns: { location: string; createdAt: Date }[]): number {
-  const days = new Set<string>();
+/** Distinct Bangkok calendar days with at least one *meal-counted* OUTSIDE
+ *  check-in — the "accumulated meals" count shown on a profile, one per
+ *  person per day they went out ("คนละมื้อ"). Applies to everyone, not just
+ *  graded interns. `mealCounted` defaults to true (every outside day earns
+ *  a meal) — an admin can turn it off per day from the Attendance table for
+ *  a trip that didn't actually include one; a day only drops out once every
+ *  OUTSIDE check-in on it has been turned off. */
+export function countMealDays(checkIns: { location: string; createdAt: Date; mealCounted?: boolean }[]): number {
+  const anyCountedByDate = new Map<string, boolean>();
   for (const c of checkIns) {
-    if (c.location === "OUTSIDE") days.add(bangkokDateKey(c.createdAt));
+    if (c.location !== "OUTSIDE") continue;
+    const dateKey = bangkokDateKey(c.createdAt);
+    const counted = (c.mealCounted ?? true) || (anyCountedByDate.get(dateKey) ?? false);
+    anyCountedByDate.set(dateKey, counted);
   }
-  return days.size;
+  return Array.from(anyCountedByDate.values()).filter(Boolean).length;
 }

@@ -243,6 +243,12 @@ model CheckIn {
   // early idle time before 9:00 doesn't count as worked or OT time. The raw
   // createdAt is still what's *displayed* as the check-in time everywhere.
   otStartOverride DateTime? @map("ot_start_override")
+  // Whether this OUTSIDE check-in's calendar day counts toward the
+  // "accumulated meals" total (countMealDays in lib/wages.ts) — defaults to
+  // true (every outside day earns a meal, the original behavior) but an
+  // admin can turn it off per person/day from the Attendance table for a
+  // trip that didn't actually include a meal. Meaningless on an OFFICE row.
+  mealCounted Boolean @default(true) @map("meal_counted")
 
   @@map("check_ins")
 }

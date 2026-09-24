@@ -217,6 +217,7 @@ export interface AttendanceTableRow {
   dailyTotalHours: number | null;
   dailyOtHours: number | null;
   stillWorking: boolean;
+  mealCounted: boolean;
 }
 
 /** One row per raw check-in/out scan, augmented with that employee's
@@ -355,6 +356,7 @@ export async function getAttendanceTableRows({
         dailyTotalHours: daily?.totalHours ?? null,
         dailyOtHours: daily?.otHours ?? null,
         stillWorking: daily?.stillWorking ?? false,
+        mealCounted: log.mealCounted,
       };
     });
 
@@ -980,5 +982,44 @@ export async function deleteCheckIn(id: string) {
   } catch (error) {
     logError("Error deleting check-in:", error);
     return { success: false, error: "ลบไม่สำเร็จ" };
+  }
+}
+
+/** Turns the "accumulated meals" credit for one employee's whole outside
+ *  day on/off (see mealCounted on the CheckIn model) — for a trip that
+ *  didn't actually include a meal. Updates every OUTSIDE check-in that
+ *  Bangkok calendar day for that user, not just the row the toggle was
+ *  clicked from, since countMealDays treats the day as the unit and a
+ *  session is usually an IN+OUT pair (sometimes more). */
+export async function setMealCounted(checkInId: string, mealCounted: boolean) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const target = await prisma.checkIn.findUnique({ where: { id: checkInId } });
+    if (!target) return { success: false, error: "ไม่พบรายการนี้" };
+    if (target.location !== "OUTSIDE") return { success: false, error: "ใช้ได้เฉพาะรายการที่ออกนอกออฟฟิศ" };
+
+    const dateKey = bangkokDateKey(target.createdAt);
+    const { start, end } = bangkokDayRange(dateKey);
+
+    await prisma.checkIn.updateMany({
+      where: { userId: target.userId, location: "OUTSIDE", createdAt: { gte: start, lt: end } },
+      data: { mealCounted },
+    });
+
+    await createActivityLog(
+      "SET_MEAL_COUNTED",
+      `Admin ${mealCounted ? "restored" : "removed"} the meal credit for user ${target.userId} on ${dateKey}`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${target.userId}`);
+    revalidatePath("/summary");
+
+    return { success: true };
+  } catch (error) {
+    logError("Error setting meal counted:", error);
+    return { success: false, error: "แก้ไขไม่สำเร็จ" };
   }
 }

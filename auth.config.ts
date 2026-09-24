@@ -19,6 +19,7 @@ export const authConfig = {
       const isOnUsers = nextUrl.pathname.startsWith("/users");
       const isOnAttendance = nextUrl.pathname.startsWith("/attendance");
       const isOnWages = nextUrl.pathname.startsWith("/wages");
+      const isOnSummary = nextUrl.pathname.startsWith("/summary");
       const isOnOt = nextUrl.pathname.startsWith("/ot");
       const isOnLoginPage = nextUrl.pathname.startsWith("/login");
       const isOnRegisterPage = nextUrl.pathname.startsWith("/register");
@@ -64,6 +65,11 @@ export const authConfig = {
 
       // /wages is ADMIN only (intern pay grades and rates are payroll data)
       if (isOnWages && role !== "ADMIN") {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      }
+
+      // /summary is ADMIN only, same audience as /attendance and /wages
+      if (isOnSummary && role !== "ADMIN") {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

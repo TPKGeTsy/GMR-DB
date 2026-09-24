@@ -119,4 +119,20 @@ describe("countMealDays", () => {
     ]);
     expect(days).toBe(2);
   });
+
+  it("excludes a day once every OUTSIDE check-in on it has mealCounted turned off", () => {
+    const days = countMealDays([
+      { location: "OUTSIDE", createdAt: new Date("2026-01-05T09:00:00"), mealCounted: false },
+      { location: "OUTSIDE", createdAt: new Date("2026-01-05T17:00:00"), mealCounted: false },
+    ]);
+    expect(days).toBe(0);
+  });
+
+  it("still counts a day if ANY of its OUTSIDE check-ins has mealCounted on (or unset)", () => {
+    const days = countMealDays([
+      { location: "OUTSIDE", createdAt: new Date("2026-01-05T09:00:00"), mealCounted: false },
+      { location: "OUTSIDE", createdAt: new Date("2026-01-05T17:00:00") }, // unset -> defaults true
+    ]);
+    expect(days).toBe(1);
+  });
 });
