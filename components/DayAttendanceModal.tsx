@@ -15,7 +15,14 @@ interface DayAttendanceModalProps {
   onSaved: () => void;
   /** Present when editing an existing row — prefills the form and switches
    *  the submit action to the replace-the-day edit path. */
-  editing?: { userId: string; startTime: string; endTime: string; wentOutside: boolean };
+  editing?: {
+    userId: string;
+    startTime: string;
+    endTime: string;
+    wentOutside: boolean;
+    outsideStartTime?: string;
+    outsideEndTime?: string;
+  };
 }
 
 export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, onSaved, editing }: DayAttendanceModalProps) {
@@ -24,8 +31,10 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
   const [endTime, setEndTime] = useState(editing?.endTime || "17:00");
   const [wentOutside, setWentOutside] = useState(editing?.wentOutside ?? false);
   const [outsideNote, setOutsideNote] = useState("");
-  const [outsideStartTime, setOutsideStartTime] = useState(editing?.startTime || "09:00");
-  const [outsideEndTime, setOutsideEndTime] = useState(editing?.endTime || "17:00");
+  const [outsideStartTime, setOutsideStartTime] = useState(
+    editing?.outsideStartTime || editing?.startTime || "09:00"
+  );
+  const [outsideEndTime, setOutsideEndTime] = useState(editing?.outsideEndTime || editing?.endTime || "17:00");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

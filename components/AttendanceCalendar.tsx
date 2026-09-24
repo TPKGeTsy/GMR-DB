@@ -255,6 +255,11 @@ export default function AttendanceCalendar() {
                           {wentOutside ? "ออกข้างนอก" : "ในออฟฟิศ"}
                         </span>
                         {outsideNote && <span className="text-[10px] text-gray-400 italic font-normal">({outsideNote})</span>}
+                        {row.outsideStartTime && row.outsideEndTime && (
+                          <span className="text-[10px] text-gray-400 font-normal">
+                            ออกหน้างาน {formatThaiTime(row.outsideStartTime)}–{formatThaiTime(row.outsideEndTime)}
+                          </span>
+                        )}
                       </span>
                       <span className="text-[10px] text-gray-500 inline-flex items-center gap-1.5">
                         {row.stillWorking && row.openSince ? (
@@ -349,6 +354,8 @@ export default function AttendanceCalendar() {
                   startTime: editingRow.startTime ? bangkokTimeHHMM(editingRow.startTime) : "09:00",
                   endTime: editingRow.endTime ? bangkokTimeHHMM(editingRow.endTime) : "17:00",
                   wentOutside: editingRow.events.some((e) => e.location === "OUTSIDE"),
+                  outsideStartTime: editingRow.outsideStartTime ? bangkokTimeHHMM(editingRow.outsideStartTime) : undefined,
+                  outsideEndTime: editingRow.outsideEndTime ? bangkokTimeHHMM(editingRow.outsideEndTime) : undefined,
                 }
               : undefined
           }

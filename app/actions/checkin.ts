@@ -520,6 +520,11 @@ export interface DaySummaryRow {
   // — lets the edit-day form prefill actual clock times instead of hours.
   startTime: string | null;
   endTime: string | null;
+  // The specific outside-excursion sub-range within the work day, if this
+  // day was entered with one (see CheckIn.outsideStartAt/outsideEndAt) —
+  // null when the day has no such recorded sub-range.
+  outsideStartTime: string | null;
+  outsideEndTime: string | null;
 }
 
 export interface DayLoanRow {
@@ -585,17 +590,34 @@ export async function getDaySummary(dateKey: string): Promise<
     }
     const dayEventsByUser = new Map<
       string,
-      { type: string; location: string; createdAt: Date; confidence: number | null; note: string | null }[]
+      {
+        type: string;
+        location: string;
+        createdAt: Date;
+        confidence: number | null;
+        note: string | null;
+        outsideStartAt: Date | null;
+        outsideEndAt: Date | null;
+      }[]
     >();
     for (const c of dayCheckIns) {
       if (!dayEventsByUser.has(c.userId)) dayEventsByUser.set(c.userId, []);
-      dayEventsByUser.get(c.userId)!.push({ type: c.type, location: c.location, createdAt: c.createdAt, confidence: c.confidence, note: c.note });
+      dayEventsByUser.get(c.userId)!.push({
+        type: c.type,
+        location: c.location,
+        createdAt: c.createdAt,
+        confidence: c.confidence,
+        note: c.note,
+        outsideStartAt: c.outsideStartAt,
+        outsideEndAt: c.outsideEndAt,
+      });
     }
 
     const attendance: DaySummaryRow[] = activeUserIds.map((userId) => {
       const dailyRows = buildDailySummary(historyByUser.get(userId) || []);
       const daily = dailyRows.find((r) => r.dateKey === dateKey);
       const events = dayEventsByUser.get(userId) || [];
+      const withOutsideRange = events.find((e) => e.outsideStartAt && e.outsideEndAt);
       return {
         userId,
         employeeName: namesByUser.get(userId) || "",
@@ -609,6 +631,8 @@ export async function getDaySummary(dateKey: string): Promise<
         openSince: daily?.openSince ? daily.openSince.toISOString() : null,
         startTime: daily?.startTime ? daily.startTime.toISOString() : null,
         endTime: daily?.endTime ? daily.endTime.toISOString() : null,
+        outsideStartTime: withOutsideRange?.outsideStartAt ? withOutsideRange.outsideStartAt.toISOString() : null,
+        outsideEndTime: withOutsideRange?.outsideEndAt ? withOutsideRange.outsideEndAt.toISOString() : null,
       };
     });
     attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
