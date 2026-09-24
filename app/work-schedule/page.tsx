@@ -1,10 +1,11 @@
 import { auth } from "@/auth";
 import { getMySchedule, getAllSchedules } from "@/app/actions/workschedule";
 import { getMyProjects } from "@/app/actions/projects";
+import { getRecentOutsideTrips } from "@/app/actions/outsideTrip";
 import AddScheduleEntryForm from "@/components/AddScheduleEntryForm";
 import DeleteScheduleEntryButton from "@/components/DeleteScheduleEntryButton";
-import { CalendarRange, Clock, Briefcase } from "lucide-react";
-import { formatThaiDateTime } from "@/lib/datetime";
+import { CalendarRange, Clock, Briefcase, MapPin, Users } from "lucide-react";
+import { formatThaiDateTime, formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -25,15 +26,17 @@ export default async function WorkSchedulePage() {
   const session = await auth();
   const isAdmin = session?.user?.role === "ADMIN";
 
-  const [myScheduleResult, myProjectsResult, allSchedulesResult] = await Promise.all([
+  const [myScheduleResult, myProjectsResult, allSchedulesResult, outsideTripsResult] = await Promise.all([
     getMySchedule(),
     getMyProjects(),
     isAdmin ? getAllSchedules() : Promise.resolve({ success: false as const, data: undefined }),
+    isAdmin ? getRecentOutsideTrips({ days: 14 }) : Promise.resolve({ success: false as const, data: undefined }),
   ]);
 
   const mySchedule: ScheduleEntry[] = myScheduleResult.success && myScheduleResult.data ? myScheduleResult.data : [];
   const myProjects = myProjectsResult.success && myProjectsResult.data ? myProjectsResult.data : [];
   const allSchedules: AllScheduleEntry[] = allSchedulesResult.success && allSchedulesResult.data ? allSchedulesResult.data : [];
+  const outsideTrips = outsideTripsResult.success && outsideTripsResult.data ? outsideTripsResult.data : [];
 
   return (
     <div className="space-y-8">
@@ -82,6 +85,54 @@ export default async function WorkSchedulePage() {
           </ul>
         </div>
       </div>
+
+      {isAdmin && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">ทริปออกหน้างาน (14 วันล่าสุด)</h2>
+          <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+            {outsideTrips.length === 0 ? (
+              <p className="px-6 py-10 text-center text-sm text-gray-500 italic">ยังไม่มีทริปออกหน้างานในช่วงนี้</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {outsideTrips.map((trip) => (
+                  <li key={trip.id} className="px-6 py-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-900 flex items-center">
+                        <MapPin className="w-4 h-4 mr-1.5 text-orange-600" />
+                        {trip.location}
+                      </span>
+                      <span className="text-xs text-gray-400 flex items-center">
+                        {formatThaiDateLong(trip.createdAt)}
+                        <span className="mx-2 text-gray-300">•</span>
+                        <Users className="w-3.5 h-3.5 mr-1" />
+                        {trip.members.length} คน
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {trip.members.map((m) => (
+                        <span
+                          key={m.userId}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-xs text-gray-700"
+                        >
+                          <span className="font-medium text-gray-900">{m.name}</span>
+                          <Clock className="w-3 h-3 text-gray-400" />
+                          {formatThaiTime(m.outAt)}
+                          {" → "}
+                          {m.backAt ? (
+                            formatThaiTime(m.backAt)
+                          ) : (
+                            <span className="text-green-600 font-semibold">ยังไม่กลับ</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {isAdmin && (
         <div>

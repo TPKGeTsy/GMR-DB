@@ -101,3 +101,81 @@ export async function startOutsideWorkTrip(location: string, memberIds: string[]
     return { success: false, error: "บันทึกออกหน้างานไม่สำเร็จ" };
   }
 }
+
+export interface OutsideTripMemberRow {
+  userId: string;
+  name: string;
+  outAt: string;
+  backAt: string | null;
+}
+
+export interface OutsideTripRow {
+  id: string;
+  location: string;
+  createdAt: string;
+  members: OutsideTripMemberRow[];
+}
+
+/** Recent group outside-work trips (both the LINE bot flow and the web
+ *  /outside-trip page create OutsideWorkTrip rows the same way), with each
+ *  member's actual departure time (their tagged IN) and return time (the
+ *  next OUT after it, if they've checked back in yet) — for the Work
+ *  Schedule page's "who went where" section. */
+export async function getRecentOutsideTrips({ days = 14 }: { days?: number } = {}): Promise<
+  { success: true; data: OutsideTripRow[] } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const trips = await prisma.outsideWorkTrip.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: "desc" },
+      include: { members: { include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } } } },
+    });
+
+    const checkInIds = trips.flatMap((t) => t.members.map((m) => m.checkInId).filter((id): id is string => !!id));
+    const inCheckIns = checkInIds.length
+      ? await prisma.checkIn.findMany({ where: { id: { in: checkInIds } }, select: { id: true, createdAt: true } })
+      : [];
+    const inById = new Map(inCheckIns.map((c) => [c.id, c.createdAt]));
+
+    const memberUserIds = Array.from(new Set(trips.flatMap((t) => t.members.map((m) => m.userId))));
+    const allOuts = memberUserIds.length
+      ? await prisma.checkIn.findMany({
+          where: { userId: { in: memberUserIds }, type: "OUT" },
+          orderBy: { createdAt: "asc" },
+          select: { userId: true, createdAt: true },
+        })
+      : [];
+    const outsByUser = new Map<string, Date[]>();
+    for (const c of allOuts) {
+      if (!outsByUser.has(c.userId)) outsByUser.set(c.userId, []);
+      outsByUser.get(c.userId)!.push(c.createdAt);
+    }
+    const nextOutAfter = (userId: string, after: Date): Date | null =>
+      (outsByUser.get(userId) || []).find((d) => d.getTime() > after.getTime()) ?? null;
+
+    const data: OutsideTripRow[] = trips.map((trip) => ({
+      id: trip.id,
+      location: trip.location,
+      createdAt: trip.createdAt.toISOString(),
+      members: trip.members.map((m) => {
+        const outAt = (m.checkInId ? inById.get(m.checkInId) : undefined) ?? trip.createdAt;
+        const backAt = nextOutAfter(m.userId, outAt);
+        return {
+          userId: m.userId,
+          name: m.user.nickname || m.user.fullName || m.user.username,
+          outAt: outAt.toISOString(),
+          backAt: backAt ? backAt.toISOString() : null,
+        };
+      }),
+    }));
+
+    return { success: true, data };
+  } catch (error) {
+    logError("Error fetching recent outside trips:", error);
+    return { success: false, error: "โหลดข้อมูลทริปไม่สำเร็จ" };
+  }
+}
