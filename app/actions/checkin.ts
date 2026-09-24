@@ -10,11 +10,46 @@ import { bangkokDateKey, bangkokDayRange, bangkokDateAt, paddedCheckInWindow } f
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { pushLineMessage } from "@/lib/line";
+import { isKioskAuthorized, setKioskCookie } from "@/lib/kioskAuth";
 
 // "เช็คอินก่อน 9.00 เกิน 45 นาที" — more than 45 min before 9:00, i.e. at or
 // before 8:15.
 const EARLY_CHECKIN_CUTOFF_HOUR = 8;
 const EARLY_CHECKIN_CUTOFF_MINUTE = 15;
+
+// Below this, face-api.js's own FaceMatcher (distance threshold 0.55, see
+// CheckInScanner.tsx) would already have called it "Unknown" client-side —
+// mirrored here so a direct call to recordCheckIn can't just claim a higher
+// confidence than the UI would ever actually produce for a real scan. This
+// is defense-in-depth, not the real protection (a scripted caller can still
+// just claim 0.45+) — the kiosk-cookie check below is what actually keeps
+// this reachable only from the one physical kiosk device.
+const MIN_CHECKIN_CONFIDENCE = 0.45;
+
+/** Verifies the setup secret against KIOSK_SECRET and, if it matches, marks
+ *  this browser as the trusted kiosk device (see lib/kioskAuth.ts) — the
+ *  one-time step /checkin/setup walks an admin through on the physical
+ *  device itself. Rate-limited globally since this is the one place the
+ *  secret itself can be guessed. */
+export async function verifyKioskSecret(secret: string) {
+  try {
+    const rateLimit = await checkRateLimit("kiosk-setup", { maxAttempts: 5, windowMs: 15 * 60_000 });
+    if (!rateLimit.allowed) {
+      return { success: false, error: `ลองใหม่ถี่เกินไป กรุณารออีก ${rateLimit.retryAfterSeconds} วินาที` };
+    }
+
+    const expected = process.env.KIOSK_SECRET;
+    if (!expected || secret !== expected) {
+      return { success: false, error: "รหัสไม่ถูกต้อง" };
+    }
+
+    await setKioskCookie(expected);
+    return { success: true };
+  } catch (error) {
+    logError("Error verifying kiosk secret:", error);
+    return { success: false, error: "ตั้งค่าไม่สำเร็จ" };
+  }
+}
 
 export async function registerFace(userId: string, descriptor: number[], consented: boolean) {
   try {
@@ -82,8 +117,17 @@ export async function removeFace(userId: string) {
   }
 }
 
+/** Face descriptors are biometric data, and this is the one place they're
+ *  ever sent to a browser (client-side matching is what makes the kiosk
+ *  work without a round-trip per camera frame) — gated on the kiosk cookie
+ *  so only the physical kiosk device that completed /checkin/setup ever
+ *  receives the roster, not anyone who loads the public /checkin page. */
 export async function getFaceRoster() {
   try {
+    if (!(await isKioskAuthorized())) {
+      return { success: false, error: "อุปกรณ์นี้ยังไม่ได้ตั้งค่า" };
+    }
+
     const users = await prisma.user.findMany({
       where: { faceDescriptor: { isEmpty: false } },
       select: { id: true, username: true, fullName: true, faceDescriptor: true },
@@ -377,11 +421,17 @@ export async function recordCheckIn(
   photoDataUrl?: string
 ) {
   try {
+    if (!(await isKioskAuthorized())) {
+      return { success: false, error: "อุปกรณ์นี้ยังไม่ได้ตั้งค่า" };
+    }
     if (type !== "IN" && type !== "OUT") {
       return { success: false, error: "Invalid check-in type" };
     }
     if (location !== "OFFICE" && location !== "OUTSIDE") {
       return { success: false, error: "Invalid location" };
+    }
+    if (!Number.isFinite(confidence) || confidence < MIN_CHECKIN_CONFIDENCE) {
+      return { success: false, error: "ไม่สามารถยืนยันตัวตนได้ กรุณาลองสแกนใหม่" };
     }
 
     const rateLimit = await checkRateLimit(`checkin:${userId}`, { maxAttempts: 10, windowMs: 60_000 });

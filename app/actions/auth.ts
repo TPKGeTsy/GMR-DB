@@ -10,6 +10,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { bangkokDayRange } from "@/lib/datetime";
 import { canManageUsers } from "@/lib/roles";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { headers } from "next/headers";
 
 export async function authenticate(
   prevState: string | undefined,
@@ -119,6 +121,16 @@ export async function registerUser(
   prevState: string | undefined,
   formData: FormData,
 ) {
+  // Unauthenticated by nature (this *is* how you get an account), so keyed
+  // by IP rather than a userId — otherwise nothing stops a script from
+  // spamming account creation.
+  const forwardedFor = (await headers()).get("x-forwarded-for");
+  const ip = forwardedFor?.split(",")[0]?.trim() || "unknown";
+  const rateLimit = await checkRateLimit(`register:${ip}`, { maxAttempts: 5, windowMs: 60 * 60_000 });
+  if (!rateLimit.allowed) {
+    return `ลองใหม่ถี่เกินไป กรุณารออีก ${Math.ceil(rateLimit.retryAfterSeconds / 60)} นาที`;
+  }
+
   const username = formData.get("username") as string;
   const password = formData.get("password") as string;
   const confirmPassword = formData.get("confirmPassword") as string;
