@@ -260,6 +260,10 @@ model CheckIn {
   // the whole session *is* the outside period, i.e. createdAt itself).
   outsideStartAt DateTime? @map("outside_start_at")
   outsideEndAt   DateTime? @map("outside_end_at")
+  // Free-text "what work was done" for an outside-trip day (the "สรุปงานคร่าวๆ"
+  // line in the team's outside-work report template) — informational only,
+  // no effect on hour/wage math.
+  workSummary String? @map("work_summary")
 
   @@map("check_ins")
 }
