@@ -3,6 +3,7 @@ import { logError } from "./logger";
 
 const LINE_REPLY_URL = "https://api.line.me/v2/bot/message/reply";
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
+const LINE_LOADING_URL = "https://api.line.me/v2/bot/chat/loading/start";
 
 /** Verifies the `X-Line-Signature` header against the raw request body using
  *  the channel secret, per LINE's webhook spec. Must run against the exact
@@ -79,6 +80,18 @@ export async function replyLineMessage(
     { replyToken, messages: [buildTextMessage(text, quickReplies)] },
     "LINE reply failed"
   );
+}
+
+/** Shows LINE's built-in "..." loading bubble in a 1:1 chat (LINE doesn't
+ *  support this in groups/rooms) for up to `seconds` (5-60, rounded to the
+ *  nearest 5) — it disappears the moment we actually reply, or after that
+ *  timeout, whichever comes first. Fire this off without awaiting it from
+ *  the webhook handler: it's pure UI feedback for the ~1-3s the handler
+ *  spends on DB round trips (or longer on the AI Q&A path), not something
+ *  that should ever slow down or fail the real response. */
+export function startLoadingAnimation(lineUserId: string, seconds = 20): void {
+  const loadingSeconds = Math.min(60, Math.max(5, Math.round(seconds / 5) * 5));
+  postToLine(LINE_LOADING_URL, { chatId: lineUserId, loadingSeconds }, "LINE loading animation failed").catch(() => {});
 }
 
 /** Sends a text message to a specific LINE user outside of any reply-token

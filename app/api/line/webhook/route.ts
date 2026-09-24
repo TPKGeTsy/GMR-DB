@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { verifyLineSignature, replyLineMessage, pushLineMessage, type QuickReplyOption } from "@/lib/line";
+import { verifyLineSignature, replyLineMessage, pushLineMessage, startLoadingAnimation, type QuickReplyOption } from "@/lib/line";
 import { answerFreeformQuestion, extractBorrowIntent } from "@/lib/lineAssistant";
 import { notifyAdminsFYI, notifyUser, notifyOtManagers } from "@/lib/lineApprovals";
 import { formatThaiDate, formatThaiDateTime, bangkokDateAt } from "@/lib/datetime";
@@ -134,13 +134,29 @@ async function handleEvent(event: LineWebhookEvent) {
   const text = event.message.text?.trim() ?? "";
   if (!text) return;
 
+  // Shows LINE's "..." bubble right away so a 1-3s DB round trip (or longer
+  // on the AI Q&A fallback) doesn't read as the bot being unresponsive.
+  // Only works in 1:1 chats, matching the account-link check below.
+  if (event.source?.type === "user") {
+    startLoadingAnimation(lineUserId);
+  }
+
   const rateLimit = await checkRateLimit(`line:${lineUserId}`, { maxAttempts: 20, windowMs: 60_000 });
   if (!rateLimit.allowed) {
     await replyLineMessage(replyToken, `ส่งข้อความถี่เกินไปค่ะ กรุณารออีก ${rateLimit.retryAfterSeconds} วินาทีนะคะ`);
     return;
   }
 
-  const user = await prisma.user.findUnique({ where: { lineUserId } });
+  // The four independent "is this user mid-flow" lookups below don't depend
+  // on each other's results, so they're batched into two parallel rounds
+  // instead of five sequential round trips — the fixed rich-menu/quick-reply
+  // commands further down (which never reach the AI path) were previously
+  // paying for all five before even matching their trigger.
+  const [user, pendingOtGrant, pendingOutsideTrip] = await Promise.all([
+    prisma.user.findUnique({ where: { lineUserId } }),
+    prisma.linePendingOtGrant.findUnique({ where: { lineUserId } }),
+    prisma.linePendingOutsideTrip.findUnique({ where: { lineUserId } }),
+  ]);
   if (!user) {
     // Only allow the username+password link step in a private 1:1 chat —
     // typing a password in a group would expose it to everyone in it.
@@ -153,7 +169,10 @@ async function handleEvent(event: LineWebhookEvent) {
   }
 
   const normalized = text.toLowerCase();
-  const openCheckIn = await getOpenCheckIn(user.id);
+  const [openCheckIn, declinePendingGrant] = await Promise.all([
+    getOpenCheckIn(user.id),
+    prisma.otGrant.findFirst({ where: { userId: user.id, status: "DECLINE_PENDING" }, orderBy: { createdAt: "desc" } }),
+  ]);
 
   // The very next message after tapping "ทำ OT ต่อ" is taken as the OT
   // reason (unless it's a cancel word) and folded into that session's note
@@ -182,8 +201,8 @@ async function handleEvent(event: LineWebhookEvent) {
   // The very next message from an admin/operator after picking OT hours for
   // someone is taken as the reason (unless it's a cancel word), which
   // finalizes the grant. Keyed by the *operator's* lineUserId — independent
-  // of whatever their own attendance state is.
-  const pendingOtGrant = await prisma.linePendingOtGrant.findUnique({ where: { lineUserId } });
+  // of whatever their own attendance state is. (Fetched above, in parallel
+  // with the user lookup.)
   if (pendingOtGrant) {
     const isExpired = Date.now() - pendingOtGrant.createdAt.getTime() > PENDING_EXPIRY_MS;
     if (isExpired) {
@@ -200,11 +219,8 @@ async function handleEvent(event: LineWebhookEvent) {
 
   // The very next message from an employee after tapping "ไม่รับ OT" is
   // taken as their decline reason (unless it's a cancel word, which just
-  // leaves the grant PENDING instead of declining it).
-  const declinePendingGrant = await prisma.otGrant.findFirst({
-    where: { userId: user.id, status: "DECLINE_PENDING" },
-    orderBy: { createdAt: "desc" },
-  });
+  // leaves the grant PENDING instead of declining it). (Fetched above,
+  // alongside openCheckIn.)
   if (declinePendingGrant) {
     if (CANCEL_WORDS.has(normalized)) {
       await prisma.otGrant.update({ where: { id: declinePendingGrant.id }, data: { status: "PENDING" } });
@@ -220,7 +236,7 @@ async function handleEvent(event: LineWebhookEvent) {
   // message as free-text location+headcount; AWAITING_MEMBERS is entirely
   // button-driven (OUTTRIP_TOGGLE/OUTTRIP_CONFIRM below), so a stray text
   // message during that step is just redirected back to the buttons.
-  const pendingOutsideTrip = await prisma.linePendingOutsideTrip.findUnique({ where: { lineUserId } });
+  // (Fetched above, in parallel with the user lookup.)
   if (pendingOutsideTrip) {
     const isExpired = Date.now() - pendingOutsideTrip.createdAt.getTime() > PENDING_EXPIRY_MS;
     if (isExpired) {
