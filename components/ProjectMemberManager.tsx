@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { addProjectMember, removeProjectMember } from "@/app/actions/projects";
 import { UserPlus, X } from "lucide-react";
 
 interface Member {
   userId: string;
-  user: { id: string; username: string; fullName: string | null };
+  user: { id: string; username: string; fullName: string | null; nickname: string | null };
 }
 
 interface UserOption {
@@ -91,7 +92,9 @@ export default function ProjectMemberManager({
         {members.map((m) => (
           <li key={m.userId} className="flex items-center justify-between px-3 py-2 bg-white">
             <span className="text-sm text-gray-900">
-              {m.user.fullName || m.user.username}
+              <Link href={`/users/${m.userId}`} className="hover:text-orange-600">
+                {m.user.nickname || m.user.fullName || m.user.username}
+              </Link>
               {m.userId === ownerId && (
                 <span className="ml-2 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
                   เจ้าของโปรเจกต์

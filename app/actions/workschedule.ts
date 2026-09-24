@@ -105,7 +105,7 @@ export async function getAllSchedules(limit = 200) {
       take: limit,
       include: {
         project: { select: { id: true, name: true } },
-        user: { select: { username: true, fullName: true } },
+        user: { select: { id: true, username: true, fullName: true, nickname: true } },
       },
     });
 

@@ -4,6 +4,7 @@ import WageReportFilters from "@/components/WageReportFilters";
 import { bangkokDateKey } from "@/lib/datetime";
 import { formatHoursTenths } from "@/lib/attendance";
 import { Utensils, Timer, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,11 @@ export default async function SummaryPage({
               <tbody className="bg-white divide-y divide-gray-100">
                 {rows.map((row) => (
                   <tr key={row.userId} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm font-medium text-gray-900">{row.employeeName}</td>
+                    <td className="px-4 py-2 text-sm font-medium text-gray-900">
+                      <Link href={`/users/${row.userId}`} className="hover:text-orange-600">
+                        {row.employeeName}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalDays}</td>
                     <td className="px-4 py-2 text-right text-sm text-gray-700">{row.mealDays}</td>
                     <td className="px-4 py-2 text-right text-sm font-semibold text-orange-600">{formatHoursTenths(row.totalOtHours)}</td>

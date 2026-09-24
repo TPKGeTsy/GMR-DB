@@ -6,6 +6,7 @@ import AddScheduleEntryForm from "@/components/AddScheduleEntryForm";
 import DeleteScheduleEntryButton from "@/components/DeleteScheduleEntryButton";
 import { CalendarRange, Clock, Briefcase, MapPin, Users } from "lucide-react";
 import { formatThaiDateTime, formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ interface ScheduleEntry {
 }
 
 interface AllScheduleEntry extends ScheduleEntry {
-  user: { username: string; fullName: string | null };
+  userId: string;
+  user: { username: string; fullName: string | null; nickname: string | null };
 }
 
 export default async function WorkSchedulePage() {
@@ -114,7 +116,9 @@ export default async function WorkSchedulePage() {
                           key={m.userId}
                           className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-xs text-gray-700"
                         >
-                          <span className="font-medium text-gray-900">{m.name}</span>
+                          <Link href={`/users/${m.userId}`} className="font-medium text-gray-900 hover:text-orange-600">
+                            {m.name}
+                          </Link>
                           <Clock className="w-3 h-3 text-gray-400" />
                           {formatThaiTime(m.outAt)}
                           {" → "}
@@ -159,7 +163,9 @@ export default async function WorkSchedulePage() {
                     allSchedules.map((entry) => (
                       <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {entry.user.fullName || entry.user.username}
+                          <Link href={`/users/${entry.userId}`} className="hover:text-orange-600">
+                            {entry.user.nickname || entry.user.fullName || entry.user.username}
+                          </Link>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-700">{entry.title}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

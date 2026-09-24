@@ -29,12 +29,13 @@ interface MyBooking {
 
 interface PendingBooking {
   id: string;
+  userId: string;
   startAt: string;
   endAt: string;
   purpose: string | null;
   createdAt: string;
   vehicle: { name: string; licensePlate: string };
-  user: { username: string; fullName: string | null };
+  user: { username: string; fullName: string | null; nickname: string | null };
 }
 
 const statusBadge: Record<string, string> = {
@@ -150,7 +151,10 @@ export default async function CarBookingPage() {
                       {b.vehicle.name} <span className="text-gray-400 font-normal">({b.vehicle.licensePlate})</span>
                     </p>
                     <p className="text-xs text-gray-600">
-                      ขอโดย {b.user.fullName || b.user.username}
+                      ขอโดย{" "}
+                      <Link href={`/users/${b.userId}`} className="hover:text-orange-600">
+                        {b.user.nickname || b.user.fullName || b.user.username}
+                      </Link>
                       {b.purpose ? ` — ${b.purpose}` : ""}
                     </p>
                     <p className="text-[10px] text-gray-400 flex items-center mt-1">

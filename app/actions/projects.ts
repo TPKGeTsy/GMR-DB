@@ -38,12 +38,12 @@ export async function getUserOptions() {
 
     const users = await prisma.user.findMany({
       orderBy: { username: "asc" },
-      select: { id: true, username: true, fullName: true },
+      select: { id: true, username: true, fullName: true, nickname: true },
     });
 
     return {
       success: true,
-      data: users.map((u) => ({ id: u.id, name: u.fullName || u.username })),
+      data: users.map((u) => ({ id: u.id, name: u.nickname || u.fullName || u.username })),
     };
   } catch (error) {
     logError("Error fetching user options:", error);
@@ -102,7 +102,7 @@ export async function getProjects() {
     const projects = await prisma.project.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        createdBy: { select: { username: true, fullName: true } },
+        createdBy: { select: { username: true, fullName: true, nickname: true } },
         _count: { select: { members: true } },
       },
     });
@@ -136,14 +136,14 @@ export async function getProjectById(id: string) {
     const project = await prisma.project.findUnique({
       where: { id },
       include: {
-        createdBy: { select: { id: true, username: true, fullName: true } },
+        createdBy: { select: { id: true, username: true, fullName: true, nickname: true } },
         members: {
           orderBy: { addedAt: "asc" },
-          include: { user: { select: { id: true, username: true, fullName: true } } },
+          include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
         },
         files: {
           orderBy: { createdAt: "desc" },
-          include: { uploadedBy: { select: { id: true, username: true, fullName: true } } },
+          include: { uploadedBy: { select: { id: true, username: true, fullName: true, nickname: true } } },
         },
       },
     });
@@ -274,7 +274,7 @@ export async function uploadProjectFile(projectId: string, formData: FormData) {
         fileSize: file.size,
         uploadedById: session.user.id,
       },
-      include: { uploadedBy: { select: { id: true, username: true, fullName: true } } },
+      include: { uploadedBy: { select: { id: true, username: true, fullName: true, nickname: true } } },
     });
 
     await createActivityLog("UPLOAD_PROJECT_FILE", `Uploaded ${file.name} to project ${projectId}`);

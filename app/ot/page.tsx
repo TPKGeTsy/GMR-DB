@@ -5,6 +5,7 @@ import OtApprovalRequestActions from "@/components/OtApprovalRequestActions";
 import { formatThaiDateTime } from "@/lib/datetime";
 import { isOtManagerRole } from "@/lib/roles";
 import { Timer, Bell } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,9 @@ export default async function OtPage() {
               <li key={r.id} className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
                 <div className="text-sm">
                   <p className="font-medium text-gray-900">
-                    {r.employeeName}
+                    <Link href={`/users/${r.userId}`} className="hover:text-orange-600">
+                      {r.employeeName}
+                    </Link>
                     <span className="ml-2 text-xs font-normal text-gray-400">
                       {REQUEST_SOURCE_LABEL[r.source] || r.source}
                     </span>
@@ -98,7 +101,11 @@ export default async function OtPage() {
                   const status = STATUS_LABEL[g.status] || STATUS_LABEL.PENDING;
                   return (
                     <tr key={g.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{g.employeeName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <Link href={`/users/${g.userId}`} className="hover:text-orange-600">
+                          {g.employeeName}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-semibold">
                           +{g.hours} ชม.
@@ -119,7 +126,11 @@ export default async function OtPage() {
                           </p>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{g.grantedByName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <Link href={`/users/${g.grantedById}`} className="hover:text-orange-600">
+                          {g.grantedByName}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">{formatThaiDateTime(g.createdAt)}</td>
                       {isAdmin && (
                         <td className="px-6 py-4 whitespace-nowrap text-right">

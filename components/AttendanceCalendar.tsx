@@ -13,6 +13,7 @@ import {
 import { formatThaiTime, bangkokTimeHHMM } from "@/lib/datetime";
 import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS, formatHoursTenths } from "@/lib/attendance";
 import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2, MapPin } from "lucide-react";
+import Link from "next/link";
 import DayAttendanceModal from "./DayAttendanceModal";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -242,7 +243,9 @@ export default function AttendanceCalendar() {
                   <li key={row.userId} className="px-3 py-2 bg-white">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <span className="text-sm text-gray-900 font-medium flex items-center gap-1.5">
-                        {row.employeeName}
+                        <Link href={`/users/${row.userId}`} className="hover:text-orange-600">
+                          {row.employeeName}
+                        </Link>
                         <span
                           className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
                             wentOutside ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-700"
@@ -306,7 +309,10 @@ export default function AttendanceCalendar() {
                     <span className="flex items-center gap-1.5 text-sm text-gray-900 truncate">
                       <PackageMinus className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
                       <span className="truncate">
-                        {l.employeeName} ยืม {l.assetName} x{l.quantity}
+                        <Link href={`/users/${l.employeeId}`} className="hover:text-orange-600">
+                          {l.employeeName}
+                        </Link>{" "}
+                        ยืม {l.assetName} x{l.quantity}
                       </span>
                     </span>
                     <span className="text-[10px] text-gray-400 flex-shrink-0">{formatThaiTime(l.time)}</span>
@@ -317,7 +323,10 @@ export default function AttendanceCalendar() {
                     <span className="flex items-center gap-1.5 text-sm text-gray-900 truncate">
                       <PackagePlus className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                       <span className="truncate">
-                        {l.employeeName} คืน {l.assetName} x{l.quantity}
+                        <Link href={`/users/${l.employeeId}`} className="hover:text-orange-600">
+                          {l.employeeName}
+                        </Link>{" "}
+                        คืน {l.assetName} x{l.quantity}
                       </span>
                     </span>
                     <span className="text-[10px] text-gray-400 flex-shrink-0">{formatThaiTime(l.time)}</span>

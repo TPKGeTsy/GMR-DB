@@ -208,7 +208,7 @@ export async function getPendingBookings() {
     const bookings = await prisma.booking.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "asc" },
-      include: { vehicle: true, user: { select: { username: true, fullName: true } } },
+      include: { vehicle: true, user: { select: { username: true, fullName: true, nickname: true } } },
     });
 
     return { success: true, data: JSON.parse(JSON.stringify(bookings)) };
@@ -242,7 +242,7 @@ export async function getUpcomingBookings(limit = 10) {
       where: { status: "APPROVED", endAt: { gte: new Date() } },
       orderBy: { startAt: "asc" },
       take: limit,
-      include: { vehicle: true, user: { select: { username: true, fullName: true } } },
+      include: { vehicle: true, user: { select: { username: true, fullName: true, nickname: true } } },
     });
 
     return { success: true, data: JSON.parse(JSON.stringify(bookings)) };

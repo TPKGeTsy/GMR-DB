@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight, MapPin, Pencil, X, RotateCcw } from "lucide-react";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
 import { formatHoursTenths } from "@/lib/attendance";
@@ -120,7 +121,11 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                   <td className="px-4 py-2 text-gray-400">
                     {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                   </td>
-                  <td className="px-4 py-2 text-sm font-medium text-gray-900">{row.employeeName}</td>
+                  <td className="px-4 py-2 text-sm font-medium text-gray-900" onClick={(e) => e.stopPropagation()}>
+                    <Link href={`/users/${row.userId}`} className="hover:text-orange-600">
+                      {row.employeeName}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                     <div className="w-24">
                       <InternGradeSelect userId={row.userId} initialGrade={row.grade} gradeOptions={gradeOptions} />

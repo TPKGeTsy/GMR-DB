@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { uploadProjectFile, deleteProjectFile } from "@/app/actions/projects";
 import { FileText, Image as ImageIcon, Box, File as FileIcon, Download, Trash2, Upload } from "lucide-react";
 import { formatThaiDate } from "@/lib/datetime";
@@ -14,7 +15,7 @@ interface ProjectFile {
   fileSize: number;
   createdAt: string;
   uploadedById: string;
-  uploadedBy: { id: string; username: string; fullName: string | null };
+  uploadedBy: { id: string; username: string; fullName: string | null; nickname: string | null };
 }
 
 const THREE_D_EXTENSIONS = new Set(["step", "stp", "stl", "obj", "iges", "igs"]);
@@ -114,7 +115,11 @@ export default function ProjectFileManager({
                   <Icon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                   <span className="truncate">{f.fileName}</span>
                   <span className="text-[10px] text-gray-400 flex-shrink-0">
-                    ({formatFileSize(f.fileSize)} · {f.uploadedBy.fullName || f.uploadedBy.username} · {formatThaiDate(f.createdAt)})
+                    ({formatFileSize(f.fileSize)} ·{" "}
+                    <Link href={`/users/${f.uploadedById}`} className="hover:text-orange-600">
+                      {f.uploadedBy.nickname || f.uploadedBy.fullName || f.uploadedBy.username}
+                    </Link>{" "}
+                    · {formatThaiDate(f.createdAt)})
                   </span>
                 </a>
                 <div className="flex items-center gap-1 flex-shrink-0">

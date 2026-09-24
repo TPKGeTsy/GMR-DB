@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Columns3, Check, Pencil, UtensilsCrossed } from "lucide-react";
+import Link from "next/link";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
 import { formatHoursTenths } from "@/lib/attendance";
 import { setMealCounted, type AttendanceTableRow, type EmployeeOption } from "@/app/actions/checkin";
@@ -119,7 +120,11 @@ export default function AttendanceTable({
       case "date":
         return formatThaiDateLong(row.dateKey);
       case "employee":
-        return <span className="font-medium text-gray-900">{row.employeeName}</span>;
+        return (
+          <Link href={`/users/${row.employeeId}`} className="font-medium text-gray-900 hover:text-orange-600">
+            {row.employeeName}
+          </Link>
+        );
       case "time":
         return formatThaiTime(row.time);
       case "type":

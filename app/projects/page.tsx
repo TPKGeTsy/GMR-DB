@@ -14,7 +14,7 @@ interface ProjectRow {
   status: string;
   startDate: string | null;
   endDate: string | null;
-  createdBy: { username: string; fullName: string | null };
+  createdBy: { username: string; fullName: string | null; nickname: string | null };
   _count: { members: number };
 }
 
@@ -81,7 +81,7 @@ export default async function ProjectsPage() {
               <div className="flex items-center justify-between text-[11px] text-gray-500 border-t border-gray-50 pt-3">
                 <div className="flex items-center">
                   <User className="w-3 h-3 mr-1" />
-                  {p.createdBy.fullName || p.createdBy.username}
+                  {p.createdBy.nickname || p.createdBy.fullName || p.createdBy.username}
                 </div>
                 <div className="flex items-center">
                   <Users className="w-3 h-3 mr-1" />

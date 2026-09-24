@@ -129,7 +129,7 @@ export async function getActiveLoans() {
       orderBy: { borrowedAt: "desc" },
       include: {
         asset: { select: { name: true, modelOrSize: true, unit: true } },
-        user: { select: { username: true, fullName: true } },
+        user: { select: { username: true, fullName: true, nickname: true } },
       },
     });
 

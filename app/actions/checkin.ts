@@ -526,6 +526,7 @@ export interface DayLoanRow {
   id: string;
   assetName: string;
   quantity: number;
+  employeeId: string;
   employeeName: string;
   time: string;
 }
@@ -547,16 +548,16 @@ export async function getDaySummary(dateKey: string): Promise<
       prisma.checkIn.findMany({
         where: { createdAt: { gte: start, lt: end } },
         orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, username: true, fullName: true } } },
+        include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
       }),
       prisma.loan.findMany({
         where: { borrowedAt: { gte: start, lt: end } },
-        include: { user: { select: { username: true, fullName: true } }, asset: { select: { name: true } } },
+        include: { user: { select: { id: true, username: true, fullName: true, nickname: true } }, asset: { select: { name: true } } },
         orderBy: { borrowedAt: "asc" },
       }),
       prisma.loan.findMany({
         where: { returnedAt: { gte: start, lt: end } },
-        include: { user: { select: { username: true, fullName: true } }, asset: { select: { name: true } } },
+        include: { user: { select: { id: true, username: true, fullName: true, nickname: true } }, asset: { select: { name: true } } },
         orderBy: { returnedAt: "asc" },
       }),
     ]);
@@ -576,7 +577,7 @@ export async function getDaySummary(dateKey: string): Promise<
         })
       : [];
 
-    const namesByUser = new Map(dayCheckIns.map((c) => [c.userId, c.user.fullName || c.user.username]));
+    const namesByUser = new Map(dayCheckIns.map((c) => [c.userId, c.user.nickname || c.user.fullName || c.user.username]));
     const historyByUser = new Map<string, { type: string; location: string; createdAt: Date; otStartOverride: Date | null }[]>();
     for (const c of fullHistory) {
       if (!historyByUser.has(c.userId)) historyByUser.set(c.userId, []);
@@ -620,7 +621,8 @@ export async function getDaySummary(dateKey: string): Promise<
           id: l.id,
           assetName: l.asset.name,
           quantity: l.quantity,
-          employeeName: l.user.fullName || l.user.username,
+          employeeId: l.user.id,
+          employeeName: l.user.nickname || l.user.fullName || l.user.username,
           time: l.borrowedAt.toISOString(),
         })),
         returned: returnedLoans
@@ -629,7 +631,8 @@ export async function getDaySummary(dateKey: string): Promise<
             id: l.id,
             assetName: l.asset.name,
             quantity: l.quantity,
-            employeeName: l.user.fullName || l.user.username,
+            employeeId: l.user.id,
+            employeeName: l.user.nickname || l.user.fullName || l.user.username,
             time: l.returnedAt.toISOString(),
           })),
       },

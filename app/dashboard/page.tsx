@@ -18,16 +18,17 @@ interface ActiveLoan {
   dueDate: string | null;
   userId: string;
   asset: { name: string; modelOrSize: string; unit: string };
-  user: { username: string; fullName: string | null };
+  user: { username: string; fullName: string | null; nickname: string | null };
 }
 
 interface UpcomingBooking {
   id: string;
+  userId: string;
   startAt: string;
   endAt: string;
   purpose: string | null;
   vehicle: { name: string; licensePlate: string };
-  user: { username: string; fullName: string | null };
+  user: { username: string; fullName: string | null; nickname: string | null };
 }
 
 export default async function DashboardPage() {
@@ -191,7 +192,9 @@ export default async function DashboardPage() {
                         <div className="text-xs text-gray-500">{loan.asset.modelOrSize}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {loan.user.fullName || loan.user.username}
+                        <Link href={`/users/${loan.userId}`} className="hover:text-orange-600">
+                          {loan.user.nickname || loan.user.fullName || loan.user.username}
+                        </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {loan.quantity} {loan.asset.unit}
@@ -263,7 +266,9 @@ export default async function DashboardPage() {
                       <div className="text-xs text-gray-500">{b.vehicle.licensePlate}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {b.user.fullName || b.user.username}
+                      <Link href={`/users/${b.userId}`} className="hover:text-orange-600">
+                        {b.user.nickname || b.user.fullName || b.user.username}
+                      </Link>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{b.purpose || "-"}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">

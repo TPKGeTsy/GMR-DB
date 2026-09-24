@@ -182,7 +182,7 @@ export async function getPendingLeaveRequests() {
     const leaveRequests = await prisma.leaveRequest.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "asc" },
-      include: { user: { select: { username: true, fullName: true } } },
+      include: { user: { select: { username: true, fullName: true, nickname: true } } },
     });
 
     return { success: true, data: JSON.parse(JSON.stringify(leaveRequests)) };

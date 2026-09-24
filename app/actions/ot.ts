@@ -13,9 +13,11 @@ import { bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
 
 export interface OtGrantRow {
   id: string;
+  userId: string;
   employeeName: string;
   hours: number;
   reason: string | null;
+  grantedById: string;
   grantedByName: string;
   status: string;
   declineReason: string | null;
@@ -46,9 +48,11 @@ export async function getOtGrants(limit = 200): Promise<
       success: true,
       data: grants.map((g) => ({
         id: g.id,
+        userId: g.userId,
         employeeName: g.user.nickname || g.user.fullName || g.user.username,
         hours: g.hours,
         reason: g.reason,
+        grantedById: g.grantedById,
         grantedByName: g.grantedBy.nickname || g.grantedBy.fullName || g.grantedBy.username,
         status: g.status,
         declineReason: g.declineReason,
@@ -110,6 +114,7 @@ export async function deleteOtGrant(id: string) {
 
 export interface OtApprovalRequestRow {
   id: string;
+  userId: string;
   employeeName: string;
   source: string;
   location: string | null;
@@ -140,6 +145,7 @@ export async function getPendingOtApprovalRequests(): Promise<
       success: true,
       data: requests.map((r) => ({
         id: r.id,
+        userId: r.userId,
         employeeName: r.user.nickname || r.user.fullName || r.user.username,
         source: r.source,
         location: r.location,

@@ -5,6 +5,7 @@ import LeaveApprovalButtons from "@/components/LeaveApprovalButtons";
 import CancelLeaveButton from "@/components/CancelLeaveButton";
 import { CalendarHeart, ShieldAlert, Clock } from "lucide-react";
 import { formatThaiDate } from "@/lib/datetime";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +20,13 @@ interface MyLeaveRequest {
 
 interface PendingLeaveRequest {
   id: string;
+  userId: string;
   type: string;
   startDate: string;
   endDate: string;
   reason: string | null;
   createdAt: string;
-  user: { username: string; fullName: string | null };
+  user: { username: string; fullName: string | null; nickname: string | null };
 }
 
 const leaveTypeLabel: Record<string, string> = {
@@ -96,7 +98,11 @@ export default async function LeavePage() {
                     <p className="text-sm font-semibold text-gray-900">
                       {leaveTypeLabel[l.type] || l.type}{" "}
                       <span className="text-gray-400 font-normal">
-                        ({l.user.fullName || l.user.username})
+                        (
+                        <Link href={`/users/${l.userId}`} className="hover:text-orange-600">
+                          {l.user.nickname || l.user.fullName || l.user.username}
+                        </Link>
+                        )
                       </span>
                     </p>
                     {l.reason && <p className="text-xs text-gray-600">{l.reason}</p>}
