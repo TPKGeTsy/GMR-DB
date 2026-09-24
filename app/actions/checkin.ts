@@ -653,34 +653,77 @@ interface ManualAttendanceInput {
   otHours: number;
   wentOutside?: boolean;
   outsideNote?: string;
+  // When wentOutside is set, these ("HH:MM") take over entirely — the
+  // real departure/return clock times are known, so there's no need to
+  // reverse-engineer them from a typed hours total the way the plain
+  // "forgot to check in" flow below still does.
+  outsideStartTime?: string;
+  outsideEndTime?: string;
   note?: string;
 }
 
+function parseTimeOnDate(dateKey: string, time: string): Date | null {
+  if (!/^\d{2}:\d{2}$/.test(time)) return null;
+  const date = new Date(`${dateKey}T${time}:00+07:00`);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+/** Builds the IN/OUT instants directly from admin-typed clock times for an
+ *  outside-work entry, rolling the return time to the next calendar day if
+ *  it isn't after the departure time (e.g. left 20:00, back 02:00). */
+function outsideTripSession(dateKey: string, startTime: string, endTime: string): { start: Date; end: Date } | null {
+  const start = parseTimeOnDate(dateKey, startTime);
+  let end = parseTimeOnDate(dateKey, endTime);
+  if (!start || !end) return null;
+  if (end.getTime() <= start.getTime()) end = new Date(end.getTime() + 24 * 3_600_000);
+  return { start, end };
+}
+
 function validateManualAttendanceInput(data: ManualAttendanceInput): string | null {
+  if (data.wentOutside) {
+    if (!data.outsideNote?.trim()) return "กรุณาระบุว่าออกหน้างานไปที่ไหน";
+    if (!data.outsideStartTime || !data.outsideEndTime) return "กรุณาระบุเวลาออกและเวลากลับ";
+    if (!outsideTripSession(data.dateKey, data.outsideStartTime, data.outsideEndTime)) {
+      return "เวลาที่ระบุไม่ถูกต้อง";
+    }
+    return null;
+  }
   if (!Number.isFinite(data.hours) || !Number.isFinite(data.otHours) || data.hours < 0 || data.otHours < 0) {
     return "ชั่วโมงไม่ถูกต้อง";
   }
   if (data.hours + data.otHours <= 0) return "กรุณาระบุจำนวนชั่วโมง";
-  if (data.wentOutside && !data.outsideNote?.trim()) return "กรุณาระบุว่าออกหน้างานไปที่ไหน";
   return null;
 }
 
+/** The IN/OUT instants for this entry — explicit clock times for an
+ *  outside-work day, or the hours-derived synthesis otherwise. */
+function resolveManualSession(data: ManualAttendanceInput): { start: Date; end: Date } {
+  if (data.wentOutside && data.outsideStartTime && data.outsideEndTime) {
+    const session = outsideTripSession(data.dateKey, data.outsideStartTime, data.outsideEndTime);
+    if (session) return session;
+  }
+  return synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+}
+
 /** Location + note for a synthesized day session — folds the "went
- *  outside" checkbox's location detail into the auto-generated note (e.g.
- *  "เพิ่มโดยแอดมิน: 8.0 ชม. — ออกหน้างาน: ไซต์งาน ABC") so it shows up
- *  wherever check-in notes already do, and sets location: OUTSIDE so wage
- *  calc / meal-day counting pick this day up correctly. */
+ *  outside" checkbox's location detail (and, for that case, the actual
+ *  departure/return times) into the note so it shows up wherever check-in
+ *  notes already do, and sets location: OUTSIDE so wage calc / meal-day
+ *  counting pick this day up correctly. */
 function manualAttendanceLocationAndNote(
   prefix: string,
   data: ManualAttendanceInput
 ): { location: string; note: string } {
-  const baseNote = manualAttendanceNote(prefix, data.hours, data.otHours);
   if (data.note?.trim()) return { location: data.wentOutside ? "OUTSIDE" : "OFFICE", note: data.note.trim() };
-  const outsideDetail = data.wentOutside ? data.outsideNote?.trim() : undefined;
-  return {
-    location: data.wentOutside ? "OUTSIDE" : "OFFICE",
-    note: outsideDetail ? `${baseNote} — ออกหน้างาน: ${outsideDetail}` : baseNote,
-  };
+
+  if (data.wentOutside) {
+    const detail = data.outsideNote?.trim() || "";
+    const timeRange = data.outsideStartTime && data.outsideEndTime ? ` ${data.outsideStartTime}-${data.outsideEndTime} น.` : "";
+    const note = `${prefix}${timeRange} — ออกหน้างาน: ${detail}`;
+    return { location: "OUTSIDE", note };
+  }
+
+  return { location: "OFFICE", note: manualAttendanceNote(prefix, data.hours, data.otHours) };
 }
 
 /** Records a full missed day for someone who forgot to check in — admin
@@ -696,7 +739,7 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
     const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
-    const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+    const { start, end } = resolveManualSession(data);
     const { location, note } = manualAttendanceLocationAndNote("เพิ่มโดยแอดมิน", data);
 
     await prisma.$transaction([
@@ -706,7 +749,9 @@ export async function addManualAttendanceDay(data: ManualAttendanceInput) {
 
     await createActivityLog(
       "ADD_MANUAL_ATTENDANCE",
-      `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+      data.wentOutside
+        ? `Admin added outside-work attendance for ${targetUser.username} on ${data.dateKey}: ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
+        : `Admin added attendance for ${targetUser.username} on ${data.dateKey}: ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
     );
 
     revalidatePath("/attendance");
@@ -744,7 +789,7 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
     });
     const idsToDelete = findSessionRowIdsStartingOn(history, data.dateKey);
 
-    const { start, end } = synthesizeDaySession(data.dateKey, data.hours, data.otHours);
+    const { start, end } = resolveManualSession(data);
     const { location, note } = manualAttendanceLocationAndNote("แก้ไขโดยแอดมิน", data);
 
     await prisma.$transaction([
@@ -755,7 +800,9 @@ export async function editManualAttendanceDay(data: ManualAttendanceInput) {
 
     await createActivityLog(
       "EDIT_MANUAL_ATTENDANCE",
-      `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
+      data.wentOutside
+        ? `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to outside-work ${data.outsideStartTime}-${data.outsideEndTime} at ${data.outsideNote}`
+        : `Admin edited ${targetUser.username}'s attendance on ${data.dateKey} to ${data.hours.toFixed(1)}h (+${data.otHours.toFixed(1)}h OT)`
     );
 
     revalidatePath("/attendance");

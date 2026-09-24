@@ -24,6 +24,8 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
   const [otHours, setOtHours] = useState(String(editing?.otHours ?? 0));
   const [wentOutside, setWentOutside] = useState(editing?.wentOutside ?? false);
   const [outsideNote, setOutsideNote] = useState("");
+  const [outsideStartTime, setOutsideStartTime] = useState("09:00");
+  const [outsideEndTime, setOutsideEndTime] = useState("17:00");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +41,8 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
       otHours: Number(otHours) || 0,
       wentOutside,
       outsideNote,
+      outsideStartTime,
+      outsideEndTime,
     };
     const result = editing ? await editManualAttendanceDay(payload) : await addManualAttendanceDay(payload);
 
@@ -81,34 +85,38 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-400">ชั่วโมงทำงาน</label>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={hours}
-                onChange={(e) => setHours(e.target.value)}
-                required
-                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400">ชั่วโมง OT</label>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={otHours}
-                onChange={(e) => setOtHours(e.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-              />
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-400">
-            ไม่ต้องระบุเวลาเข้า-ออก ระบุแค่จำนวนชั่วโมงรวมที่ทำงานวันนี้ก็พอ
-          </p>
+          {!wentOutside && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400">ชั่วโมงทำงาน</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                    required
+                    className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">ชั่วโมง OT</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={otHours}
+                    onChange={(e) => setOtHours(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400">
+                ไม่ต้องระบุเวลาเข้า-ออก ระบุแค่จำนวนชั่วโมงรวมที่ทำงานวันนี้ก็พอ
+              </p>
+            </>
+          )}
 
           <div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -121,14 +129,41 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
               วันนี้ออกหน้างานหรือไม่
             </label>
             {wentOutside && (
-              <input
-                type="text"
-                value={outsideNote}
-                onChange={(e) => setOutsideNote(e.target.value)}
-                placeholder="ไปที่ไหน เช่น ไซต์งาน ABC"
-                required
-                className="mt-1.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
-              />
+              <div className="mt-1.5 space-y-2">
+                <input
+                  type="text"
+                  value={outsideNote}
+                  onChange={(e) => setOutsideNote(e.target.value)}
+                  placeholder="ไปที่ไหน เช่น ไซต์งาน ABC"
+                  required
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400">เวลาออก</label>
+                    <input
+                      type="time"
+                      value={outsideStartTime}
+                      onChange={(e) => setOutsideStartTime(e.target.value)}
+                      required
+                      className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400">เวลากลับ</label>
+                    <input
+                      type="time"
+                      value={outsideEndTime}
+                      onChange={(e) => setOutsideEndTime(e.target.value)}
+                      required
+                      className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  ถ้ากลับหลังเที่ยงคืน ระบบจะเลื่อนเวลากลับไปเป็นวันถัดไปให้อัตโนมัติ
+                </p>
+              </div>
             )}
           </div>
 
