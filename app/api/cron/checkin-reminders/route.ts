@@ -44,8 +44,10 @@ async function autoCheckOut(userId: string, location: string, detail: string, cr
 /**
  * Meant to run every few minutes (see README/setup notes — Vercel's Hobby
  * plan only allows once-daily cron, so this is triggered by an external
- * pinger instead of vercel.json). For everyone still clocked in with a
- * linked LINE account, behavior now splits by check-in location:
+ * pinger instead of vercel.json). Runs for everyone still clocked in,
+ * whether or not they have LINE linked — someone without one just gets the
+ * wall-clock auto-checkout with no interactive prompts along the way,
+ * since there's nowhere to send them. Behavior splits by check-in location:
  *
  * - OFFICE: no self-serve "do OT?" prompt — an admin/operator opens OT for
  *   someone from LINE instead (see the OT_GRANT_TRIGGER handling in the
@@ -86,9 +88,12 @@ export async function GET(request: NextRequest) {
       include: { user: { select: { id: true, lineUserId: true, fullName: true, nickname: true, username: true } } },
     });
 
-    const stillWorking = latestPerUser.filter(
-      (c) => c.type === "IN" && c.user.lineUserId
-    );
+    // No longer requires a linked LINE account — someone without one (like
+    // an intern who never registered) still needs the wall-clock
+    // auto-checkout safety net, they just can't receive the interactive
+    // warning/prompt/nudge messages, which are individually guarded below
+    // on `lineUserId` being present.
+    const stillWorking = latestPerUser.filter((c) => c.type === "IN");
 
     const now = new Date();
     const nowMs = now.getTime();
@@ -101,7 +106,7 @@ export async function GET(request: NextRequest) {
 
     await Promise.all(
       stillWorking.map(async (checkIn) => {
-        const lineUserId = checkIn.user.lineUserId!;
+        const lineUserId = checkIn.user.lineUserId;
         const elapsedMs = nowMs - checkIn.createdAt.getTime();
 
         if (checkIn.location === "OFFICE") {
@@ -125,7 +130,7 @@ export async function GET(request: NextRequest) {
           }
 
           const warningThreshold = new Date(deadline.getTime() - WARNING_BEFORE_MS);
-          if (now >= warningThreshold && !checkIn.reminderSentAt) {
+          if (lineUserId && now >= warningThreshold && !checkIn.reminderSentAt) {
             await pushLineMessage(
               lineUserId,
               `ใกล้ถึงเวลาเลิกงานแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ถ้าหัวหน้าไม่เปิด OT ให้ ระบบจะเช็คเอาท์ให้อัตโนมัติค่ะ ⏰`
@@ -177,7 +182,7 @@ export async function GET(request: NextRequest) {
               );
               revalidatePath("/ot");
               otRequestsCreated++;
-            } else if (existingRequest.status === "APPROVED") {
+            } else if (existingRequest.status === "APPROVED" && lineUserId) {
               const lastNudge = checkIn.otNudgeSentAt ?? existingRequest.decidedAt ?? existingRequest.createdAt;
               if (nowMs - lastNudge.getTime() >= OT_NUDGE_INTERVAL_MS) {
                 await pushLineMessage(lineUserId, `คุณยังทำงานอยู่ไหมคะ? พิมพ์ "เลิกงานแล้ว" เมื่อเสร็จงานนะคะ 🕐`);
@@ -188,7 +193,7 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          if (elapsedMs >= WARNING_THRESHOLD_MS && !checkIn.reminderSentAt) {
+          if (lineUserId && elapsedMs >= WARNING_THRESHOLD_MS && !checkIn.reminderSentAt) {
             await pushLineMessage(lineUserId, `ใกล้ครบเวลาทำงาน 8 ชั่วโมงแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ⏰`);
             await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
             warned++;
@@ -196,9 +201,13 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        // OUTSIDE, not tied to a trip — unchanged self-serve ask + midnight fallback.
+        // OUTSIDE, not tied to a trip — self-serve ask + midnight fallback
+        // for a LINE-linked user; someone without LINE can't answer a
+        // prompt they never receive, so they just ride the same midnight
+        // fallback silently (no ask, no reminder) until it backdates their
+        // checkout to 18:00 once the day rolls over.
         if (bangkokDateKey(now) !== bangkokDateKey(checkIn.createdAt)) {
-          if (checkIn.otConfirmedAt) {
+          if (lineUserId && checkIn.otConfirmedAt) {
             if (!checkIn.midnightOtPromptSentAt) {
               await pushLineMessage(lineUserId, `ผ่านเที่ยงคืนแล้วนะคะ ยังทำ OT อยู่ไหมคะ? 🌙`, [
                 { label: "เลิกงานแล้ว", text: "เลิกงานแล้ว" },
@@ -222,7 +231,7 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        if (elapsedMs >= EXPECTED_SPAN_MS && !checkIn.otPromptSentAt) {
+        if (lineUserId && elapsedMs >= EXPECTED_SPAN_MS && !checkIn.otPromptSentAt) {
           await pushLineMessage(
             lineUserId,
             `ครบเวลาทำงาน 8 ชั่วโมงแล้วค่ะ ✨ วันนี้จะเลิกงานหรือทำ OT ต่อดีคะ?`,
@@ -236,7 +245,7 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        if (elapsedMs >= WARNING_THRESHOLD_MS && elapsedMs < EXPECTED_SPAN_MS && !checkIn.reminderSentAt) {
+        if (lineUserId && elapsedMs >= WARNING_THRESHOLD_MS && elapsedMs < EXPECTED_SPAN_MS && !checkIn.reminderSentAt) {
           await pushLineMessage(lineUserId, `ใกล้ครบเวลาทำงาน 8 ชั่วโมงแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ⏰`);
           await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
           warned++;
