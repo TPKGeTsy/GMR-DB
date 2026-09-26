@@ -53,236 +53,181 @@ export default async function DashboardPage() {
   const isApprover = session?.user?.role === "ADMIN" || session?.user?.role === "OPERATOR";
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <p className="text-gray-500">Summary of GMR inventory and budget</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {/* Total Budget Spent */}
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-orange-500 rounded-md p-3">
-                <Wallet className="h-6 w-6 text-white" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-700 truncate">Total Budget Spent</dt>
-                  <dd>
-                    <div className="text-lg font-medium text-gray-900">
-                      ฿{totalBudgetSpent.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                    </div>
-                  </dd>
-                </dl>
-              </div>
-            </div>
+        <div className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-5">
+          <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-orange-50 mb-3">
+            <Wallet className="h-5 w-5 text-orange-600" />
           </div>
+          <p className="text-xs font-medium text-gray-500 truncate">Total Budget Spent</p>
+          <p className="text-lg font-bold text-gray-900 mt-0.5">
+            ฿{totalBudgetSpent.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+          </p>
         </div>
 
         {/* Total Items */}
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
-                <Package className="h-6 w-6 text-white" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-700 truncate">Total Assets</dt>
-                  <dd>
-                    <div className="text-lg font-medium text-gray-900">
-                      {chartData.reduce((acc, curr) => acc + curr.count, 0)} items
-                    </div>
-                  </dd>
-                </dl>
-              </div>
-            </div>
+        <div className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-5">
+          <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-green-50 mb-3">
+            <Package className="h-5 w-5 text-green-600" />
           </div>
+          <p className="text-xs font-medium text-gray-500 truncate">Total Assets</p>
+          <p className="text-lg font-bold text-gray-900 mt-0.5">
+            {chartData.reduce((acc, curr) => acc + curr.count, 0)} items
+          </p>
         </div>
 
         {/* Most Expensive Category */}
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-yellow-500 rounded-md p-3">
-                <TrendingUp className="h-6 w-6 text-white" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-700 truncate">Top Category by Value</dt>
-                  <dd>
-                    <div className="text-lg font-medium text-gray-900">
-                      {chartData.sort((a, b) => b.totalValue - a.totalValue)[0]?.status || "N/A"}
-                    </div>
-                  </dd>
-                </dl>
-              </div>
-            </div>
+        <div className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-5">
+          <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-amber-50 mb-3">
+            <TrendingUp className="h-5 w-5 text-amber-600" />
           </div>
+          <p className="text-xs font-medium text-gray-500 truncate">Top Category by Value</p>
+          <p className="text-lg font-bold text-gray-900 mt-0.5">
+            {chartData.sort((a, b) => b.totalValue - a.totalValue)[0]?.status || "N/A"}
+          </p>
         </div>
 
         {/* Car Bookings */}
-        <Link href="/carbook" className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-purple-500 rounded-md p-3">
-                <Car className="h-6 w-6 text-white" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-700 truncate">Upcoming Car Bookings</dt>
-                  <dd>
-                    <div className="text-lg font-medium text-gray-900">{upcomingBookings.length}</div>
-                  </dd>
-                </dl>
-                {isApprover && pendingBookingsCount > 0 && (
-                  <p className="mt-1 text-xs font-semibold text-red-600 flex items-center">
-                    <ShieldAlert className="w-3 h-3 mr-1" />
-                    {pendingBookingsCount} รออนุมัติ
-                  </p>
-                )}
-              </div>
-            </div>
+        <Link
+          href="/carbook"
+          className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-5 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 transition-all"
+        >
+          <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-purple-50 mb-3">
+            <Car className="h-5 w-5 text-purple-600" />
           </div>
+          <p className="text-xs font-medium text-gray-500 truncate">Upcoming Car Bookings</p>
+          <p className="text-lg font-bold text-gray-900 mt-0.5">{upcomingBookings.length}</p>
+          {isApprover && pendingBookingsCount > 0 && (
+            <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center">
+              <ShieldAlert className="w-3 h-3 mr-1" />
+              {pendingBookingsCount} รออนุมัติ
+            </p>
+          )}
         </Link>
       </div>
 
-      <div className="bg-white p-6 shadow rounded-lg">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Budget Distribution by Status (R B G Y)</h2>
+      <div className="bg-white p-4 sm:p-6 shadow-sm rounded-3xl border border-gray-100">
+        <h2 className="text-base font-bold text-gray-900 mb-4">Budget Distribution by Status (R B G Y)</h2>
         <div className="h-80">
           <DashboardCharts data={chartData} />
         </div>
       </div>
 
-      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
-          <HandHelping className="h-5 w-5 text-orange-600 mr-2" />
-          <h2 className="text-sm font-semibold text-gray-900">
-            Currently Borrowed ({activeLoans.length})
-          </h2>
+      <div className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-6">
+        <div className="flex items-center mb-3">
+          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-50 mr-2">
+            <HandHelping className="h-4 w-4 text-orange-600" />
+          </span>
+          <h2 className="text-sm font-bold text-gray-900">Currently Borrowed ({activeLoans.length})</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Asset</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Borrowed By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Quantity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Borrowed At</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Due</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider"></th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {activeLoans.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500 italic">
-                    ไม่มีของที่ถูกยืมอยู่ตอนนี้
-                  </td>
-                </tr>
-              ) : (
-                activeLoans.map((loan) => {
-                  const isOverdue = isLoanOverdue(loan.dueDate);
-                  return (
-                    <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{loan.asset.name}</div>
-                        <div className="text-xs text-gray-500">{loan.asset.modelOrSize}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <Link href={`/users/${loan.userId}`} className="hover:text-orange-600">
+        {activeLoans.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8 bg-gray-50 rounded-2xl italic">ไม่มีของที่ถูกยืมอยู่ตอนนี้</p>
+        ) : (
+          <ul className="space-y-2">
+            {activeLoans.map((loan) => {
+              const isOverdue = isLoanOverdue(loan.dueDate);
+              return (
+                <li
+                  key={loan.id}
+                  className={`rounded-2xl border p-3 flex items-center gap-3 ${
+                    isOverdue ? "border-red-100 bg-red-50/40" : "border-gray-100 bg-white"
+                  }`}
+                >
+                  <span className="flex-shrink-0 w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center">
+                    <Package className="w-[18px] h-[18px] text-orange-500" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{loan.asset.name}</p>
+                      {loan.dueDate && (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${
+                            isOverdue ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"
+                          }`}
+                        >
+                          {isOverdue && <AlertTriangle className="w-3 h-3 mr-1" />}
+                          {formatThaiDate(loan.dueDate)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 truncate">
+                      {loan.asset.modelOrSize} · {loan.quantity} {loan.asset.unit}
+                    </p>
+                    <div className="flex items-center justify-between gap-2 mt-1.5 flex-wrap">
+                      <span className="text-xs text-gray-600">
+                        <Link href={`/users/${loan.userId}`} className="hover:text-orange-600 font-medium">
                           {loan.user.nickname || loan.user.fullName || loan.user.username}
                         </Link>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {loan.quantity} {loan.asset.unit}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                        <span className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {formatThaiDateTime(loan.borrowedAt)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs">
-                        {loan.dueDate && (
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold ${
-                            isOverdue ? "bg-red-100 text-red-700" : "text-gray-400"
-                          }`}>
-                            {isOverdue && <AlertTriangle className="w-3 h-3 mr-1" />}
-                            {formatThaiDate(loan.dueDate)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        {(isAdmin || loan.userId === currentUserId) && (
-                          <ReturnLoanButton loanId={loan.id} />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </span>
+                      <span className="inline-flex items-center text-[10px] text-gray-400">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {formatThaiDateTime(loan.borrowedAt)}
+                      </span>
+                    </div>
+                  </div>
+                  {(isAdmin || loan.userId === currentUserId) && (
+                    <div className="flex-shrink-0">
+                      <ReturnLoanButton loanId={loan.id} />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
-      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+      <div className="bg-white shadow-sm rounded-3xl border border-gray-100 p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center">
-            <Car className="h-5 w-5 text-orange-600 mr-2" />
-            <h2 className="text-sm font-semibold text-gray-900">
-              Upcoming Car Bookings ({upcomingBookings.length})
-            </h2>
+            <span className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-50 mr-2">
+              <Car className="h-4 w-4 text-purple-600" />
+            </span>
+            <h2 className="text-sm font-bold text-gray-900">Upcoming Car Bookings ({upcomingBookings.length})</h2>
           </div>
-          <Link href="/carbook" className="text-xs font-medium text-orange-600 hover:text-orange-700">
+          <Link
+            href="/carbook"
+            className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-full px-2.5 py-1 transition-colors"
+          >
             Go to Car Booking &rarr;
           </Link>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Vehicle</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Booked By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Purpose</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Time</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {upcomingBookings.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-10 text-center text-sm text-gray-500 italic">
-                    ไม่มีการจองรถที่อนุมัติแล้วในช่วงนี้
-                  </td>
-                </tr>
-              ) : (
-                upcomingBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{b.vehicle.name}</div>
-                      <div className="text-xs text-gray-500">{b.vehicle.licensePlate}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      <Link href={`/users/${b.userId}`} className="hover:text-orange-600">
-                        {b.user.nickname || b.user.fullName || b.user.username}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{b.purpose || "-"}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                      <span className="flex items-center">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {formatThaiDateTime(b.startAt)} — {formatThaiDateTime(b.endAt)}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {upcomingBookings.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8 bg-gray-50 rounded-2xl italic">
+            ไม่มีการจองรถที่อนุมัติแล้วในช่วงนี้
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {upcomingBookings.map((b) => (
+              <li key={b.id} className="rounded-2xl border border-gray-100 bg-white p-3 flex items-center gap-3">
+                <span className="flex-shrink-0 w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center">
+                  <Car className="w-[18px] h-[18px] text-purple-500" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {b.vehicle.name} <span className="text-xs font-normal text-gray-400">{b.vehicle.licensePlate}</span>
+                  </p>
+                  <p className="text-xs text-gray-500 truncate">{b.purpose || "-"}</p>
+                  <div className="flex items-center justify-between gap-2 mt-1.5 flex-wrap">
+                    <Link href={`/users/${b.userId}`} className="text-xs text-gray-600 hover:text-orange-600 font-medium">
+                      {b.user.nickname || b.user.fullName || b.user.username}
+                    </Link>
+                    <span className="inline-flex items-center text-[10px] text-gray-400">
+                      <Clock className="w-3 h-3 mr-1" />
+                      {formatThaiDateTime(b.startAt)} — {formatThaiDateTime(b.endAt)}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
