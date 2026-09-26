@@ -101,13 +101,17 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-xl w-full max-w-sm p-5 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+        <div className="mx-auto sm:hidden w-10 h-1 rounded-full bg-gray-200 -mt-1 mb-1" />
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900">
+          <h3 className="text-base font-bold text-gray-900">
             {editing ? "แก้ไขเวลาทำงานวันนี้" : "เพิ่มรายการเข้างาน (ลืมเช็คอิน)"}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-8 h-8 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -116,7 +120,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
           {isTeamOutsideAdd ? (
             <div>
               <label className="text-xs text-gray-400">ผู้ปฏิบัติงาน (เลือกได้หลายคน)</label>
-              <div className="mt-1 max-h-32 overflow-y-auto border border-gray-300 rounded-md divide-y divide-gray-100">
+              <div className="mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
                 {employeeOptions.map((u) => (
                   <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
                     <input
@@ -137,7 +141,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
                 disabled={!!editing}
-                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none disabled:bg-gray-100 disabled:text-gray-500 transition-colors"
               >
                 {employeeOptions.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -148,20 +152,22 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
             </div>
           )}
 
-          <div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center justify-between gap-2 text-sm font-medium text-gray-700 rounded-xl bg-gray-50 px-3 py-2.5 cursor-pointer">
+            วันนี้ออกหน้างานหรือไม่
+            <span className="relative inline-flex flex-shrink-0">
               <input
                 type="checkbox"
                 checked={wentOutside}
                 onChange={(e) => setWentOutside(e.target.checked)}
-                className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                className="sr-only peer"
               />
-              วันนี้ออกหน้างานหรือไม่
-            </label>
-          </div>
+              <span className="w-10 h-6 rounded-full bg-gray-300 peer-checked:bg-orange-600 transition-colors" />
+              <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </span>
+          </label>
 
           {wentOutside ? (
-            <div className="space-y-2 rounded-md border border-orange-100 bg-orange-50/40 p-2.5">
+            <div className="space-y-2.5 rounded-2xl border border-orange-100 bg-orange-50/40 p-3">
               <div>
                 <label className="text-xs text-gray-400">สถานที่</label>
                 <input
@@ -170,7 +176,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                   onChange={(e) => setOutsideNote(e.target.value)}
                   placeholder="เช่น ไซต์งาน ABC"
                   required
-                  className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                 />
               </div>
               <div>
@@ -180,7 +186,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                   value={workSummary}
                   onChange={(e) => setWorkSummary(e.target.value)}
                   placeholder="เช่น ติดตั้งอุปกรณ์, ซ่อมบำรุง"
-                  className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                 />
               </div>
               <div>
@@ -193,7 +199,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                       value={startTime}
                       onChange={(e) => setStartTime(e.target.value)}
                       required
-                      className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                     />
                   </div>
                   <div>
@@ -203,7 +209,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                       value={outsideStartTime}
                       onChange={(e) => setOutsideStartTime(e.target.value)}
                       required
-                      className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                     />
                   </div>
                   <div>
@@ -213,7 +219,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                       value={outsideEndTime}
                       onChange={(e) => setOutsideEndTime(e.target.value)}
                       required
-                      className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                     />
                   </div>
                   <div>
@@ -223,7 +229,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                       value={endTime}
                       onChange={(e) => setEndTime(e.target.value)}
                       required
-                      className="mt-0.5 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                     />
                   </div>
                 </div>
@@ -241,14 +247,14 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   required
-                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                 />
                 <input
                   type="time"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   required
-                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 outline-none"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                 />
               </div>
               <p className="text-[10px] text-gray-400 mt-1">
@@ -264,14 +270,14 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="px-4 py-2.5 rounded-full border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 transition-colors"
             >
               ยกเลิก
             </button>
             <button
               type="submit"
               disabled={isSubmitting || (isTeamOutsideAdd && selectedUserIds.length === 0)}
-              className="px-3 py-1.5 rounded-md bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 disabled:opacity-50"
+              className="px-5 py-2.5 rounded-full bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 active:bg-orange-800 shadow-sm shadow-orange-200 disabled:opacity-50 disabled:shadow-none transition-colors"
             >
               {isSubmitting ? "กำลังบันทึก..." : "บันทึก"}
             </button>

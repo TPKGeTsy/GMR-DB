@@ -34,22 +34,24 @@ export default async function AttendancePage({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-            <ClipboardList className="mr-2 h-6 w-6 text-orange-600" />
+            <span className="flex items-center justify-center w-9 h-9 rounded-full bg-orange-50 mr-2.5">
+              <ClipboardList className="h-5 w-5 text-orange-600" />
+            </span>
             Attendance
           </h1>
-          <p className="text-gray-500">Face check-in / check-out history for all employees</p>
+          <p className="text-gray-500 ml-[46px]">Face check-in / check-out history for all employees</p>
         </div>
         <div className="flex items-center gap-2">
           <a
             href="/api/attendance/export-summary"
-            className="inline-flex items-center px-4 py-2 rounded-md text-white bg-orange-600 hover:bg-orange-700 font-medium text-sm shadow-sm"
+            className="inline-flex items-center px-4 py-2.5 rounded-full text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 font-semibold text-sm shadow-sm shadow-orange-200 transition-colors"
           >
             <Download className="w-4 h-4 mr-2" />
             Export Daily Summary CSV
           </a>
           <a
             href="/api/attendance/export"
-            className="inline-flex items-center px-4 py-2 rounded-md text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 font-medium text-sm"
+            className="inline-flex items-center px-4 py-2.5 rounded-full text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 active:bg-gray-100 font-semibold text-sm transition-colors"
           >
             <Download className="w-4 h-4 mr-2" />
             Export Raw Log CSV
