@@ -948,7 +948,11 @@ async function buildOutsideTripPickerMessage(pending: {
     distinct: ["userId"],
     include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
   });
-  const eligible = latestPerUser.filter((c) => c.type === "IN" && c.location === "OFFICE");
+  // Anyone currently checked in, office or already-OUTSIDE — someone who
+  // scanned in and tagged themselves OUTSIDE on their own is still fair
+  // game to pull into *this* trip's team (that's exactly the case that was
+  // missing: they'd scanned in first and just weren't offered as a choice).
+  const eligible = latestPerUser.filter((c) => c.type === "IN");
 
   const candidates = eligible.map((c) => ({
     id: c.userId,
