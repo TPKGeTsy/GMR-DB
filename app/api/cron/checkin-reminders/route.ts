@@ -5,7 +5,8 @@ import { logError } from "@/lib/logger";
 import { pushLineMessage } from "@/lib/line";
 import { notifyOtManagers } from "@/lib/lineApprovals";
 import { realizeOutsideTripOtGrant } from "@/lib/otGrant";
-import { bangkokDateKey, bangkokDateAt } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDateAt, bangkokDayRange } from "@/lib/datetime";
+import { buildDailySummary } from "@/lib/attendance";
 
 const WORK_MS = 8 * 60 * 60 * 1000;
 // Lunch isn't tracked as a separate check-out/check-in here — employees stay
@@ -163,7 +164,27 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          if (elapsedMs >= EXPECTED_SPAN_MS) {
+          // Someone who worked at the office before switching to this
+          // outside trip (e.g. checked in 7:00, went out at 9:00) already
+          // has a head start on the 8-worked-hour mark — elapsedMs alone
+          // (since *this* check-in) would otherwise treat 9:00 as a fresh
+          // day's start and ask for OT approval two hours too late. Folds
+          // in whatever's already been worked earlier today (any prior
+          // *closed* session — buildDailySummary skips the still-open one),
+          // computed the same way the attendance day panel does, so the
+          // approval trigger and the eventual displayed/granted hours agree.
+          const todayStart = bangkokDayRange(bangkokDateKey(checkIn.createdAt)).start;
+          const todayHistory = await prisma.checkIn.findMany({
+            where: { userId: checkIn.userId, createdAt: { gte: todayStart } },
+            orderBy: { createdAt: "asc" },
+            select: { type: true, location: true, createdAt: true, otStartOverride: true },
+          });
+          const priorWorkedMs =
+            (buildDailySummary(todayHistory).find((d) => d.dateKey === bangkokDateKey(checkIn.createdAt))?.totalHours ?? 0) *
+            3_600_000;
+          const adjustedElapsedMs = elapsedMs + priorWorkedMs;
+
+          if (adjustedElapsedMs >= EXPECTED_SPAN_MS) {
             const existingRequest = await prisma.otApprovalRequest.findFirst({ where: { checkInId: checkIn.id } });
             if (!existingRequest) {
               const request = await prisma.otApprovalRequest.create({
@@ -193,7 +214,7 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          if (lineUserId && elapsedMs >= WARNING_THRESHOLD_MS && !checkIn.reminderSentAt) {
+          if (lineUserId && adjustedElapsedMs >= WARNING_THRESHOLD_MS && !checkIn.reminderSentAt) {
             await pushLineMessage(lineUserId, `ใกล้ครบเวลาทำงาน 8 ชั่วโมงแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ⏰`);
             await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
             warned++;
