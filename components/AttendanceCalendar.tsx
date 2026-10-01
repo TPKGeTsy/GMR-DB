@@ -8,13 +8,20 @@ import {
   deleteAttendanceDay,
   type DaySummaryRow,
   type DayLoanRow,
+  type DayLeaveRow,
   type EmployeeOption,
 } from "@/app/actions/checkin";
+import { cancelLeaveRequest } from "@/app/actions/leave";
+import { leaveTypeLabel } from "@/lib/leaveTypes";
 import { formatThaiTime, bangkokTimeHHMM } from "@/lib/datetime";
 import { REGULAR_HOURS_CAP, LUNCH_BREAK_HOURS, formatHoursTenths } from "@/lib/attendance";
-import { ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2, MapPin } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, LogIn, LogOut, PackageMinus, PackagePlus, Loader2, Plus, Pencil, Trash2, MapPin,
+  CalendarOff, Wallet,
+} from "lucide-react";
 import Link from "next/link";
 import DayAttendanceModal from "./DayAttendanceModal";
+import WageOverrideEditor from "./WageOverrideEditor";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const WEEKDAY_LABELS_FULL = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
@@ -112,12 +119,13 @@ export default function AttendanceCalendar() {
   const [viewMonth, setViewMonth] = useState(todayMonth);
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [activeDates, setActiveDates] = useState<Set<string>>(new Set());
-  const [summary, setSummary] = useState<{ attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[] } | null>(null);
+  const [summary, setSummary] = useState<{ attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[]; leaves: DayLeaveRow[] } | null>(null);
   const [loadingMonth, setLoadingMonth] = useState(true);
   const [loadingDay, setLoadingDay] = useState(true);
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editingRow, setEditingRow] = useState<DaySummaryRow | null>(null);
+  const [editingOverrideUserId, setEditingOverrideUserId] = useState<string | null>(null);
 
   useEffect(() => {
     getEmployeeOptions().then((result) => {
@@ -139,7 +147,7 @@ export default function AttendanceCalendar() {
 
   const reloadDaySummary = () => {
     getDaySummary(selectedDate).then((result) => {
-      setSummary(result.success && result.data ? result.data : { attendance: [], borrowed: [], returned: [] });
+      setSummary(result.success && result.data ? result.data : { attendance: [], borrowed: [], returned: [], leaves: [] });
       setLoadingDay(false);
     });
   };
@@ -148,13 +156,23 @@ export default function AttendanceCalendar() {
     let cancelled = false;
     getDaySummary(selectedDate).then((result) => {
       if (cancelled) return;
-      setSummary(result.success && result.data ? result.data : { attendance: [], borrowed: [], returned: [] });
+      setSummary(result.success && result.data ? result.data : { attendance: [], borrowed: [], returned: [], leaves: [] });
       setLoadingDay(false);
     });
     return () => {
       cancelled = true;
     };
   }, [selectedDate]);
+
+  const handleCancelLeave = async (leave: DayLeaveRow) => {
+    if (!confirm(`ยกเลิกการลาของ "${leave.employeeName}" วันที่ ${selectedDate}?`)) return;
+    const result = await cancelLeaveRequest(leave.id);
+    if (!result.success) {
+      alert(result.error || "ยกเลิกไม่สำเร็จ");
+      return;
+    }
+    reloadDaySummary();
+  };
 
   const handleDeleteRow = async (row: DaySummaryRow) => {
     if (!confirm(`ลบรายการเข้างานของ "${row.employeeName}" วันที่ ${selectedDate} ทั้งหมดถาวร?`)) return;
@@ -321,6 +339,17 @@ export default function AttendanceCalendar() {
                           </span>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
+                              onClick={() => setEditingOverrideUserId((cur) => (cur === row.userId ? null : row.userId))}
+                              title="ปรับค่าแรงพิเศษ"
+                              className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+                                row.overrideRate !== null
+                                  ? "text-purple-600 bg-purple-50 hover:bg-purple-100"
+                                  : "text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+                              }`}
+                            >
+                              <Wallet className="w-3.5 h-3.5" />
+                            </button>
+                            <button
                               onClick={() => {
                                 setEditingRow(row);
                                 setModal("edit");
@@ -339,6 +368,25 @@ export default function AttendanceCalendar() {
                             </button>
                           </div>
                         </div>
+
+                        {row.overrideRate !== null && editingOverrideUserId !== row.userId && (
+                          <p className="text-[11px] text-purple-700 bg-purple-50 rounded-full px-2 py-0.5 w-fit mt-1 font-medium">
+                            ปรับค่าแรงเป็น {row.overrideRate.toLocaleString("th-TH")} บาท
+                            {row.overrideNote ? ` — ${row.overrideNote}` : ""}
+                          </p>
+                        )}
+                        {editingOverrideUserId === row.userId && (
+                          <WageOverrideEditor
+                            userId={row.userId}
+                            dateKey={selectedDate}
+                            currentRate={row.overrideRate}
+                            currentNote={row.overrideNote}
+                            onDone={() => {
+                              setEditingOverrideUserId(null);
+                              reloadDaySummary();
+                            }}
+                          />
+                        )}
 
                         {(outsideNote || (row.outsideStartTime && row.outsideEndTime)) && (
                           <p className="text-[11px] text-gray-500 mt-0.5">
@@ -395,6 +443,42 @@ export default function AttendanceCalendar() {
               </ul>
             )}
           </div>
+
+          {!loadingDay && summary && summary.leaves.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">การลา</p>
+              <ul className="space-y-2">
+                {summary.leaves.map((leave) => (
+                  <li
+                    key={leave.id}
+                    className="rounded-2xl border border-rose-100 bg-rose-50/40 p-3 flex items-center gap-3"
+                  >
+                    <span className="flex-shrink-0 w-9 h-9 rounded-full bg-rose-100 flex items-center justify-center">
+                      <CalendarOff className="w-4 h-4 text-rose-600" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900">
+                        <Link href={`/users/${leave.userId}`} className="hover:text-orange-600">
+                          {leave.employeeName}
+                        </Link>{" "}
+                        <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full">
+                          {leaveTypeLabel[leave.type] || leave.type}
+                        </span>
+                      </p>
+                      {leave.reason && <p className="text-xs text-gray-500 mt-0.5">{leave.reason}</p>}
+                    </div>
+                    <button
+                      onClick={() => handleCancelLeave(leave)}
+                      title="ยกเลิกการลา"
+                      className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">ยืม / คืนของ</p>

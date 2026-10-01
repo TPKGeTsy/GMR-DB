@@ -291,10 +291,48 @@ export async function setWageOverride(userId: string, dateKey: string, rate: num
     );
 
     revalidatePath("/wages");
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${userId}`);
     return { success: true };
   } catch (error) {
     logError("Error setting wage override:", error);
     return { success: false, error: "บันทึกค่าแรงไม่สำเร็จ" };
+  }
+}
+
+export interface WageOverrideRow {
+  dateKey: string;
+  rate: number;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** One employee's full override history, newest first — for the profile
+ *  page's own section, separate from the all-employees /wages report. */
+export async function getUserWageOverrides(userId: string): Promise<
+  { success: true; data: WageOverrideRow[] } | { success: false; error: string }
+> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    const overrides = await prisma.wageOverride.findMany({
+      where: { userId },
+      orderBy: { dateKey: "desc" },
+    });
+
+    return {
+      success: true,
+      data: overrides.map((o) => ({
+        dateKey: o.dateKey,
+        rate: o.rate,
+        note: o.note,
+        updatedAt: o.updatedAt.toISOString(),
+      })),
+    };
+  } catch (error) {
+    logError("Error fetching wage overrides:", error);
+    return { success: false, error: "โหลดประวัติค่าแรงที่แก้ไขไม่สำเร็จ" };
   }
 }
 
@@ -312,6 +350,8 @@ export async function clearWageOverride(userId: string, dateKey: string) {
     await createActivityLog("CLEAR_WAGE_OVERRIDE", `Admin cleared ${targetUser.username}'s pay override for ${dateKey}`);
 
     revalidatePath("/wages");
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${userId}`);
     return { success: true };
   } catch (error) {
     logError("Error clearing wage override:", error);

@@ -7,11 +7,7 @@ import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { formatThaiDate } from "@/lib/datetime";
 import { notifyAdminsForApproval, notifyUser } from "@/lib/lineApprovals";
-
-const LEAVE_TYPES = ["SICK", "PERSONAL", "VACATION"] as const;
-type LeaveType = (typeof LEAVE_TYPES)[number];
-
-const leaveTypeLabel: Record<string, string> = { SICK: "ลาป่วย", PERSONAL: "ลากิจ", VACATION: "ลาพักร้อน" };
+import { LEAVE_TYPES, leaveTypeLabel, type LeaveType } from "@/lib/leaveTypes";
 
 function isApprover(role: string | undefined) {
   return role === "ADMIN" || role === "OPERATOR";
@@ -69,6 +65,53 @@ export async function createLeaveRequest(
   } catch (error) {
     logError("Error creating leave request:", error);
     return { success: false, error: "ยื่นใบลาไม่สำเร็จ" };
+  }
+}
+
+/** Backfills a leave day directly as already-decided — the same "admin
+ *  corrects a day after the fact" pattern as addManualAttendanceDay, for
+ *  someone who was out and never filed a request themselves. Skips the
+ *  PENDING step and the admin-notification push entirely since the admin
+ *  entering it *is* the approval. */
+export async function addManualLeaveDay(data: { userId: string; dateKey: string; type: string; reason?: string }) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+
+    if (!LEAVE_TYPES.includes(data.type as LeaveType)) {
+      return { success: false, error: "ประเภทการลาไม่ถูกต้อง" };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.dateKey)) return { success: false, error: "วันที่ไม่ถูกต้อง" };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    const date = new Date(`${data.dateKey}T00:00:00+07:00`);
+    const leaveRequest = await prisma.leaveRequest.create({
+      data: {
+        userId: data.userId,
+        type: data.type,
+        startDate: date,
+        endDate: date,
+        reason: data.reason?.trim() || null,
+        status: "APPROVED",
+        approvedById: session!.user!.id,
+        decidedAt: new Date(),
+      },
+    });
+
+    await createActivityLog(
+      "ADD_MANUAL_LEAVE",
+      `Admin added ${leaveTypeLabel[data.type] || data.type} for ${targetUser.username} on ${data.dateKey}`
+    );
+
+    revalidatePath("/attendance");
+    revalidatePath("/leave");
+    revalidatePath(`/users/${data.userId}`);
+    return { success: true, data: JSON.parse(JSON.stringify(leaveRequest)) };
+  } catch (error) {
+    logError("Error adding manual leave:", error);
+    return { success: false, error: "เพิ่มรายการลาไม่สำเร็จ" };
   }
 }
 
@@ -150,6 +193,8 @@ export async function cancelLeaveRequest(leaveRequestId: string) {
     await createActivityLog("CANCEL_LEAVE", `Cancelled leave request ${leaveRequestId}`);
 
     revalidatePath("/leave");
+    revalidatePath("/attendance");
+    revalidatePath(`/users/${leaveRequest.userId}`);
     return { success: true };
   } catch (error) {
     logError("Error cancelling leave request:", error);
@@ -171,6 +216,29 @@ export async function getMyLeaveRequests() {
   } catch (error) {
     logError("Error fetching my leave requests:", error);
     return { success: false, error: "Failed to load leave requests" };
+  }
+}
+
+/** One employee's leave history for their own profile page — self or admin,
+ *  same audience as the rest of that page's attendance section. */
+export async function getUserLeaveHistory(userId: string) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (session.user.id !== userId && session.user.role !== "ADMIN") {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const leaveRequests = await prisma.leaveRequest.findMany({
+      where: { userId },
+      orderBy: { startDate: "desc" },
+      take: 50,
+    });
+
+    return { success: true, data: JSON.parse(JSON.stringify(leaveRequests)) };
+  } catch (error) {
+    logError("Error fetching user leave history:", error);
+    return { success: false, error: "Failed to load leave history" };
   }
 }
 

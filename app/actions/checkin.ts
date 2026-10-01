@@ -553,6 +553,10 @@ export interface DaySummaryRow {
   // (see CheckIn.tripId) — lets the UI link the outside-time text through
   // to that trip's /outside-trip/[id] detail page.
   tripId: string | null;
+  // This day's WageOverride, if one's set (see app/actions/wages.ts) — lets
+  // the attendance day panel show/edit it without a trip to /wages.
+  overrideRate: number | null;
+  overrideNote: string | null;
 }
 
 export interface DayLoanRow {
@@ -565,10 +569,18 @@ export interface DayLoanRow {
 }
 
 /** Everything that happened on one Bangkok calendar day — who was checked in
- *  and when, plus what was borrowed/returned that day — for the attendance
- *  calendar's day-detail panel. */
+ *  and when, plus what was borrowed/returned that day and who's on approved
+ *  leave that day — for the attendance calendar's day-detail panel. */
+export interface DayLeaveRow {
+  id: string;
+  userId: string;
+  employeeName: string;
+  type: string;
+  reason: string | null;
+}
+
 export async function getDaySummary(dateKey: string): Promise<
-  | { success: true; data: { attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[] } }
+  | { success: true; data: { attendance: DaySummaryRow[]; borrowed: DayLoanRow[]; returned: DayLoanRow[]; leaves: DayLeaveRow[] } }
   | { success: false; error: string }
 > {
   try {
@@ -577,7 +589,7 @@ export async function getDaySummary(dateKey: string): Promise<
 
     const { start, end } = bangkokDayRange(dateKey);
 
-    const [dayCheckIns, borrowedLoans, returnedLoans] = await Promise.all([
+    const [dayCheckIns, borrowedLoans, returnedLoans, dayLeaves] = await Promise.all([
       prisma.checkIn.findMany({
         where: { createdAt: { gte: start, lt: end } },
         orderBy: { createdAt: "asc" },
@@ -593,6 +605,11 @@ export async function getDaySummary(dateKey: string): Promise<
         include: { user: { select: { id: true, username: true, fullName: true, nickname: true } }, asset: { select: { name: true } } },
         orderBy: { returnedAt: "asc" },
       }),
+      prisma.leaveRequest.findMany({
+        where: { status: "APPROVED", startDate: { lte: end }, endDate: { gte: start } },
+        include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
+        orderBy: { createdAt: "asc" },
+      }),
     ]);
 
     // buildDailySummary needs each active user's check-ins in a window
@@ -602,13 +619,19 @@ export async function getDaySummary(dateKey: string): Promise<
     // day panel show that person as still working with a nonsense
     // multi-day "elapsed" duration.
     const activeUserIds = Array.from(new Set(dayCheckIns.map((c) => c.userId)));
-    const fullHistory = activeUserIds.length
-      ? await prisma.checkIn.findMany({
-          where: { userId: { in: activeUserIds }, createdAt: paddedCheckInWindow(dateKey, dateKey) },
-          orderBy: { createdAt: "asc" },
-          select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
-        })
-      : [];
+    const [fullHistory, dayOverrides] = await Promise.all([
+      activeUserIds.length
+        ? prisma.checkIn.findMany({
+            where: { userId: { in: activeUserIds }, createdAt: paddedCheckInWindow(dateKey, dateKey) },
+            orderBy: { createdAt: "asc" },
+            select: { userId: true, type: true, location: true, createdAt: true, otStartOverride: true },
+          })
+        : Promise.resolve([]),
+      activeUserIds.length
+        ? prisma.wageOverride.findMany({ where: { userId: { in: activeUserIds }, dateKey } })
+        : Promise.resolve([]),
+    ]);
+    const overrideByUser = new Map(dayOverrides.map((o) => [o.userId, o]));
 
     const namesByUser = new Map(dayCheckIns.map((c) => [c.userId, c.user.nickname || c.user.fullName || c.user.username]));
     const historyByUser = new Map<string, { type: string; location: string; createdAt: Date; otStartOverride: Date | null }[]>();
@@ -665,6 +688,8 @@ export async function getDaySummary(dateKey: string): Promise<
         outsideStartTime: withOutsideRange?.outsideStartAt ? withOutsideRange.outsideStartAt.toISOString() : null,
         outsideEndTime: withOutsideRange?.outsideEndAt ? withOutsideRange.outsideEndAt.toISOString() : null,
         tripId,
+        overrideRate: overrideByUser.get(userId)?.rate ?? null,
+        overrideNote: overrideByUser.get(userId)?.note ?? null,
       };
     });
     attendance.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -691,6 +716,13 @@ export async function getDaySummary(dateKey: string): Promise<
             employeeName: l.user.nickname || l.user.fullName || l.user.username,
             time: l.returnedAt.toISOString(),
           })),
+        leaves: dayLeaves.map((l) => ({
+          id: l.id,
+          userId: l.user.id,
+          employeeName: l.user.nickname || l.user.fullName || l.user.username,
+          type: l.type,
+          reason: l.reason,
+        })),
       },
     };
   } catch (error) {

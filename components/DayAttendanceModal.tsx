@@ -7,7 +7,11 @@ import {
   editManualAttendanceDay,
   type EmployeeOption,
 } from "@/app/actions/checkin";
+import { addManualLeaveDay } from "@/app/actions/leave";
+import { leaveTypeLabel } from "@/lib/leaveTypes";
 import { X } from "lucide-react";
+
+const LEAVE_TYPE_OPTIONS = Object.entries(leaveTypeLabel) as [string, string][];
 
 interface DayAttendanceModalProps {
   dateKey: string;
@@ -28,6 +32,9 @@ interface DayAttendanceModalProps {
 }
 
 export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, onSaved, editing }: DayAttendanceModalProps) {
+  // Editing only ever targets an existing attendance row — the leave mode
+  // is add-only (cancel an existing leave day from its own card instead).
+  const [entryMode, setEntryMode] = useState<"attendance" | "leave">("attendance");
   const [userId, setUserId] = useState(editing?.userId || employeeOptions[0]?.id || "");
   // Only used when adding a fresh outside-trip day for a whole team —
   // editing always targets the one employee whose row was clicked.
@@ -35,12 +42,20 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
   const [startTime, setStartTime] = useState(editing?.startTime || "09:00");
   const [endTime, setEndTime] = useState(editing?.endTime || "17:00");
   const [wentOutside, setWentOutside] = useState(editing?.wentOutside ?? false);
+  // "ไปทั้งวัน": the 4-field travel-report form (depart office -> site ->
+  // depart site -> back). "ไปแค่บางช่วง": someone who mostly worked a normal
+  // office day and just stepped out for part of it — same underlying 4
+  // values (outsideStartTime/outsideEndTime nest inside startTime/endTime
+  // either way), only the framing/labels and defaults change.
+  const [outsideAllDay, setOutsideAllDay] = useState(true);
   const [outsideNote, setOutsideNote] = useState("");
   const [workSummary, setWorkSummary] = useState("");
   const [outsideStartTime, setOutsideStartTime] = useState(
     editing?.outsideStartTime || editing?.startTime || "10:00"
   );
   const [outsideEndTime, setOutsideEndTime] = useState(editing?.outsideEndTime || editing?.endTime || "16:00");
+  const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPE_OPTIONS[0]?.[0] || "PERSONAL");
+  const [leaveReason, setLeaveReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,7 +70,9 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
     setIsSubmitting(true);
     setError(null);
 
-    const result = isTeamOutsideAdd
+    const result = entryMode === "leave"
+      ? await addManualLeaveDay({ userId, dateKey, type: leaveType, reason: leaveReason })
+      : isTeamOutsideAdd
       ? await addManualOutsideTripDay({
           userIds: selectedUserIds,
           dateKey,
@@ -106,7 +123,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
         <div className="mx-auto sm:hidden w-10 h-1 rounded-full bg-gray-200 -mt-1 mb-1" />
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-gray-900">
-            {editing ? "แก้ไขเวลาทำงานวันนี้" : "เพิ่มรายการเข้างาน (ลืมเช็คอิน)"}
+            {editing ? "แก้ไขเวลาทำงานวันนี้" : entryMode === "leave" ? "เพิ่มรายการลา" : "เพิ่มรายการเข้างาน (ลืมเช็คอิน)"}
           </h3>
           <button
             onClick={onClose}
@@ -116,8 +133,31 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
           </button>
         </div>
 
+        {!editing && (
+          <div className="grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1">
+            <button
+              type="button"
+              onClick={() => setEntryMode("attendance")}
+              className={`rounded-full py-1.5 text-sm font-semibold transition-colors ${
+                entryMode === "attendance" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+              }`}
+            >
+              เข้างาน
+            </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode("leave")}
+              className={`rounded-full py-1.5 text-sm font-semibold transition-colors ${
+                entryMode === "leave" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+              }`}
+            >
+              ลา
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleSave} className="space-y-3">
-          {isTeamOutsideAdd ? (
+          {isTeamOutsideAdd && entryMode === "attendance" ? (
             <div>
               <label className="text-xs text-gray-400">ผู้ปฏิบัติงาน (เลือกได้หลายคน)</label>
               <div className="mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
@@ -152,6 +192,35 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
             </div>
           )}
 
+          {entryMode === "leave" ? (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400">ประเภทการลา</label>
+                <select
+                  value={leaveType}
+                  onChange={(e) => setLeaveType(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                >
+                  {LEAVE_TYPE_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">หมายเหตุ</label>
+                <textarea
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  placeholder="เช่น ลาป่วยไข้หวัด, ลากิจธุระส่วนตัว"
+                  rows={2}
+                  className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors resize-none"
+                />
+              </div>
+            </div>
+          ) : (
+          <>
           <label className="flex items-center justify-between gap-2 text-sm font-medium text-gray-700 rounded-xl bg-gray-50 px-3 py-2.5 cursor-pointer">
             วันนี้ออกหน้างานหรือไม่
             <span className="relative inline-flex flex-shrink-0">
@@ -168,6 +237,26 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
 
           {wentOutside ? (
             <div className="space-y-2.5 rounded-2xl border border-orange-100 bg-orange-50/40 p-3">
+              <div className="grid grid-cols-2 gap-1 rounded-full bg-white border border-orange-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setOutsideAllDay(true)}
+                  className={`rounded-full py-1 text-xs font-semibold transition-colors ${
+                    outsideAllDay ? "bg-orange-600 text-white" : "text-gray-500"
+                  }`}
+                >
+                  ไปทั้งวัน
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutsideAllDay(false)}
+                  className={`rounded-full py-1 text-xs font-semibold transition-colors ${
+                    !outsideAllDay ? "bg-orange-600 text-white" : "text-gray-500"
+                  }`}
+                >
+                  ไปแค่บางช่วง
+                </button>
+              </div>
               <div>
                 <label className="text-xs text-gray-400">สถานที่</label>
                 <input
@@ -189,54 +278,102 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
                   className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
                 />
               </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-1">เวลาเดินทาง (โดยประมาณ)</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-gray-400">ออกจาก บ.</label>
-                    <input
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      required
-                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
-                    />
+              {outsideAllDay ? (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">เวลาเดินทาง (โดยประมาณ)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-400">ออกจาก บ.</label>
+                      <input
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">ถึงหน้างาน</label>
+                      <input
+                        type="time"
+                        value={outsideStartTime}
+                        onChange={(e) => setOutsideStartTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">ออกจากหน้างาน</label>
+                      <input
+                        type="time"
+                        value={outsideEndTime}
+                        onChange={(e) => setOutsideEndTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">ถึง บ.</label>
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-gray-400">ถึงหน้างาน</label>
-                    <input
-                      type="time"
-                      value={outsideStartTime}
-                      onChange={(e) => setOutsideStartTime(e.target.value)}
-                      required
-                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-400">ออกจากหน้างาน</label>
-                    <input
-                      type="time"
-                      value={outsideEndTime}
-                      onChange={(e) => setOutsideEndTime(e.target.value)}
-                      required
-                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-400">ถึง บ.</label>
-                    <input
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                      required
-                      className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
-                    />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    ถ้าเวลาถึง บ. ข้ามเที่ยงคืน ระบบจะเลื่อนเป็นวันถัดไปให้อัตโนมัติ
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">ช่วงเวลาทำงานปกติ + ช่วงที่ออกไป</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-400">เข้างาน</label>
+                      <input
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">เลิกงาน</label>
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">ออกจากออฟฟิศ (ช่วง)</label>
+                      <input
+                        type="time"
+                        value={outsideStartTime}
+                        onChange={(e) => setOutsideStartTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400">กลับถึงออฟฟิศ</label>
+                      <input
+                        type="time"
+                        value={outsideEndTime}
+                        onChange={(e) => setOutsideEndTime(e.target.value)}
+                        required
+                        className="mt-0.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none transition-colors"
+                      />
+                    </div>
                   </div>
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1">
-                  ถ้าเวลาถึง บ. ข้ามเที่ยงคืน ระบบจะเลื่อนเป็นวันถัดไปให้อัตโนมัติ
-                </p>
-              </div>
+              )}
             </div>
           ) : (
             <div>
@@ -262,6 +399,8 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
               </p>
             </div>
           )}
+          </>
+          )}
 
           {error && <p className="text-xs text-red-600">{error}</p>}
 
@@ -276,7 +415,7 @@ export default function DayAttendanceModal({ dateKey, employeeOptions, onClose, 
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || (isTeamOutsideAdd && selectedUserIds.length === 0)}
+              disabled={isSubmitting || (entryMode === "attendance" && isTeamOutsideAdd && selectedUserIds.length === 0)}
               className="px-5 py-2.5 rounded-full bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 active:bg-orange-800 shadow-sm shadow-orange-200 disabled:opacity-50 disabled:shadow-none transition-colors"
             >
               {isSubmitting ? "กำลังบันทึก..." : "บันทึก"}

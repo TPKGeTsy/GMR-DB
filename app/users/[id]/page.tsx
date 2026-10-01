@@ -14,6 +14,10 @@ import { countMealDays } from "@/lib/wages";
 import { gradeBadgeClass } from "@/lib/gradeColor";
 import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
+import { getUserWageOverrides } from "@/app/actions/wages";
+import { getUserLeaveHistory } from "@/app/actions/leave";
+import UserWageOverridesPanel from "@/components/UserWageOverridesPanel";
+import UserLeaveHistoryPanel from "@/components/UserLeaveHistoryPanel";
 import { canManageUsers } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +44,12 @@ export default async function UserProfilePage({
   // Operators get full /users access except seeing OTHER employees' check-in/
   // attendance history — they can still see their own.
   const canSeeAttendance = currentUser?.role === "ADMIN" || isOwnProfile;
+  // Wage overrides are payroll data — strictly ADMIN, not even the
+  // employee themselves (unlike attendance, which someone can see their
+  // own history of).
+  const isAdmin = currentUser?.role === "ADMIN";
 
-  const [user, logsResult, availableActions] = await Promise.all([
+  const [user, logsResult, availableActions, wageOverridesResult, leaveHistoryResult] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: {
@@ -52,12 +60,16 @@ export default async function UserProfilePage({
     }),
     getUserActivityLogs(id, { from: logFrom, to: logTo, action: logAction, page: Number(logPage) || 1, limit: 20 }),
     getUserActivityActions(id),
+    isAdmin ? getUserWageOverrides(id) : Promise.resolve(null),
+    canSeeAttendance ? getUserLeaveHistory(id) : Promise.resolve(null),
   ]);
 
   if (!user) return <div className="p-8 text-center">User not found</div>;
 
   const logs = logsResult.success && logsResult.data ? logsResult.data : [];
   const logTotalPages = logsResult.success ? logsResult.totalPages : 1;
+  const wageOverrides = wageOverridesResult?.success && wageOverridesResult.data ? wageOverridesResult.data : [];
+  const leaveHistory = leaveHistoryResult?.success && leaveHistoryResult.data ? leaveHistoryResult.data : [];
 
   const dailyRows = canSeeAttendance ? buildDailySummary(user.checkIns) : [];
   const latestCheckIn = user.checkIns[0];
@@ -276,6 +288,10 @@ export default async function UserProfilePage({
             </div>
           </div>
           )}
+
+          {canSeeAttendance && <UserLeaveHistoryPanel initialLeaves={leaveHistory} canEdit={isAdmin} />}
+
+          {isAdmin && <UserWageOverridesPanel userId={user.id} initialOverrides={wageOverrides} />}
 
           <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
