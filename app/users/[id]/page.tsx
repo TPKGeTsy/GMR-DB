@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
-import { User, Activity, Clock, FileText, MapPin, CalendarClock } from "lucide-react";
+import { User, Activity, Clock, FileText, MapPin } from "lucide-react";
 import Link from "next/link";
 import RegisterFacePanel from "@/components/RegisterFacePanel";
 import ChangePasswordPanel from "@/components/ChangePasswordPanel";
@@ -12,12 +12,13 @@ import Pagination from "@/components/Pagination";
 import { buildDailySummary, formatHoursTenths } from "@/lib/attendance";
 import { countMealDays } from "@/lib/wages";
 import { gradeBadgeClass } from "@/lib/gradeColor";
-import { formatThaiDateLong, formatThaiDateTime, formatThaiTime, bangkokDateKey } from "@/lib/datetime";
+import { formatThaiDateTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
 import { getUserWageOverrides } from "@/app/actions/wages";
 import { getUserLeaveHistory } from "@/app/actions/leave";
 import UserWageOverridesPanel from "@/components/UserWageOverridesPanel";
 import UserLeaveHistoryPanel from "@/components/UserLeaveHistoryPanel";
+import UserDailyTimesheetPanel from "@/components/UserDailyTimesheetPanel";
 import { canManageUsers } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -216,77 +217,20 @@ export default async function UserProfilePage({
           )}
 
           {canSeeAttendance && (
-          <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
-              <CalendarClock className="h-5 w-5 text-orange-600 mr-2" />
-              <h2 className="text-sm font-semibold text-gray-900">Daily Timesheet</h2>
-            </div>
-            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">Start</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">End</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">Hours</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">OT</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-700 uppercase tracking-wider">Location</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
-                  {dailyRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-400 italic">
-                        No check-in history yet
-                      </td>
-                    </tr>
-                  ) : (
-                    dailyRows.map((row) => (
-                      <tr key={row.dateKey} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 whitespace-nowrap text-xs font-medium text-gray-900">
-                          {formatThaiDateLong(row.dateKey)}
-                        </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
-                          {row.startTime ? formatThaiTime(row.startTime) : "-"}
-                        </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
-                          {row.stillWorking ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-semibold">
-                              Still working
-                            </span>
-                          ) : row.endTime ? (
-                            formatThaiTime(row.endTime)
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
-                          {row.totalHours > 0 ? `${formatHoursTenths(row.totalHours)} ชม.` : "-"}
-                        </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-xs">
-                          {row.otHours > 0 ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-semibold">
-                              +{formatHoursTenths(row.otHours)} ชม.
-                            </span>
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                            row.location === "OUTSIDE" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-700"
-                          }`}>
-                            <MapPin className="w-2.5 h-2.5 mr-1" />
-                            {row.location === "OUTSIDE" ? "Outside" : "Onsite"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+            <UserDailyTimesheetPanel
+              userId={user.id}
+              employeeName={user.nickname || user.fullName || user.username}
+              rows={dailyRows.map((row) => ({
+                dateKey: row.dateKey,
+                startTime: row.startTime ? row.startTime.toISOString() : null,
+                endTime: row.endTime ? row.endTime.toISOString() : null,
+                stillWorking: row.stillWorking,
+                totalHours: row.totalHours,
+                otHours: row.otHours,
+                location: row.location,
+              }))}
+              canEdit={isAdmin}
+            />
           )}
 
           {canSeeAttendance && <UserLeaveHistoryPanel initialLeaves={leaveHistory} canEdit={isAdmin} />}
