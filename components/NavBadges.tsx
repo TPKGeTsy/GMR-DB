@@ -70,6 +70,9 @@ export default function NavBadges({
     { href: "/leave", label: "การลา", icon: "CalendarHeart", badge: pendingLeaveCount },
     { href: "/work-schedule", label: "ตารางงาน (Work Schedule)", icon: "CalendarRange" },
     { href: "/outside-trip", label: "ออกหน้างาน (Outside Trip)", icon: "MapPin" },
+    ...(isApprover
+      ? [{ href: "/labor-hire", label: "Consult ช่าง/คนงานนอก", icon: "HardHat" } as NavDropdownItem]
+      : []),
     ...(isOtManagerRole(role)
       ? [
           { href: "/ot", label: "OT", icon: "Timer" } as NavDropdownItem,

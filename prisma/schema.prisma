@@ -16,23 +16,23 @@ datasource db {
 }
 
 model Asset {
-  id              String   @id @default(cuid())
-  imageUrl        String?  @map("image_url")
-  imagePosition   String?  @default("50% 50%") @map("image_position")
-  name            String
-  category        String?
-  modelOrSize     String   @map("model_or_size")
-  quantity        Int
-  unit            String
-  categoryStatus  String   @map("category_status") // 'R', 'Y', 'G', or 'B'
+  id                 String              @id @default(cuid())
+  imageUrl           String?             @map("image_url")
+  imagePosition      String?             @default("50% 50%") @map("image_position")
+  name               String
+  category           String?
+  modelOrSize        String              @map("model_or_size")
+  quantity           Int
+  unit               String
+  categoryStatus     String              @map("category_status") // 'R', 'Y', 'G', or 'B'
   // 'BORROW' (ยืม — expected back, e.g. a screwdriver) or 'CONSUME' (เบิก —
   // taken permanently, e.g. screws/nuts). Drives whether borrowAsset's Loan
   // row is left open for a later return or auto-marked returned immediately.
-  issueType       String   @default("BORROW") @map("issue_type")
-  unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  loans           Loan[]
+  issueType          String              @default("BORROW") @map("issue_type")
+  unitPrice          Decimal             @map("unit_price") @db.Decimal(10, 2)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  loans              Loan[]
   linePendingBorrows LinePendingBorrow[]
 
   @@map("assets")
@@ -53,70 +53,73 @@ model Loan {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  fullName  String?  @map("full_name")
-  nickname  String?  @unique
-  role      String   @default("USER") // 'ADMIN', 'OPERATOR', 'SENIOR', 'USER'
+  id                         String                  @id @default(cuid())
+  username                   String                  @unique
+  password                   String
+  fullName                   String?                 @map("full_name")
+  nickname                   String?                 @unique
+  role                       String                  @default("USER") // 'ADMIN', 'OPERATOR', 'SENIOR', 'USER'
   // Intern pay grade — 'A', 'B', 'C', or null for non-intern staff. Separate
   // from `role` (which only governs app permissions) since it drives daily
   // wage calculation instead.
-  internGrade String? @map("intern_grade")
-  lineUserId String? @unique @map("line_user_id")
-  faceDescriptor   Float[]   @map("face_descriptor")
-  faceRegisteredAt DateTime? @map("face_registered_at")
-  faceConsentAt    DateTime? @map("face_consent_at")
-  failedLoginAttempts Int    @default(0) @map("failed_login_attempts")
-  lockedUntil      DateTime? @map("locked_until")
+  internGrade                String?                 @map("intern_grade")
+  lineUserId                 String?                 @unique @map("line_user_id")
+  faceDescriptor             Float[]                 @map("face_descriptor")
+  faceRegisteredAt           DateTime?               @map("face_registered_at")
+  faceConsentAt              DateTime?               @map("face_consent_at")
+  failedLoginAttempts        Int                     @default(0) @map("failed_login_attempts")
+  lockedUntil                DateTime?               @map("locked_until")
   // Self-registered accounts start unapproved and can't log in until Gamer
   // (the sole approver — see lib/roles.ts's isOwner) approves them. Default
   // true so existing/seeded/admin-created rows are never accidentally
   // locked out; registerUser explicitly sets this false.
-  approved         Boolean   @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  logs      ActivityLog[]
-  equipmentTemplates EquipmentTemplate[]
-  wiringDiagrams     WiringDiagram[]
-  checkIns  CheckIn[]
-  loans     Loan[]
-  bookings  Booking[] @relation("BookingRequester")
-  approvedBookings Booking[] @relation("BookingApprover")
-  createdProjects  Project[] @relation("ProjectCreator")
-  projectMemberships ProjectMember[]
-  workSchedules    WorkSchedule[]
-  leaveRequests    LeaveRequest[] @relation("LeaveRequester")
-  approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
-  uploadedProjectFiles ProjectFile[]
-  grantedOtCheckIns CheckIn[] @relation("OtGrantedBy")
-  otGrantsReceived OtGrant[] @relation("OtGrantRecipient")
-  otGrantsMade     OtGrant[] @relation("OtGrantGranter")
-  pendingOtGrantsAsTarget LinePendingOtGrant[]
-  otApprovalRequests        OtApprovalRequest[] @relation("OtApprovalRequestUser")
-  decidedOtApprovalRequests OtApprovalRequest[] @relation("OtApprovalRequestDecider")
-  createdOutsideTrips       OutsideWorkTrip[]   @relation("OutsideTripCreatedBy")
+  approved                   Boolean                 @default(true)
+  createdAt                  DateTime                @default(now()) @map("created_at")
+  updatedAt                  DateTime                @updatedAt @map("updated_at")
+  logs                       ActivityLog[]
+  equipmentTemplates         EquipmentTemplate[]
+  wiringDiagrams             WiringDiagram[]
+  checkIns                   CheckIn[]
+  loans                      Loan[]
+  bookings                   Booking[]               @relation("BookingRequester")
+  approvedBookings           Booking[]               @relation("BookingApprover")
+  createdProjects            Project[]               @relation("ProjectCreator")
+  projectMemberships         ProjectMember[]
+  workSchedules              WorkSchedule[]
+  leaveRequests              LeaveRequest[]          @relation("LeaveRequester")
+  approvedLeaveRequests      LeaveRequest[]          @relation("LeaveApprover")
+  uploadedProjectFiles       ProjectFile[]
+  grantedOtCheckIns          CheckIn[]               @relation("OtGrantedBy")
+  otGrantsReceived           OtGrant[]               @relation("OtGrantRecipient")
+  otGrantsMade               OtGrant[]               @relation("OtGrantGranter")
+  pendingOtGrantsAsTarget    LinePendingOtGrant[]
+  otApprovalRequests         OtApprovalRequest[]     @relation("OtApprovalRequestUser")
+  decidedOtApprovalRequests  OtApprovalRequest[]     @relation("OtApprovalRequestDecider")
+  createdOutsideTrips        OutsideWorkTrip[]       @relation("OutsideTripCreatedBy")
   outsideWorkTripMemberships OutsideWorkTripMember[]
-  wageOverrides             WageOverride[]
+  wageOverrides              WageOverride[]
+  laborHiresResponsible      OutsideLaborHire[]      @relation("LaborHireResponsible")
+  laborHiresCreated          OutsideLaborHire[]      @relation("LaborHireCreator")
 
   @@map("users")
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String             @id @default(cuid())
   name        String
   description String?
   client      String?
-  status      String   @default("ACTIVE") // 'ACTIVE', 'COMPLETED', 'ON_HOLD'
-  startDate   DateTime? @map("start_date")
-  endDate     DateTime? @map("end_date")
-  createdById String   @map("created_by_id")
-  createdBy   User     @relation("ProjectCreator", fields: [createdById], references: [id])
-  createdAt   DateTime @default(now()) @map("created_at")
+  status      String             @default("ACTIVE") // 'ACTIVE', 'COMPLETED', 'ON_HOLD'
+  startDate   DateTime?          @map("start_date")
+  endDate     DateTime?          @map("end_date")
+  createdById String             @map("created_by_id")
+  createdBy   User               @relation("ProjectCreator", fields: [createdById], references: [id])
+  createdAt   DateTime           @default(now()) @map("created_at")
   members     ProjectMember[]
   schedules   WorkSchedule[]
-  circuits    WiringDiagram[] @relation("ProjectCircuits")
+  circuits    WiringDiagram[]    @relation("ProjectCircuits")
   files       ProjectFile[]
+  laborHires  OutsideLaborHire[]
 
   @@map("projects")
 }
@@ -197,26 +200,26 @@ model Booking {
 }
 
 model CheckIn {
-  id         String   @id @default(cuid())
-  userId     String   @map("user_id")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type       String   @default("IN") // 'IN' (start work) or 'OUT' (finish work)
-  location   String   @default("OFFICE") // 'OFFICE' or 'OUTSIDE'
-  note       String? // detail when working outside the office, or an OT reason appended by the LINE bot
-  confidence Float?   // similarity score (0-1) from the face match; null for a LINE-bot check-out (no scan)
-  photoUrl   String?  @map("photo_url") // webcam snapshot at check-in time; purged daily at midnight
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                     String    @id @default(cuid())
+  userId                 String    @map("user_id")
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                   String    @default("IN") // 'IN' (start work) or 'OUT' (finish work)
+  location               String    @default("OFFICE") // 'OFFICE' or 'OUTSIDE'
+  note                   String? // detail when working outside the office, or an OT reason appended by the LINE bot
+  confidence             Float? // similarity score (0-1) from the face match; null for a LINE-bot check-out (no scan)
+  photoUrl               String?   @map("photo_url") // webcam snapshot at check-in time; purged daily at midnight
+  createdAt              DateTime  @default(now()) @map("created_at")
   // Set once the LINE bot has sent the corresponding nudge for this open
   // "IN" session, so the reminder cron doesn't re-send it every run.
-  reminderSentAt DateTime? @map("reminder_sent_at")
-  otPromptSentAt DateTime? @map("ot_prompt_sent_at")
+  reminderSentAt         DateTime? @map("reminder_sent_at")
+  otPromptSentAt         DateTime? @map("ot_prompt_sent_at")
   // True right after the user taps "ทำ OT ต่อ", until their next message
   // (taken as the OT reason and folded into `note`) arrives.
-  awaitingOtReason Boolean @default(false) @map("awaiting_ot_reason")
+  awaitingOtReason       Boolean   @default(false) @map("awaiting_ot_reason")
   // Set (and left set) the first time the user taps "ทำ OT ต่อ" for this
   // session — distinguishes "confirmed doing OT" from "never responded" once
   // the reminder cron crosses midnight into the next calendar day.
-  otConfirmedAt DateTime? @map("ot_confirmed_at")
+  otConfirmedAt          DateTime? @map("ot_confirmed_at")
   // Idempotency guard for the midnight "ยังทำ OT อยู่ไหมคะ" re-ask, so the
   // cron (which runs every few minutes) doesn't repeat it all night. Only
   // used for OUTSIDE sessions — OFFICE uses the operator-granted flow below
@@ -227,34 +230,34 @@ model CheckIn {
   // sets these three. otGrantedHours extends this session's auto-checkout
   // deadline (past the normal 8-worked-hours mark) by that many hours;
   // with no grant, the reminder cron checks them out right at that mark.
-  otGrantedHours   Float?    @map("ot_granted_hours")
-  otGrantedById    String?   @map("ot_granted_by_id")
-  otGrantedBy      User?     @relation("OtGrantedBy", fields: [otGrantedById], references: [id])
-  otGrantedAt      DateTime? @map("ot_granted_at")
+  otGrantedHours         Float?    @map("ot_granted_hours")
+  otGrantedById          String?   @map("ot_granted_by_id")
+  otGrantedBy            User?     @relation("OtGrantedBy", fields: [otGrantedById], references: [id])
+  otGrantedAt            DateTime? @map("ot_granted_at")
   // Plain reference (no FK/relation, same rationale as OtGrant's) to the
   // OutsideWorkTrip this OUTSIDE session belongs to, if any — lets the
   // reminder cron skip the self-serve ask-continue-OT prompt for it (OT
   // counts automatically, pending manager approval, instead) and lets the
   // hourly check-in nudge find it.
-  tripId        String?   @map("trip_id")
-  otNudgeSentAt DateTime? @map("ot_nudge_sent_at")
+  tripId                 String?   @map("trip_id")
+  otNudgeSentAt          DateTime? @map("ot_nudge_sent_at")
   // Set when an OFFICE check-in more than 45 minutes before 9:00 gets "มีงาน"
   // (has work) confirmed via the LINE prompt — audit/payroll-legitimacy
   // marker only, no math effect (buildDailySummary already counts from the
   // true check-in time).
-  earlyOtConfirmedAt DateTime? @map("early_ot_confirmed_at")
+  earlyOtConfirmedAt     DateTime? @map("early_ot_confirmed_at")
   // The other early-check-in answer ("แค่มาก่อน" — just came early, not
   // working) sets this to 09:00 Bangkok that day: buildDailySummary uses it
   // in place of the true createdAt for hour/OT math on this session, so the
   // early idle time before 9:00 doesn't count as worked or OT time. The raw
   // createdAt is still what's *displayed* as the check-in time everywhere.
-  otStartOverride DateTime? @map("ot_start_override")
+  otStartOverride        DateTime? @map("ot_start_override")
   // Whether this OUTSIDE check-in's calendar day counts toward the
   // "accumulated meals" total (countMealDays in lib/wages.ts) — defaults to
   // true (every outside day earns a meal, the original behavior) but an
   // admin can turn it off per person/day from the Attendance table for a
   // trip that didn't actually include a meal. Meaningless on an OFFICE row.
-  mealCounted Boolean @default(true) @map("meal_counted")
+  mealCounted            Boolean   @default(true) @map("meal_counted")
   // For a manually-entered day where the admin recorded an overall work
   // time range plus a separate "went outside" sub-range within it (see
   // manualAttendanceLocationAndNote in app/actions/checkin.ts) — the
@@ -263,12 +266,12 @@ model CheckIn {
   // read them back directly rather than re-parsing a note string. Null for
   // a normal OFFICE day, and null for a real outside-trip check-in (there
   // the whole session *is* the outside period, i.e. createdAt itself).
-  outsideStartAt DateTime? @map("outside_start_at")
-  outsideEndAt   DateTime? @map("outside_end_at")
+  outsideStartAt         DateTime? @map("outside_start_at")
+  outsideEndAt           DateTime? @map("outside_end_at")
   // Free-text "what work was done" for an outside-trip day (the "สรุปงานคร่าวๆ"
   // line in the team's outside-work report template) — informational only,
   // no effect on hour/wage math.
-  workSummary String? @map("work_summary")
+  workSummary            String?   @map("work_summary")
 
   // check_ins has no secondary indexes at all until this — every query
   // filtering by user, date range, or trip (almost every read in this app:
@@ -289,7 +292,7 @@ model LeaveRequest {
   id           String    @id @default(cuid())
   userId       String    @map("user_id")
   user         User      @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
-  type         String    // 'SICK', 'PERSONAL', 'VACATION'
+  type         String // 'SICK', 'PERSONAL', 'VACATION'
   startDate    DateTime  @map("start_date")
   endDate      DateTime  @map("end_date")
   reason       String?
@@ -320,14 +323,14 @@ model LinePendingBorrow {
 // distinct from the working fields on CheckIn (otGrantedHours etc.), which
 // only reflect *today's* open session and get superseded session to session.
 model OtGrant {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  user        User     @relation("OtGrantRecipient", fields: [userId], references: [id], onDelete: Cascade)
-  hours       Float
-  reason      String?
-  grantedById String   @map("granted_by_id")
-  grantedBy   User     @relation("OtGrantGranter", fields: [grantedById], references: [id])
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  user           User      @relation("OtGrantRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  hours          Float
+  reason         String?
+  grantedById    String    @map("granted_by_id")
+  grantedBy      User      @relation("OtGrantGranter", fields: [grantedById], references: [id])
+  createdAt      DateTime  @default(now()) @map("created_at")
   // 'PENDING' (awaiting the employee's tap) | 'ACCEPTED' | 'DECLINE_PENDING'
   // (declined, awaiting their reason) | 'DECLINED'. Declining reverts the
   // CheckIn/WorkSchedule side effects below (see handleOtDeclineConfirm) —
@@ -367,22 +370,22 @@ model LinePendingOtGrant {
 // OutsideWorkTrip crosses into OT territory ('OUTSIDE_AUTO', open-ended until
 // they check out, so hours aren't known yet at request time).
 model OtApprovalRequest {
-  id          String    @id @default(cuid())
-  userId      String    @map("user_id")
-  user        User      @relation("OtApprovalRequestUser", fields: [userId], references: [id], onDelete: Cascade)
-  source      String    // 'OUTSIDE_AUTO' | 'SELF_REQUEST'
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  user           User      @relation("OtApprovalRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  source         String // 'OUTSIDE_AUTO' | 'SELF_REQUEST'
   // Plain references (no FK/relation), same rationale as OtGrant's — this
   // audit row must survive even if the CheckIn/trip it refers to changes.
-  checkInId   String?   @map("check_in_id")
-  tripId      String?   @map("trip_id")
-  location    String?
-  reason      String?
-  requestedHours Float? @map("requested_hours")
-  status      String    @default("PENDING") // 'PENDING', 'APPROVED', 'REJECTED'
-  decidedById String?   @map("decided_by_id")
-  decidedBy   User?     @relation("OtApprovalRequestDecider", fields: [decidedById], references: [id])
-  decidedAt   DateTime? @map("decided_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  checkInId      String?   @map("check_in_id")
+  tripId         String?   @map("trip_id")
+  location       String?
+  reason         String?
+  requestedHours Float?    @map("requested_hours")
+  status         String    @default("PENDING") // 'PENDING', 'APPROVED', 'REJECTED'
+  decidedById    String?   @map("decided_by_id")
+  decidedBy      User?     @relation("OtApprovalRequestDecider", fields: [decidedById], references: [id])
+  decidedAt      DateTime? @map("decided_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("ot_approval_requests")
 }
@@ -395,11 +398,11 @@ model OtApprovalRequest {
 // cron skip the self-serve OT-ask for them and raise an approval request
 // instead once they cross into OT territory.
 model OutsideWorkTrip {
-  id          String   @id @default(cuid())
+  id          String                  @id @default(cuid())
   location    String
-  createdById String   @map("created_by_id")
-  createdBy   User     @relation("OutsideTripCreatedBy", fields: [createdById], references: [id])
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdById String                  @map("created_by_id")
+  createdBy   User                    @relation("OutsideTripCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime                @default(now()) @map("created_at")
   // Free-text follow-up log — filled in later from the trip's detail page
   // with whatever a proper trip report needs (what was done, issues found,
   // etc.), separate from the one-line `location`.
@@ -411,15 +414,15 @@ model OutsideWorkTrip {
 }
 
 model OutsideWorkTripMember {
-  id        String  @id @default(cuid())
-  tripId    String  @map("trip_id")
+  id        String          @id @default(cuid())
+  tripId    String          @map("trip_id")
   trip      OutsideWorkTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  userId    String  @map("user_id")
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String          @map("user_id")
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Plain reference (no FK/relation) to the OUTSIDE CheckIn this membership
   // created — same rationale as elsewhere: survives the CheckIn being later
   // edited/deleted without needing this row cleaned up in lockstep.
-  checkInId String? @map("check_in_id")
+  checkInId String?         @map("check_in_id")
 
   @@unique([tripId, userId])
   @@map("outside_work_trip_members")
@@ -433,7 +436,7 @@ model OutsideWorkTripMember {
 model LinePendingOutsideTrip {
   id              String   @id @default(cuid())
   lineUserId      String   @unique @map("line_user_id")
-  step            String   // 'AWAITING_LOCATION_COUNT' | 'AWAITING_MEMBERS'
+  step            String // 'AWAITING_LOCATION_COUNT' | 'AWAITING_MEMBERS'
   location        String?
   headcount       Int?
   selectedUserIds String[] @map("selected_user_ids")
@@ -443,59 +446,59 @@ model LinePendingOutsideTrip {
 }
 
 model EquipmentTemplate {
-  id          String   @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
   description String?
-  imageUrl    String   @map("image_url")
-  ownerId     String   @map("owner_id")
-  owner       User     @relation(fields: [ownerId], references: [id])
+  imageUrl    String              @map("image_url")
+  ownerId     String              @map("owner_id")
+  owner       User                @relation(fields: [ownerId], references: [id])
   pins        PinTemplate[]
   instances   EquipmentInstance[]
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
 
   @@map("equipment_templates")
 }
 
 model PinTemplate {
-  id          String   @id @default(cuid())
-  equipmentId String   @map("equipment_id")
+  id          String            @id @default(cuid())
+  equipmentId String            @map("equipment_id")
   equipment   EquipmentTemplate @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
   name        String
-  type        String   // e.g., "POWER", "DATA", "GND"
-  xPos        Float    @map("x_pos") // Percentage (0-100)
-  yPos        Float    @map("y_pos") // Percentage (0-100)
+  type        String // e.g., "POWER", "DATA", "GND"
+  xPos        Float             @map("x_pos") // Percentage (0-100)
+  yPos        Float             @map("y_pos") // Percentage (0-100)
 
   @@map("pin_templates")
 }
 
 model WiringDiagram {
-  id          String   @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
   description String?
-  ownerId     String   @map("owner_id")
-  owner       User     @relation(fields: [ownerId], references: [id])
-  isPublic    Boolean  @default(true) @map("is_public")
-  kind        String   @default("TEMPLATE") @map("kind") // "TEMPLATE" (image-based equipment wiring) | "SANDBOX" (free-form Circuit Sandbox)
-  canvasData  Json?    @map("canvas_data") // React Flow nodes/edges snapshot, only set when kind = "SANDBOX"
-  projectId   String?  @map("project_id")
-  project     Project? @relation("ProjectCircuits", fields: [projectId], references: [id], onDelete: SetNull)
+  ownerId     String              @map("owner_id")
+  owner       User                @relation(fields: [ownerId], references: [id])
+  isPublic    Boolean             @default(true) @map("is_public")
+  kind        String              @default("TEMPLATE") @map("kind") // "TEMPLATE" (image-based equipment wiring) | "SANDBOX" (free-form Circuit Sandbox)
+  canvasData  Json?               @map("canvas_data") // React Flow nodes/edges snapshot, only set when kind = "SANDBOX"
+  projectId   String?             @map("project_id")
+  project     Project?            @relation("ProjectCircuits", fields: [projectId], references: [id], onDelete: SetNull)
   equipments  EquipmentInstance[]
   wires       WireConnection[]
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
 
   @@map("wiring_diagrams")
 }
 
 model EquipmentInstance {
-  id          String   @id @default(cuid())
-  diagramId   String   @map("diagram_id")
-  diagram     WiringDiagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
-  templateId  String   @map("template_id")
-  template    EquipmentTemplate @relation(fields: [templateId], references: [id])
-  xPos        Float    @map("x_pos") // Canvas X position
-  yPos        Float    @map("y_pos") // Canvas Y position
-  
+  id         String            @id @default(cuid())
+  diagramId  String            @map("diagram_id")
+  diagram    WiringDiagram     @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  templateId String            @map("template_id")
+  template   EquipmentTemplate @relation(fields: [templateId], references: [id])
+  xPos       Float             @map("x_pos") // Canvas X position
+  yPos       Float             @map("y_pos") // Canvas Y position
+
   sourceConnections WireConnection[] @relation("SourceConnection")
   targetConnections WireConnection[] @relation("TargetConnection")
 
@@ -503,19 +506,19 @@ model EquipmentInstance {
 }
 
 model WireConnection {
-  id               String   @id @default(cuid())
-  diagramId        String   @map("diagram_id")
-  diagram          WiringDiagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
-  
-  sourceInstanceId String   @map("source_instance_id")
+  id        String        @id @default(cuid())
+  diagramId String        @map("diagram_id")
+  diagram   WiringDiagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+
+  sourceInstanceId String            @map("source_instance_id")
   sourceInstance   EquipmentInstance @relation("SourceConnection", fields: [sourceInstanceId], references: [id])
-  sourcePinId      String   @map("source_pin_id") // References PinTemplate.id
-  
-  targetInstanceId String   @map("target_instance_id")
+  sourcePinId      String            @map("source_pin_id") // References PinTemplate.id
+
+  targetInstanceId String            @map("target_instance_id")
   targetInstance   EquipmentInstance @relation("TargetConnection", fields: [targetInstanceId], references: [id])
-  targetPinId      String   @map("target_pin_id") // References PinTemplate.id
-  
-  wireType         String   @map("wire_type") // Inherited from pin type for validation
+  targetPinId      String            @map("target_pin_id") // References PinTemplate.id
+
+  wireType String @map("wire_type") // Inherited from pin type for validation
 
   @@map("wire_connections")
 }
@@ -524,8 +527,8 @@ model ActivityLog {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String   // e.g., 'CREATE_ASSET', 'UPDATE_ASSET', 'DELETE_ASSET', 'UPDATE_QUANTITY'
-  details   String?  // JSON string or descriptive text
+  action    String // e.g., 'CREATE_ASSET', 'UPDATE_ASSET', 'DELETE_ASSET', 'UPDATE_QUANTITY'
+  details   String? // JSON string or descriptive text
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
@@ -551,7 +554,7 @@ model RateLimitBucket {
 model WageGrade {
   id          String   @id @default(cuid())
   code        String   @unique // e.g. 'A', 'B', 'C' — shown as-is, admin's own label
-  onsiteRate  Int      @map("onsite_rate")  // บาท/วัน ทำงานในออฟฟิศ
+  onsiteRate  Int      @map("onsite_rate") // บาท/วัน ทำงานในออฟฟิศ
   outsideRate Int      @map("outside_rate") // บาท/วัน ทำงานนอกออฟฟิศ — set directly, no formula
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -579,4 +582,31 @@ model WageOverride {
 
   @@unique([userId, dateKey])
   @@map("wage_overrides")
+}
+
+// "Consult" log of outside labor brought in for a job — who's responsible
+// for hiring them and how many outside technicians (ช่าง) / laborers
+// (คนงาน) were hired. One row per job per day; dateKey is a plain
+// "YYYY-MM-DD" Bangkok calendar day, same convention as WageOverride.
+// Optionally tied to a Project, but a free-text title is always required
+// since not every job has a Project record.
+model OutsideLaborHire {
+  id              String   @id @default(cuid())
+  dateKey         String   @map("date_key")
+  title           String
+  projectId       String?  @map("project_id")
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  responsibleId   String   @map("responsible_id")
+  responsible     User     @relation("LaborHireResponsible", fields: [responsibleId], references: [id])
+  technicianCount Int      @default(0) @map("technician_count")
+  laborerCount    Int      @default(0) @map("laborer_count")
+  cost            Int      @default(0) // บาท — ค่าจ้างรวมทั้งหมดของงานนี้ (ไม่ใช่ต่อหัว)
+  note            String?
+  createdById     String   @map("created_by_id")
+  createdBy       User     @relation("LaborHireCreator", fields: [createdById], references: [id])
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([dateKey])
+  @@map("outside_labor_hires")
 }
