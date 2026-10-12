@@ -2,6 +2,7 @@
 # One-command update on the CloudPanel server. Run as the site user,
 # from anywhere:  bash ~/htdocs/wp.gmr.co.th/deploy/deploy.sh
 set -euo pipefail
+export PATH="$HOME/.npm-global/bin:$PATH"   # pm2 lives here (npm global prefix)
 cd "$(dirname "$0")/.."
 
 [ -f .env.production ] || { echo "Missing .env.production (copy .env.production.example)"; exit 1; }
