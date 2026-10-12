@@ -34,7 +34,7 @@ function readProductionDatabaseUrl() {
 const PRODUCTION_DATABASE_URL = readProductionDatabaseUrl();
 
 const ACCESS_TOKEN = readEnv("LINE_CHANNEL_ACCESS_TOKEN");
-const SITE_URL = "https://gmr-db.vercel.app";
+const SITE_URL = process.env.SITE_URL || "https://gmr-db.vercel.app"; // e.g. SITE_URL=https://wp.gmr.co.th
 const WIDTH = 2500;
 const HEIGHT = 843;
 
