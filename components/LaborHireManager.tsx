@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,7 +17,6 @@ import {
 } from "@/app/actions/laborHire";
 import {
   summarizeLaborHires,
-  computeLaborCost,
   paymentStatusOf,
   hireTypeLabel,
   contractTypeLabel,
@@ -26,10 +25,8 @@ import {
   normalizeName,
   HIRE_TYPES,
   CONTRACT_TYPES,
-  WORKER_ROLES,
   type HireType,
   type ContractType,
-  type RateMode,
   type WorkerRole,
 } from "@/lib/laborHire";
 import { formatThaiDateLong } from "@/lib/datetime";
@@ -87,12 +84,17 @@ function Segmented<T extends string>({
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v));
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
-interface WorkerDraft {
-  key: string;
+interface SlotDraft {
   name: string;
-  role: WorkerRole;
   rate: string;
 }
+type Slots = Record<WorkerRole, SlotDraft[]>;
+
+// The form draws one name+wage row per person hired, up to this many per
+// group — enough for any realistic crew, and it keeps the modal snappy if
+// someone types a huge headcount. Anyone beyond it counts as unnamed.
+const SLOT_CAP = 50;
+const ROLE_ORDER: WorkerRole[] = ["TECHNICIAN", "LABORER"];
 
 function LaborHireModal({
   options,
@@ -107,9 +109,6 @@ function LaborHireModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const seq = useRef(0);
-  const newKey = () => `w${++seq.current}`;
-
   const [f, setF] = useState({
     dateKey: editing?.dateKey ?? defaultDateKey,
     title: editing?.title ?? "",
@@ -122,10 +121,7 @@ function LaborHireModal({
     laborerCount: editing ? String(editing.laborerCount) : "",
     contractType: (editing?.contractType ?? "FIXED_TERM") as ContractType,
     days: editing ? String(editing.days) : "1",
-    rateMode: (editing?.rateMode ?? "LUMP_SUM") as RateMode,
     cost: editing ? String(editing.cost) : "",
-    technicianRate: editing?.technicianRate != null ? String(editing.technicianRate) : "",
-    laborerRate: editing?.laborerRate != null ? String(editing.laborerRate) : "",
     paidAmount: editing && editing.paidAmount > 0 ? String(editing.paidAmount) : "",
     paidDateKey: editing?.paidDateKey ?? "",
     trade: editing?.trade ?? "",
@@ -133,15 +129,22 @@ function LaborHireModal({
     reference: editing?.reference ?? "",
     note: editing?.note ?? "",
   });
-  const [workers, setWorkers] = useState<WorkerDraft[]>(
-    () =>
-      editing?.workers.map((w, i) => ({
-        key: `e${i}`,
-        name: w.name,
-        role: w.role,
-        rate: w.dailyRate != null ? String(w.dailyRate) : "",
-      })) ?? []
-  );
+  const [slots, setSlots] = useState<Slots>(() => {
+    const initial: Slots = { TECHNICIAN: [], LABORER: [] };
+    for (const w of editing?.workers ?? []) {
+      initial[w.role].push({ name: w.name, rate: w.dailyRate != null ? String(w.dailyRate) : "" });
+    }
+    return initial;
+  });
+  const [bulkRate, setBulkRate] = useState<Record<WorkerRole, string>>({ TECHNICIAN: "", LABORER: "" });
+  // The total follows the wages automatically until someone types their own.
+  // An existing hire whose stored total already differs from what its wages
+  // add up to was clearly set by hand, so it starts out manual.
+  const [costManual, setCostManual] = useState(() => {
+    if (!editing) return false;
+    const perDay = editing.workers.reduce((sum, w) => sum + (w.dailyRate ?? 0), 0);
+    return editing.cost !== editing.days * perDay;
+  });
   const set = <K extends keyof typeof f>(key: K) => (value: (typeof f)[K]) => setF((prev) => ({ ...prev, [key]: value }));
   const onText = (key: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setF((prev) => ({ ...prev, [key]: e.target.value }));
@@ -149,47 +152,64 @@ function LaborHireModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const named = workers.filter((w) => w.name.trim() !== "");
-  const namedTech = named.filter((w) => w.role === "TECHNICIAN").length;
-  const namedLabor = named.filter((w) => w.role === "LABORER").length;
-  // Naming someone implies they were hired, so the headcount can't be lower
-  // than the people listed.
-  const techCount = Math.max(num(f.technicianCount), namedTech);
-  const laborCount = Math.max(num(f.laborerCount), namedLabor);
-  const bumped = techCount > num(f.technicianCount) || laborCount > num(f.laborerCount);
-  const workersInput = named.map((w) => ({ name: w.name, role: w.role, dailyRate: numOrNull(w.rate) }));
+  // The headcount drives how many name+wage rows exist; a row left without a
+  // name is simply an unnamed hire (it isn't stored as a person).
+  const counts: Record<WorkerRole, number> = { TECHNICIAN: num(f.technicianCount), LABORER: num(f.laborerCount) };
+  const techCount = counts.TECHNICIAN;
+  const laborCount = counts.LABORER;
+  const slotAt = (role: WorkerRole, i: number): SlotDraft => slots[role][i] ?? { name: "", rate: "" };
+  const lastFilled = (role: WorkerRole) => slots[role].reduce((last, slot, i) => (slot.name.trim() ? i : last), -1);
+  const visibleSlots = (role: WorkerRole) => Math.min(counts[role], Math.max(SLOT_CAP, lastFilled(role) + 1));
+  const workersInput = ROLE_ORDER.flatMap((role) =>
+    slots[role]
+      .slice(0, counts[role])
+      .filter((slot) => slot.name.trim() !== "")
+      .map((slot) => ({ name: slot.name, role, dailyRate: numOrNull(slot.rate) }))
+  );
 
   const days = f.days.trim() === "" ? 1 : Number(f.days);
-  const effectiveCost = computeLaborCost({
-    rateMode: f.rateMode,
-    cost: num(f.cost),
-    days,
-    technicianCount: techCount,
-    laborerCount: laborCount,
-    technicianRate: numOrNull(f.technicianRate),
-    laborerRate: numOrNull(f.laborerRate),
-    workers: workersInput,
-  });
+  // Every wage typed in a row counts toward the total, named or not.
+  const perDayWages = ROLE_ORDER.reduce(
+    (sum, role) => sum + slots[role].slice(0, counts[role]).reduce((s, slot) => s + num(slot.rate), 0),
+    0
+  );
+  const autoCost = days * perDayWages;
+  const effectiveCost = costManual ? num(f.cost) : autoCost;
   const status = paymentStatusOf(effectiveCost, num(f.paidAmount));
-  const hasExtras = !!(f.trade || f.location || f.reference || f.note);
+  const hasExtras = !!(f.trade || f.location || f.reference);
 
-  const addWorker = (prefill: Partial<WorkerDraft> = {}) => {
-    setWorkers((prev) => [...prev, { key: newKey(), name: "", role: "LABORER", rate: "", ...prefill }]);
-  };
-  const patchWorker = (key: string, patch: Partial<WorkerDraft>) =>
-    setWorkers((prev) => prev.map((w) => (w.key === key ? { ...w, ...patch } : w)));
-  const removeWorker = (key: string) => setWorkers((prev) => prev.filter((w) => w.key !== key));
+  const setSlot = (role: WorkerRole, index: number, patch: Partial<SlotDraft>) =>
+    setSlots((prev) => {
+      const list = [...prev[role]];
+      while (list.length <= index) list.push({ name: "", rate: "" });
+      list[index] = { ...list[index], ...patch };
+      return { ...prev, [role]: list };
+    });
 
-  const fillWorkerFrom = (key: string, s: VendorSuggestion) =>
-    patchWorker(key, {
+  const fillSlotFrom = (role: WorkerRole, index: number, s: VendorSuggestion) =>
+    setSlot(role, index, {
       name: s.name,
       // What we agreed with them last time is the best starting point.
-      ...(s.lastRole ? { role: s.lastRole } : {}),
       ...(s.lastRate !== null ? { rate: String(s.lastRate) } : {}),
     });
 
+  /** "Same wage for everyone": fills every empty wage box in the group. */
+  const fillEmptyRates = (role: WorkerRole) => {
+    const rate = bulkRate[role].trim();
+    if (!rate) return;
+    setSlots((prev) => {
+      const list = [...prev[role]];
+      for (let i = 0; i < visibleSlots(role); i++) {
+        while (list.length <= i) list.push({ name: "", rate: "" });
+        if (list[i].rate.trim() === "") list[i] = { ...list[i], rate };
+      }
+      return { ...prev, [role]: list };
+    });
+  };
+
   /** Picking from the contractor field: a company fills the vendor; a person
-   *  is added to the worker list (the contractor field is for companies). */
+   *  goes into the first free name row of their usual group (the contractor
+   *  field is for companies). */
   const pickFromVendorField = (s: VendorSuggestion) => {
     if (s.kind === "COMPANY") {
       setF((prev) => ({
@@ -201,19 +221,24 @@ function LaborHireModal({
       return;
     }
     setF((prev) => ({ ...prev, vendorName: "", hireType: prev.hireType === "COMPANY" ? "INDIVIDUAL" : prev.hireType }));
-    setWorkers((prev) =>
-      prev.some((w) => normalizeName(w.name) === s.key)
-        ? prev
-        : [
-            ...prev,
-            {
-              key: newKey(),
-              name: s.name,
-              role: s.lastRole ?? "LABORER",
-              rate: s.lastRate !== null ? String(s.lastRate) : "",
-            },
-          ]
-    );
+
+    const alreadyListed = ROLE_ORDER.some((r) => slots[r].slice(0, counts[r]).some((x) => normalizeName(x.name) === s.key));
+    if (alreadyListed) return;
+
+    const role: WorkerRole = s.lastRole ?? "LABORER";
+    let index = -1;
+    for (let i = 0; i < counts[role]; i++) {
+      if (!slotAt(role, i).name.trim()) {
+        index = i;
+        break;
+      }
+    }
+    if (index === -1) {
+      // Every row is taken, so this is one more person hired in that group.
+      index = counts[role];
+      setF((prev) => ({ ...prev, [role === "TECHNICIAN" ? "technicianCount" : "laborerCount"]: String(index + 1) }));
+    }
+    setSlot(role, index, { name: s.name, rate: s.lastRate !== null ? String(s.lastRate) : "" });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -228,7 +253,7 @@ function LaborHireModal({
       responsibleId: f.responsibleId,
       technicianCount: techCount,
       laborerCount: laborCount,
-      cost: num(f.cost),
+      cost: effectiveCost,
       note: f.note,
       hireType: f.hireType,
       vendorName: f.vendorName,
@@ -238,9 +263,9 @@ function LaborHireModal({
       reference: f.reference,
       contractType: f.contractType,
       days,
-      rateMode: f.rateMode,
-      technicianRate: numOrNull(f.technicianRate),
-      laborerRate: numOrNull(f.laborerRate),
+      rateMode: "LUMP_SUM" as const,
+      technicianRate: null,
+      laborerRate: null,
       paidAmount: num(f.paidAmount),
       paidDateKey: f.paidDateKey || null,
       workers: workersInput,
@@ -373,74 +398,87 @@ function LaborHireModal({
               />
             </div>
           </div>
-          {bumped && (
+          {counts.TECHNICIAN + counts.LABORER === 0 && (
             <p className="text-[11px] text-gray-400">
-              จำนวนคนปรับให้ไม่น้อยกว่ารายชื่อที่ระบุ (ช่าง {techCount} / คนงาน {laborCount})
+              ใส่จำนวนช่าง/คนงานด้านบน แล้วช่องกรอกชื่อและค่าแรงจะขึ้นให้ตามจำนวนอัตโนมัติ
             </p>
           )}
 
-          <div className="rounded-2xl border border-gray-100 p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-400">รายชื่อ + ค่าแรงที่ตกลง (ไม่บังคับ)</p>
-              <button
-                type="button"
-                onClick={() => addWorker()}
-                className="inline-flex items-center gap-1 text-[11px] text-orange-600 hover:text-orange-700 font-semibold bg-orange-50 hover:bg-orange-100 rounded-full px-2.5 py-1 transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                เพิ่มรายชื่อ
-              </button>
-            </div>
-            {workers.length === 0 && (
-              <p className="text-[11px] text-gray-400">
-                ใส่ชื่อรายคนพร้อมค่าแรงต่อวันที่ตกลงกันไว้ จะไปแสดงในประวัติการจ้างของคนนั้นด้วย
-              </p>
-            )}
-            {workers.map((w) => (
-              <div key={w.key} className="rounded-xl bg-gray-50 p-2 space-y-2">
-                <NameSuggest
-                  value={w.name}
-                  onChange={(text) => patchWorker(w.key, { name: text })}
-                  onPick={(s) => fillWorkerFrom(w.key, s)}
-                  kinds={["PERSON"]}
-                  maxLength={80}
-                  placeholder="ชื่อ (พิมพ์เพื่อค้นหาคนที่เคยจ้าง)"
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
-                />
-                <div className="flex items-center gap-2">
-                  <select
-                    value={w.role}
-                    onChange={(e) => patchWorker(w.key, { role: e.target.value as WorkerRole })}
-                    className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
-                  >
-                    {WORKER_ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {workerRoleLabel[r]}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    value={w.rate}
-                    onChange={(e) => patchWorker(w.key, { rate: e.target.value })}
-                    placeholder="ค่าแรง ฿/วัน"
-                    className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeWorker(w.key)}
-                    title="เอาออก"
-                    className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+          {ROLE_ORDER.map((role) => {
+            const count = counts[role];
+            if (count <= 0) return null;
+            const shown = visibleSlots(role);
+            const Icon = role === "TECHNICIAN" ? Wrench : Users;
+            return (
+              <div key={role} className="rounded-2xl border border-gray-100 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-semibold text-gray-600 inline-flex items-center gap-1.5">
+                    <Icon className="w-3.5 h-3.5 text-gray-400" />
+                    {workerRoleLabel[role]} {count} คน — ชื่อและค่าแรงต่อวัน
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      inputMode="numeric"
+                      value={bulkRate[role]}
+                      onChange={(e) => setBulkRate((prev) => ({ ...prev, [role]: e.target.value }))}
+                      placeholder="เท่ากันทุกคน ฿/วัน"
+                      className="w-36 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fillEmptyRates(role)}
+                      disabled={!bulkRate[role].trim()}
+                      className="text-[11px] font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 disabled:opacity-40 rounded-full px-2.5 py-1 transition-colors"
+                    >
+                      ใส่ช่องที่ว่าง
+                    </button>
+                  </div>
                 </div>
+
+                <ul className="space-y-1.5">
+                  {Array.from({ length: shown }, (_, i) => {
+                    const slot = slotAt(role, i);
+                    return (
+                      <li key={i} className="grid grid-cols-[1.25rem_minmax(0,1fr)_5.5rem] items-center gap-2">
+                        <span className="text-[11px] text-gray-400 text-right">{i + 1}</span>
+                        <NameSuggest
+                          value={slot.name}
+                          onChange={(text) => setSlot(role, i, { name: text })}
+                          onPick={(s) => fillSlotFrom(role, i, s)}
+                          kinds={["PERSON"]}
+                          maxLength={80}
+                          placeholder="ชื่อ"
+                          className="w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          value={slot.rate}
+                          onChange={(e) => setSlot(role, i, { rate: e.target.value })}
+                          placeholder="฿/วัน"
+                          className="w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:bg-white outline-none"
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {count > shown && (
+                  <p className="text-[11px] text-gray-400">
+                    แสดง {shown} ช่องแรก — อีก {count - shown} คนที่เหลือไม่ต้องกรอกก็ได้
+                  </p>
+                )}
+                <p className="text-[11px] text-gray-400">
+                  ใส่ชื่อด้วยจะบันทึกลงประวัติของคนนั้น (พิมพ์เพื่อค้นหาคนที่เคยจ้างได้) · ใส่แค่ค่าแรงโดยไม่ใส่ชื่อก็นับเข้ายอดรวม
+                </p>
               </div>
-            ))}
-          </div>
+            );
+          })}
 
           <div className="rounded-2xl border border-gray-100 p-3 space-y-3">
             <div>
@@ -468,73 +506,38 @@ function LaborHireModal({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 p-3 space-y-3">
-            <div>
-              <p className="text-xs text-gray-400 mb-1">วิธีคิดค่าใช้จ่าย</p>
-              <Segmented
-                value={f.rateMode}
-                onChange={set("rateMode")}
-                options={[
-                  { value: "LUMP_SUM", label: "ยอดรวมทั้งงาน" },
-                  { value: "DAILY_RATE", label: "คิดรายวันต่อคน" },
-                ]}
-              />
-            </div>
-
-            {f.rateMode === "LUMP_SUM" ? (
-              <div>
-                <label className="text-xs text-gray-400">ค่าใช้จ่ายในการจ้าง (บาท รวมทั้งงาน)</label>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  inputMode="numeric"
-                  value={f.cost}
-                  onChange={onText("cost")}
-                  placeholder="0"
-                  className={inputClass}
-                />
-              </div>
+          <div className="rounded-2xl border border-gray-100 p-3 space-y-2">
+            <label className="text-xs text-gray-400">ค่าใช้จ่ายในการจ้าง (บาท รวมทั้งงาน)</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              value={costManual ? f.cost : String(autoCost)}
+              onChange={(e) => {
+                setCostManual(true);
+                set("cost")(e.target.value);
+              }}
+              placeholder="0"
+              className={inputClass}
+            />
+            {costManual ? (
+              <p className="text-[11px] text-gray-400">
+                พิมพ์ยอดเอง
+                {perDayWages > 0 && ` · ตามค่าแรงที่กรอกจะได้ ${baht(autoCost)}`}{" "}
+                <button type="button" onClick={() => setCostManual(false)} className="font-semibold text-orange-600 hover:text-orange-700">
+                  คำนวณจากค่าแรงใหม่
+                </button>
+              </p>
+            ) : perDayWages > 0 ? (
+              <p className="text-[11px] text-gray-400">
+                คำนวณอัตโนมัติ: ค่าแรงรวม {baht(perDayWages)}/วัน × {days} วัน (พิมพ์แก้ยอดเองได้)
+              </p>
             ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-400">ช่าง ฿/วัน (อัตรากลาง)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      inputMode="numeric"
-                      value={f.technicianRate}
-                      onChange={onText("technicianRate")}
-                      placeholder="0"
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400">คนงาน ฿/วัน (อัตรากลาง)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      inputMode="numeric"
-                      value={f.laborerRate}
-                      onChange={onText("laborerRate")}
-                      placeholder="0"
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-                <p className="text-[11px] text-gray-400">
-                  คนที่ระบุค่าแรงรายคนไว้ในรายชื่อ จะคิดตามค่าแรงของเขา คนที่เหลือคิดตามอัตรากลาง คูณจำนวนวัน
-                </p>
-              </>
+              <p className="text-[11px] text-gray-400">
+                ใส่ค่าแรงรายคนด้านบน ระบบจะรวมยอดให้ในช่องนี้เอง (หรือพิมพ์ยอดเองก็ได้)
+              </p>
             )}
-
-            <p className="text-sm font-semibold text-gray-900">
-              ค่าใช้จ่ายรวม <span className="text-green-700">{baht(effectiveCost)}</span>
-              {f.rateMode === "DAILY_RATE" && <span className="text-[11px] font-normal text-gray-400"> (คำนวณให้อัตโนมัติ)</span>}
-            </p>
           </div>
 
           <div className="rounded-2xl border border-gray-100 p-3 space-y-3">
@@ -575,6 +578,18 @@ function LaborHireModal({
             </div>
           </div>
 
+          <div>
+            <label className="text-xs text-gray-400">หมายเหตุ (ถ้ามี)</label>
+            <textarea
+              value={f.note}
+              onChange={onText("note")}
+              rows={2}
+              maxLength={500}
+              placeholder="เช่น ข้อตกลงพิเศษกับผู้รับเหมา, เงื่อนไขการจ่ายเงิน, สิ่งที่ต้องระวังในงานนี้"
+              className={`${inputClass} resize-none`}
+            />
+          </div>
+
           <details open={hasExtras} className="rounded-2xl border border-gray-100 p-3">
             <summary className="text-xs font-semibold text-gray-500 cursor-pointer">รายละเอียดเพิ่มเติม (ไม่บังคับ)</summary>
             <div className="space-y-3 mt-3">
@@ -591,10 +606,6 @@ function LaborHireModal({
               <div>
                 <label className="text-xs text-gray-400">เลขที่อ้างอิง (ใบเสนอราคา/ใบเสร็จ)</label>
                 <input type="text" value={f.reference} onChange={onText("reference")} maxLength={60} className={inputClass} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400">หมายเหตุ</label>
-                <textarea value={f.note} onChange={onText("note")} rows={2} maxLength={500} className={`${inputClass} resize-none`} />
               </div>
             </div>
           </details>
