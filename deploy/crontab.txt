@@ -1,3 +1,6 @@
-# Add in CloudPanel -> Site -> Cron Jobs (replace SECRET with CRON_SECRET)
-*/5 * * * * curl -s -H "Authorization: Bearer SECRET" http://127.0.0.1:3417/api/cron/checkin-reminders >/dev/null
-0 17 * * * curl -s -H "Authorization: Bearer SECRET" http://127.0.0.1:3417/api/cron/cleanup-checkin-photos >/dev/null
+# Add in CloudPanel -> Site -> Cron Jobs (one job per line).
+# The secret is read from .env.production at run time, so it never sits in the panel.
+# Check the server timezone with `date`: the 17:00 daily job below was written for UTC
+# (= 00:00 Bangkok). If the server is already on Bangkok time use "0 0 * * *" instead.
+*/5 * * * * curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET= /home/gmr-wp/htdocs/wp.gmr.co.th/.env.production | cut -d= -f2-)" http://127.0.0.1:3417/api/cron/checkin-reminders >/dev/null
+0 17 * * * curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET= /home/gmr-wp/htdocs/wp.gmr.co.th/.env.production | cut -d= -f2-)" http://127.0.0.1:3417/api/cron/cleanup-checkin-photos >/dev/null
