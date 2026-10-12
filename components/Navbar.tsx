@@ -23,8 +23,8 @@ export default async function Navbar() {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link href="/" className="flex-shrink-0 flex items-center">
-              <span className="text-xl font-bold text-orange-500">GMR</span>
-              <span className="text-xl font-bold text-white">AssetManager</span>
+              <span className="text-lg sm:text-xl font-bold text-orange-500">GMR</span>
+              <span className="text-lg sm:text-xl font-bold text-white">AssetManager</span>
             </Link>
             <NavBadges isLoggedIn={!!session} role={role} username={username}>
               <Link href="/checkin" className={linkClass}>
@@ -65,15 +65,15 @@ export default async function Navbar() {
               <div className="flex items-center gap-2 sm:gap-4">
                 <Link
                   href="/login"
-                  className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors"
+                  className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors whitespace-nowrap"
                 >
-                  Sign In (เข้าสู่ระบบ)
+                  Sign In<span className="hidden sm:inline"> (เข้าสู่ระบบ)</span>
                 </Link>
                 <Link
                   href="/register"
-                  className="inline-flex items-center px-3 sm:px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors"
+                  className="inline-flex items-center px-3 sm:px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-950 bg-orange-500 hover:bg-orange-400 shadow-sm transition-colors whitespace-nowrap"
                 >
-                  Register (สมัครสมาชิก)
+                  Register<span className="hidden sm:inline">&nbsp;(สมัครสมาชิก)</span>
                 </Link>
               </div>
             )}
