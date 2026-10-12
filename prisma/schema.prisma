@@ -591,22 +591,58 @@ model WageOverride {
 // Optionally tied to a Project, but a free-text title is always required
 // since not every job has a Project record.
 model OutsideLaborHire {
-  id              String   @id @default(cuid())
-  dateKey         String   @map("date_key")
+  id              String               @id @default(cuid())
+  dateKey         String               @map("date_key")
   title           String
-  projectId       String?  @map("project_id")
-  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  responsibleId   String   @map("responsible_id")
-  responsible     User     @relation("LaborHireResponsible", fields: [responsibleId], references: [id])
-  technicianCount Int      @default(0) @map("technician_count")
-  laborerCount    Int      @default(0) @map("laborer_count")
-  cost            Int      @default(0) // บาท — ค่าจ้างรวมทั้งหมดของงานนี้ (ไม่ใช่ต่อหัว)
+  projectId       String?              @map("project_id")
+  project         Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  responsibleId   String               @map("responsible_id")
+  responsible     User                 @relation("LaborHireResponsible", fields: [responsibleId], references: [id])
+  technicianCount Int                  @default(0) @map("technician_count")
+  laborerCount    Int                  @default(0) @map("laborer_count")
+  cost            Int                  @default(0) // บาท — ค่าจ้างรวมทั้งหมดของงานนี้ (ไม่ใช่ต่อหัว)
+  // Everything below is optional/defaulted so older rows stay valid.
+  hireType        String               @default("COMPANY") @map("hire_type") // 'COMPANY' | 'INDIVIDUAL' | 'MIXED'
+  vendorName      String?              @map("vendor_name") // บริษัท/ผู้รับเหมา/หัวหน้าช่าง
+  vendorPhone     String?              @map("vendor_phone")
+  trade           String? // ประเภทช่าง/งาน เช่น ช่างไฟ
+  location        String?
+  reference       String? // เลขที่ใบเสนอราคา/ใบเสร็จ ฯลฯ
+  contractType    String               @default("FIXED_TERM") @map("contract_type") // 'FIXED_TERM' (สัญญา N วัน) | 'DAILY_HIRE' (จ้างรายวัน)
+  days            Int                  @default(1) // FIXED_TERM: ระยะสัญญา, DAILY_HIRE: จำนวนวันที่จ้างมาแล้ว
+  rateMode        String               @default("LUMP_SUM") @map("rate_mode") // 'LUMP_SUM' | 'DAILY_RATE'
+  technicianRate  Int?                 @map("technician_rate") // บาท/คน/วัน (เฉพาะ DAILY_RATE)
+  laborerRate     Int?                 @map("laborer_rate")
+  paidAmount      Int                  @default(0) @map("paid_amount") // สถานะการจ่ายคำนวณจากค่านี้เทียบกับ cost
+  paidDateKey     String?              @map("paid_date_key")
+  workers         OutsideLaborWorker[]
   note            String?
-  createdById     String   @map("created_by_id")
-  createdBy       User     @relation("LaborHireCreator", fields: [createdById], references: [id])
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdById     String               @map("created_by_id")
+  createdBy       User                 @relation("LaborHireCreator", fields: [createdById], references: [id])
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
   @@index([dateKey])
+  @@index([vendorName])
   @@map("outside_labor_hires")
+}
+
+// One named outside worker on a hire, with the daily wage agreed for them.
+// nameKey is the normalized name (trimmed, collapsed spaces, lowercased) so
+// the same person typed slightly differently still groups together in the
+// consult history and suggestions.
+model OutsideLaborWorker {
+  id        String           @id @default(cuid())
+  hireId    String           @map("hire_id")
+  hire      OutsideLaborHire @relation(fields: [hireId], references: [id], onDelete: Cascade)
+  name      String
+  nameKey   String           @map("name_key")
+  role      String // 'TECHNICIAN' | 'LABORER'
+  dailyRate Int?             @map("daily_rate") // บาท/วัน ที่ตกลงกันไว้
+  note      String?
+  sortOrder Int              @default(0) @map("sort_order")
+
+  @@index([hireId])
+  @@index([nameKey])
+  @@map("outside_labor_workers")
 }
