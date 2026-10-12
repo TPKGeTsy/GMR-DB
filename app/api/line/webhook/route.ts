@@ -930,9 +930,9 @@ async function handleOutsideTripLocationCount(
 }
 
 /** Builds the team-picker Quick Reply for the current selection state —
- *  candidates are everyone currently checked in at the office (the same
- *  eligibility query as handleOtGrantStart) plus anyone already selected,
- *  so a tap never makes a name disappear. Each name toggles on tap (✅
+ *  candidates are every employee (checked-in people listed first) except
+ *  those already out on another site, plus anyone already selected, so a
+ *  tap never makes a name disappear. Each name toggles on tap (✅
  *  prefix when selected); a "ยืนยันทีม (n/headcount)" button is always
  *  last. This is the closest LINE-native approximation of ticking several
  *  boxes at once — Quick Reply has no true multi-select, so each tap
@@ -943,26 +943,30 @@ async function buildOutsideTripPickerMessage(pending: {
   headcount: number | null;
   selectedUserIds: string[];
 }): Promise<{ text: string; options: QuickReplyOption[] }> {
-  const latestPerUser = await prisma.checkIn.findMany({
-    orderBy: { createdAt: "desc" },
-    distinct: ["userId"],
-    include: { user: { select: { id: true, username: true, fullName: true, nickname: true } } },
-  });
-  // Anyone currently checked in, office or already-OUTSIDE — someone who
-  // scanned in and tagged themselves OUTSIDE on their own is still fair
-  // game to pull into *this* trip's team (that's exactly the case that was
-  // missing: they'd scanned in first and just weren't offered as a choice).
-  const eligible = latestPerUser.filter((c) => c.type === "IN");
+  const [users, latestPerUser] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: { username: "asc" },
+      select: { id: true, username: true, fullName: true, nickname: true },
+    }),
+    prisma.checkIn.findMany({
+      orderBy: { createdAt: "desc" },
+      distinct: ["userId"],
+      select: { userId: true, type: true, location: true },
+    }),
+  ]);
+  // Everyone is offered, whether or not they've scanned in yet (the person
+  // filing the trip often knows who's coming before they've checked in) —
+  // except people who are already out on another site right now (latest
+  // scan is an OUTSIDE IN). Anyone already ticked for this trip always stays.
+  const onOtherSite = new Set(latestPerUser.filter((c) => c.type === "IN" && c.location === "OUTSIDE").map((c) => c.userId));
+  const checkedIn = new Set(latestPerUser.filter((c) => c.type === "IN").map((c) => c.userId));
 
-  const candidates = eligible.map((c) => ({
-    id: c.userId,
-    name: c.user.nickname || c.user.fullName || c.user.username,
-  }));
-  const missingSelected = pending.selectedUserIds.filter((id) => !candidates.some((c) => c.id === id));
-  if (missingSelected.length > 0) {
-    const users = await prisma.user.findMany({ where: { id: { in: missingSelected } } });
-    for (const u of users) candidates.push({ id: u.id, name: u.nickname || u.fullName || u.username });
-  }
+  // Checked-in people first (most likely teammates), then the rest A→Z —
+  // a fixed order, so tapping a name never makes the list jump around.
+  const candidates = users
+    .filter((u) => pending.selectedUserIds.includes(u.id) || !onOtherSite.has(u.id))
+    .sort((a, b) => Number(checkedIn.has(b.id)) - Number(checkedIn.has(a.id)))
+    .map((u) => ({ id: u.id, name: u.nickname || u.fullName || u.username }));
 
   // LINE caps Quick Reply at 13 items — leave one slot for the confirm button.
   const options: QuickReplyOption[] = candidates.slice(0, 12).map((c) => ({
@@ -974,7 +978,10 @@ async function buildOutsideTripPickerMessage(pending: {
     text: OUTTRIP_CONFIRM_COMMAND,
   });
 
-  const text = `ไป "${pending.location}" ${pending.headcount} คน — แตะชื่อเพื่อเลือก/ยกเลิกสมาชิก แล้วกด "ยืนยันทีม" ค่ะ 👇`;
+  const hidden = Math.max(0, candidates.length - 12);
+  const text =
+    `ไป "${pending.location}" ${pending.headcount} คน — แตะชื่อเพื่อเลือก/ยกเลิกสมาชิก แล้วกด "ยืนยันทีม" ค่ะ 👇` +
+    (hidden > 0 ? `\n(LINE แสดงได้ 12 ชื่อ — อีก ${hidden} คนเลือกได้จากหน้าเว็บ "ออกหน้างาน" ค่ะ)` : "");
   return { text, options };
 }
 
