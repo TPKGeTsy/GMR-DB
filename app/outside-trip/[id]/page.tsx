@@ -1,7 +1,8 @@
 import { getOutsideTripDetail } from "@/app/actions/outsideTrip";
 import TripReportEditor from "@/components/TripReportEditor";
-import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
-import { MapPin, Users, User, Clock, ArrowLeft } from "lucide-react";
+import TripDetailsEditor from "@/components/TripDetailsEditor";
+import { formatThaiDateLong } from "@/lib/datetime";
+import { MapPin, Users, User, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -45,24 +46,13 @@ export default async function OutsideTripDetailPage({ params }: { params: Promis
           </div>
         </div>
 
-        <div className="px-6 py-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">ผู้ปฏิบัติงาน</p>
-          <ul className="divide-y divide-gray-100 border border-gray-100 rounded-md overflow-hidden">
-            {trip.members.map((m) => (
-              <li key={m.userId} className="px-3 py-2 bg-white flex items-center justify-between gap-2">
-                <Link href={`/users/${m.userId}`} className="text-sm text-gray-900 hover:text-orange-600 font-medium">
-                  {m.name}
-                </Link>
-                <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-gray-400" />
-                  {formatThaiTime(m.outAt)}
-                  {" → "}
-                  {m.backAt ? formatThaiTime(m.backAt) : <span className="text-green-600 font-semibold">ยังไม่กลับ</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* key resets the editor's local state whenever saved data changes */}
+        <TripDetailsEditor
+          key={`${trip.location}|${trip.members.map((m) => `${m.outAt}-${m.backAt}`).join(",")}`}
+          tripId={trip.id}
+          location={trip.location}
+          members={trip.members}
+        />
 
         <div className="px-6 py-4">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">หมายเหตุ / รายงานเพิ่มเติม</p>
