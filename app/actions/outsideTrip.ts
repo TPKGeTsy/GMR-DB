@@ -143,7 +143,13 @@ async function buildOutsideTripRows(
   // few days past the latest trip in this batch, not scan the whole table.
   const memberUserIds = Array.from(new Set(trips.flatMap((t) => t.members.map((m) => m.userId))));
   const OUT_LOOKAHEAD_DAYS = 3;
-  const earliestTrip = trips.reduce((min, t) => (t.createdAt < min ? t.createdAt : min), trips[0]?.createdAt ?? new Date());
+  // A member's actual departure can be earlier than the moment the trip was
+  // logged (admin-edited times, or logged afterwards) — start the window at
+  // whichever is earliest so a return scan before `createdAt` is still found.
+  const earliestTrip = [...trips.map((t) => t.createdAt), ...inCheckIns.map((c) => c.createdAt)].reduce(
+    (min, d) => (d < min ? d : min),
+    trips[0]?.createdAt ?? new Date()
+  );
   const latestTrip = trips.reduce((max, t) => (t.createdAt > max ? t.createdAt : max), trips[0]?.createdAt ?? new Date());
   const allOuts = memberUserIds.length
     ? await prisma.checkIn.findMany({

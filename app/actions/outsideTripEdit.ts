@@ -15,6 +15,10 @@ export interface OutsideTripEditInput {
     /** ISO instant of the return scan; null = leave as is / still out */
     backAt: string | null;
   }[];
+  /** People to add to the trip, each with their own times. */
+  addMembers?: { userId: string; outAt: string; backAt: string | null }[];
+  /** People to take off the trip (their tagged IN + its return OUT are deleted). */
+  removeUserIds?: string[];
 }
 
 /** Admin edit of a trip from its detail page: the place name, and each
@@ -43,7 +47,47 @@ export async function updateOutsideTripDetails(id: string, input: OutsideTripEdi
       backId: string | null;
     }[] = [];
 
+    const removeIds = new Set(input.removeUserIds ?? []);
+    const adds = input.addMembers ?? [];
+    for (const a of adds) {
+      if (trip.members.some((x) => x.userId === a.userId)) return { success: false, error: "มีคนนี้อยู่ในทริปแล้ว" };
+      if (removeIds.has(a.userId)) return { success: false, error: "เลือกทั้งเพิ่มและลบคนเดียวกันไม่ได้" };
+    }
+    if (new Set(adds.map((a) => a.userId)).size !== adds.length) return { success: false, error: "เพิ่มคนซ้ำกัน" };
+    const remaining = trip.members.filter((x) => !removeIds.has(x.userId)).length + adds.length;
+    if (remaining < 1) return { success: false, error: "ทริปต้องมีอย่างน้อย 1 คน" };
+
+    // Resolve + validate the people being added.
+    const addPlans: { userId: string; outAt: Date; backAt: Date | null }[] = [];
+    for (const a of adds) {
+      const user = await prisma.user.findUnique({ where: { id: a.userId } });
+      if (!user) return { success: false, error: "ไม่พบพนักงานที่เพิ่ม" };
+      const outAt = new Date(a.outAt);
+      if (isNaN(outAt.getTime())) return { success: false, error: "เวลาออกของคนที่เพิ่มไม่ถูกต้อง" };
+      let backAt: Date | null = null;
+      if (a.backAt) {
+        backAt = new Date(a.backAt);
+        if (isNaN(backAt.getTime()) || backAt.getTime() <= outAt.getTime()) return { success: false, error: "เวลากลับของคนที่เพิ่มไม่ถูกต้อง" };
+      }
+      addPlans.push({ userId: a.userId, outAt, backAt });
+    }
+
+    // Removed people: find their tagged IN and the return OUT after it.
+    const removePlans: { memberId: string; inId: string | null; backId: string | null }[] = [];
+    for (const uid of removeIds) {
+      const member = trip.members.find((x) => x.userId === uid);
+      if (!member) return { success: false, error: "พบสมาชิกที่ไม่ได้อยู่ในทริปนี้" };
+      const inRow = member.checkInId ? await prisma.checkIn.findUnique({ where: { id: member.checkInId } }) : null;
+      const back = await prisma.checkIn.findFirst({
+        where: { userId: uid, type: "OUT", location: "OUTSIDE", createdAt: { gt: inRow?.createdAt ?? trip.createdAt } },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      removePlans.push({ memberId: member.id, inId: member.checkInId, backId: back?.id ?? null });
+    }
+
     for (const m of input.members) {
+      if (removeIds.has(m.userId)) continue;
       const member = trip.members.find((x) => x.userId === m.userId);
       if (!member) return { success: false, error: "พบสมาชิกที่ไม่ได้อยู่ในทริปนี้" };
       const name = member.user.nickname || member.user.fullName || member.user.username;
@@ -78,6 +122,22 @@ export async function updateOutsideTripDetails(id: string, input: OutsideTripEdi
         // The tagged IN scans carry the place name as their note — keep in sync.
         await tx.checkIn.updateMany({ where: { id: { in: inIds }, note: trip.location }, data: { note: location } });
       }
+      for (const r of removePlans) {
+        if (r.backId) await tx.checkIn.delete({ where: { id: r.backId } });
+        await tx.outsideWorkTripMember.delete({ where: { id: r.memberId } });
+        if (r.inId) await tx.checkIn.delete({ where: { id: r.inId } });
+      }
+      for (const a of addPlans) {
+        const inn = await tx.checkIn.create({
+          data: { userId: a.userId, type: "IN", location: "OUTSIDE", confidence: null, note: location, tripId: id, createdAt: a.outAt },
+        });
+        await tx.outsideWorkTripMember.create({ data: { tripId: id, userId: a.userId, checkInId: inn.id } });
+        if (a.backAt) {
+          await tx.checkIn.create({
+            data: { userId: a.userId, type: "OUT", location: "OUTSIDE", confidence: null, note: `กลับจาก ${location}`, createdAt: a.backAt },
+          });
+        }
+      }
       for (const p of plans) {
         if (p.inId) await tx.checkIn.update({ where: { id: p.inId }, data: { createdAt: p.outAt } });
         if (p.backAt) {
@@ -101,7 +161,7 @@ export async function updateOutsideTripDetails(id: string, input: OutsideTripEdi
 
     await createActivityLog(
       "EDIT_OUTSIDE_TRIP",
-      `Admin edited outside trip "${trip.location}"${location !== trip.location ? ` -> "${location}"` : ""} (${plans.length} member time(s) saved)`
+      `Admin edited outside trip "${trip.location}"${location !== trip.location ? ` -> "${location}"` : ""} (${plans.length} member time(s) saved, +${addPlans.length} added, -${removePlans.length} removed)`
     );
 
     revalidatePath(`/outside-trip/${id}`);

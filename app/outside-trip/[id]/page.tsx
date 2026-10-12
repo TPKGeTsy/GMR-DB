@@ -1,4 +1,4 @@
-import { getOutsideTripDetail } from "@/app/actions/outsideTrip";
+import { getOutsideTripDetail, getOutsideTripEmployeeOptions } from "@/app/actions/outsideTrip";
 import TripReportEditor from "@/components/TripReportEditor";
 import TripDetailsEditor from "@/components/TripDetailsEditor";
 import { formatThaiDateLong } from "@/lib/datetime";
@@ -18,6 +18,8 @@ export default async function OutsideTripDetailPage({ params }: { params: Promis
   }
 
   const trip = result.data;
+  const employeesResult = await getOutsideTripEmployeeOptions();
+  const employees = employeesResult.success ? employeesResult.data : [];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -52,6 +54,7 @@ export default async function OutsideTripDetailPage({ params }: { params: Promis
           tripId={trip.id}
           location={trip.location}
           members={trip.members}
+          employees={employees}
         />
 
         <div className="px-6 py-4">
