@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   // the final image. Vercel doesn't need this (it builds its own way), but
   // self-hosting does.
   output: "standalone",
+  // modbus-serial optionally requires native serial-port bindings; keep it out
+  // of the bundle so Node loads it normally.
+  serverExternalPackages: ["modbus-serial"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

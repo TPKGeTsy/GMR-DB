@@ -646,3 +646,48 @@ model OutsideLaborWorker {
   @@index([nameKey])
   @@map("outside_labor_workers")
 }
+
+// Last state a user asked each Modbus relay channel to be in (one row per
+// channel, `channel` = 0-based coil address). The relay module itself holds
+// the live state; this is the web app's memory of what it was told, so the
+// page can still show it when the module is unreachable and can offer to
+// restore it after the module loses power (relays come back OFF).
+model ModbusRelayState {
+  channel   Int      @id
+  isOn      Boolean  @map("is_on")
+  updatedBy String?  @map("updated_by") // username of whoever last switched it
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("modbus_relay_states")
+}
+
+// Latest state of the I/O module as reported by the on-site agent (a
+// Raspberry Pi on the same LAN as the module) when the web app runs in the
+// cloud (MODBUS_MODE=agent). Single row, id = 1. `reportedAt` going stale
+// means the agent (or the module) is unreachable.
+model ModbusAgentStatus {
+  id         Int       @id @default(1)
+  states     Boolean[]
+  // [{ configured, online }] per module, in module order (module 1, module 2).
+  modules    Json?
+  reportedAt DateTime  @default(now()) @map("reported_at")
+
+  @@map("modbus_agent_status")
+}
+
+// Network address of each Modbus I/O module, editable from the /modbus page
+// (ADMIN / OPERATOR). One row per module, `moduleIndex` 0 = module 1 (CH1-16),
+// 1 = module 2 (CH17-32). A missing row means "use the MODBUS_HOST* env vars"
+// (module 1 falls back to its built-in default, module 2 to "not installed").
+// The Raspberry Pi agent downloads these with the desired state, so the Pi
+// needs no per-module settings of its own.
+model ModbusModuleConfig {
+  moduleIndex Int      @id @map("module_index")
+  host        String
+  port        Int      @default(502)
+  unitId      Int      @default(1) @map("unit_id")
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("modbus_module_config")
+}

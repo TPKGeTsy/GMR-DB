@@ -68,6 +68,11 @@ using the same token; it's not tied to hosting on Vercel.
    - **Add a new job**, once daily, hitting
      `https://yourdomain.com/api/cron/cleanup-checkin-photos` — this is
      what `vercel.json` used to trigger.
+   - **Add a third job** for the Modbus outputs, every 5 minutes, hitting
+     `https://yourdomain.com/api/cron/modbus-auto-off` — it switches off any
+     output someone forgot to turn off (see `MODBUS_AUTO_OFF_*` in
+     `.env.production.example`). Unlike the other two, this one refuses to
+     run if `CRON_SECRET` is empty, since it controls physical outputs.
    - Both need the header `Authorization: Bearer <CRON_SECRET>`, using the
      same `CRON_SECRET` value you put in `.env.production`.
 

@@ -1,0 +1,25 @@
+# systemd unit for the Raspberry Pi agent.
+#
+#   sudo cp gmr-modbus-agent.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/gmr-modbus-agent.service   # fix User + paths if yours differ
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now gmr-modbus-agent
+#   journalctl -u gmr-modbus-agent -f                        # live log
+
+[Unit]
+Description=GMR Modbus agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/GMR-DB/agent
+EnvironmentFile=/home/pi/GMR-DB/agent/.env
+# The shared code in ../lib resolves modbus-serial from here, not from the repo root.
+Environment=NODE_PATH=/home/pi/GMR-DB/agent/node_modules
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs index.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

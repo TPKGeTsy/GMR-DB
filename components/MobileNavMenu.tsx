@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Menu, X, LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
-  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet, MapPin, HardHat,
+  ScanFace, ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart, Timer, BarChart3, Wallet, MapPin, HardHat, Power,
 } from "lucide-react";
 import { isOtManagerRole, isOwner } from "@/lib/roles";
 
@@ -134,6 +134,10 @@ export default function MobileNavMenu({
               <Link href="/diagrams" className={linkClass} onClick={close}>
                 <Share2 className="w-4 h-4" />
                 Wiring (การเดินสาย)
+              </Link>
+              <Link href="/modbus" className={linkClass} onClick={close}>
+                <Power className="w-4 h-4" />
+                Modbus Output (ควบคุมเอาต์พุต)
               </Link>
 
               {role === "ADMIN" && (
