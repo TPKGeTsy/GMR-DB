@@ -33,7 +33,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ต้องรัน migration ให้มีตาราง `modbus_agent_status` ก่อน (`npm run build` รัน `prisma migrate deploy` ให้เอง)
 
-ถ้าเว็บรันบน Vercel: Pi ถามเว็บทุก 2 วินาที (~43,000 ครั้ง/วัน) ถ้าติดโควตา ให้ตั้ง `AGENT_POLL_MS=5000`
+ถ้าเว็บรันบน Vercel: Pi ถามเว็บทุก 1 วินาที (~86,000 ครั้ง/วัน) ถ้าติดโควตา ให้ตั้ง `AGENT_POLL_MS=5000`
 ที่ Pi (ปุ่มบนเว็บจะตอบช้าลงเล็กน้อย)
 
 ## 2) ฝั่ง Pi

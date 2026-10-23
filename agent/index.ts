@@ -24,7 +24,12 @@ import type { ModuleStatus, SavedStates } from "../lib/relayState";
 
 const cloudUrl = (process.env.CLOUD_URL ?? "").replace(/\/+$/, "");
 const token = process.env.MODBUS_AGENT_TOKEN ?? "";
-const pollMs = Number(process.env.AGENT_POLL_MS ?? 2000);
+// How often to ask the web app for new commands, and how often the main loop
+// ticks (applies a change to the module / reports the result). Together they
+// set how fast a button press reaches the lights: pickup ≤ poll + tick, then
+// the report goes back within a tick. Lower = snappier but more requests.
+const pollMs = Math.max(250, Number(process.env.AGENT_POLL_MS ?? 1000));
+const tickMs = Math.max(100, Number(process.env.AGENT_TICK_MS ?? 400));
 const reportEveryMs = Number(process.env.AGENT_REPORT_MS ?? 5000);
 const cacheFile = process.env.AGENT_CACHE_FILE ?? join(__dirname, "desired.json");
 
@@ -120,7 +125,7 @@ const supervisor = createSupervisor({
     const { restored, errors } = await reconcileCoils(getDesired);
     return { restored, errors };
   },
-  intervalMs: 1000,
+  intervalMs: tickMs,
   refreshMs: pollMs,
   onRestore: (channels) => log(`applied saved state to channel(s) ${channels.map((c) => c + 1).join(", ")}`),
   onError: (scope, error) => logThrottled(scope, errMsg(error)),
@@ -177,5 +182,5 @@ log(
   `agent started: module 1 ${process.env.MODBUS_HOST ?? "192.168.1.12"}, module 2 ${process.env.MODBUS_HOST_2 || "(not configured)"}, cloud ${cloudUrl}`
 );
 supervisor.start();
-setInterval(() => void report(), 1000);
+setInterval(() => void report(), tickMs);
 void report();
