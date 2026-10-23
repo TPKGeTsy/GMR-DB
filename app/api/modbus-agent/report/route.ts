@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { parseBearer, parseReport, tokensMatch } from "@/lib/agentProtocol";
 import { COIL_COUNT, MODULE_COUNT } from "@/lib/relayState";
+import { notifyReported } from "@/lib/agentBus";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest) {
       create: { id: 1, states, modules, reportedAt: new Date() },
       update: { states, modules, reportedAt: new Date() },
     });
+    // Wake any server action that is waiting to confirm a button press.
+    notifyReported();
     return NextResponse.json({ ok: true });
   } catch (error) {
     logError("Modbus agent report failed:", error);

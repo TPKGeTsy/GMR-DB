@@ -7,6 +7,7 @@ import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
 import { isAgentFresh } from "@/lib/agentProtocol";
 import { ensureModuleConfig } from "@/lib/moduleConfigStore";
 import { COIL_COUNT } from "@/lib/relayState";
+import { notifyDesiredChanged } from "@/lib/agentBus";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
           where: { channel: { in: dueViaAgent } },
           data: { isOn: false, updatedBy: "auto-off" },
         });
+        notifyDesiredChanged();
       }
       return NextResponse.json({
         success: true,

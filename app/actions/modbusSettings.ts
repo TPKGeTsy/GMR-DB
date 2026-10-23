@@ -8,6 +8,7 @@ import { effectiveModuleAddress } from "@/lib/modbus";
 import { ensureModuleConfig, loadModuleOverrides } from "@/lib/moduleConfigStore";
 import { validateModuleSettings, type ModuleOverride } from "@/lib/moduleSettings";
 import { MODULE_COUNT } from "@/lib/relayState";
+import { notifyDesiredChanged } from "@/lib/agentBus";
 import { createActivityLog } from "./auth";
 
 // Editing a module's network address is a configuration change, not an
@@ -82,6 +83,7 @@ export async function saveModuleSettings(
       create: { moduleIndex, host, port, unitId, updatedBy: user.username },
       update: { host, port, unitId, updatedBy: user.username },
     });
+    notifyDesiredChanged(); // the Pi's long-poll carries module addresses too
     await createActivityLog("MODBUS_CONFIG", `โมดูล ${moduleIndex + 1} -> ${host}:${port} (unit ${unitId})`);
     return await currentSettings();
   } catch (error) {
@@ -98,6 +100,7 @@ export async function clearModuleSettings(moduleIndex: number): Promise<ModuleSe
 
   try {
     await prisma.modbusModuleConfig.deleteMany({ where: { moduleIndex } });
+    notifyDesiredChanged();
     await createActivityLog("MODBUS_CONFIG", `โมดูล ${moduleIndex + 1} -> ล้างค่า (กลับไปใช้ค่าจาก env)`);
     return await currentSettings();
   } catch (error) {

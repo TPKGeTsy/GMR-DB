@@ -18,6 +18,7 @@ import {
   type SavedStates,
 } from "@/lib/relayState";
 import { isAgentFresh, parseStoredModules } from "@/lib/agentProtocol";
+import { notifyDesiredChanged, waitForReport } from "@/lib/agentBus";
 import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
 import { ensureModuleConfig } from "@/lib/moduleConfigStore";
 import { createActivityLog } from "./auth";
@@ -98,25 +99,31 @@ async function saveStates(entries: { channel: number; isOn: boolean }[], usernam
 // Same write, but errors propagate — in agent mode the database IS the command
 // channel, so a failed write must fail the switch.
 async function saveStatesStrict(entries: { channel: number; isOn: boolean }[], username: string | null) {
-  await prisma.$transaction(
-    entries.map(({ channel, isOn }) =>
-      prisma.modbusRelayState.upsert({
-        where: { channel },
-        create: { channel, isOn, updatedBy: username },
-        update: { isOn, updatedBy: username },
-      })
-    )
-  );
+  const upsert = ({ channel, isOn }: { channel: number; isOn: boolean }) =>
+    prisma.modbusRelayState.upsert({
+      where: { channel },
+      create: { channel, isOn, updatedBy: username },
+      update: { isOn, updatedBy: username },
+    });
+  // One channel (the usual button press) is a single statement: skip the
+  // BEGIN/COMMIT round trips of a transaction — they were the slowest part of
+  // a switch. Several channels still go in together so they land atomically.
+  if (entries.length === 1) await upsert(entries[0]);
+  else await prisma.$transaction(entries.map(upsert));
+  // Wake the Pi's parked long-poll now that the change is committed, so it
+  // doesn't have to wait for its next poll.
+  notifyDesiredChanged();
 }
 
 // ---------- agent mode (web in the cloud, Raspberry Pi on the LAN) ----------
 
 const AGENT_WAIT_MS = 7000;
-const AGENT_POLL_MS = 400;
+// Fallback poll while waiting for the Pi's confirmation. Normally the report
+// route wakes us the moment it arrives (see lib/agentBus.ts); this only matters
+// when the report is handled by a different process.
+const AGENT_POLL_MS = 250;
 const AGENT_OFFLINE_MESSAGE =
   "ไม่ได้รับสถานะจาก Raspberry Pi ในออฟฟิศ (Pi ปิดอยู่ ไม่มีอินเทอร์เน็ต หรือต่อโมดูลไม่ได้)";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function loadAgentStatus(): Promise<{ states: boolean[]; modules: ModuleStatus[]; reportedAt: Date } | null> {
   try {
@@ -163,7 +170,7 @@ async function setRelayViaAgent(index: number, on: boolean, username: string | n
   // The Pi picks the change up within a couple of seconds, applies it and
   // reports back; wait for a report newer than this request that agrees.
   while (Date.now() - requestedAt < AGENT_WAIT_MS) {
-    await sleep(AGENT_POLL_MS);
+    await waitForReport(AGENT_POLL_MS);
     const status = await loadAgentStatus();
     if (status && status.reportedAt.getTime() >= requestedAt && status.states[index] === on) {
       await createActivityLog("MODBUS_RELAY", `ช่อง ${index + 1} -> ${on ? "ON" : "OFF"}`);

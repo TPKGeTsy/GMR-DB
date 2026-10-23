@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Info, Power, RefreshCw, RotateCcw, Settings2, WifiOff } from "lucide-react";
 import { getRelayStates, restoreRelays, setRelay, type RelayResult } from "@/app/actions/modbus";
 import { FLOOR_MAPS, channelAssignments } from "@/lib/zones";
@@ -50,8 +50,13 @@ export default function RelayPanel({
     }
   }, []);
 
+  // While a switch is in flight the page already shows the new state; a
+  // background refresh landing now would read the old one and flip it back.
+  const switching = useRef(false);
+
   const refresh = useCallback(async () => {
-    apply(await getRelayStates());
+    const result = await getRelayStates();
+    if (!switching.current) apply(result);
   }, [apply]);
 
   useEffect(() => {
@@ -72,8 +77,18 @@ export default function RelayPanel({
 
   const toggle = async (index: number) => {
     if (!states || busy !== null || !moduleOnline(index)) return;
+    const before = states;
+    const turnOn = !before[index];
+    switching.current = true;
     setBusy(index);
-    apply(await setRelay(index, !states[index]));
+    // Optimistic: show the new state the instant it is pressed; the answer
+    // from the Pi (normally well under a second) confirms it, and a failure
+    // puts the old state back with the error.
+    setStates(before.map((v, i) => (i === index ? turnOn : v)));
+    const result = await setRelay(index, turnOn);
+    if (!result.success) setStates(before);
+    apply(result);
+    switching.current = false;
     setBusy(null);
   };
 

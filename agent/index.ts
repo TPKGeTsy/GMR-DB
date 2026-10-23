@@ -30,6 +30,9 @@ const token = process.env.MODBUS_AGENT_TOKEN ?? "";
 // the report goes back within a tick. Lower = snappier but more requests.
 const pollMs = Math.max(250, Number(process.env.AGENT_POLL_MS ?? 1000));
 const tickMs = Math.max(100, Number(process.env.AGENT_TICK_MS ?? 400));
+// Long poll: how long the web app may hold a request open waiting for a change
+// (0 = plain polling every AGENT_POLL_MS). Keep it under any proxy timeout.
+const longPollMs = Math.min(25_000, Math.max(0, Number(process.env.AGENT_LONGPOLL_MS ?? 20_000)));
 const reportEveryMs = Number(process.env.AGENT_REPORT_MS ?? 5000);
 const cacheFile = process.env.AGENT_CACHE_FILE ?? join(__dirname, "desired.json");
 
@@ -38,6 +41,7 @@ if (!cloudUrl || !token) {
   process.exit(1);
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const log = (message: string) => console.log(`${new Date().toISOString()} ${message}`);
 const lastLogged: Record<string, number> = {};
 function logThrottled(scope: string, message: string) {
@@ -85,36 +89,86 @@ function writeCache(cache: Cache) {
 let knownModules: (ModuleOverride | null)[] | null = readCache()?.modules ?? null;
 if (knownModules) setModuleOverrides(knownModules);
 
-// Wanted state from the cloud; falls back to the last good copy when the
-// cloud is unreachable, so an internet outage never changes the lights.
+// ---- Wanted state from the cloud ------------------------------------------
+// Held in memory and refreshed by a LONG POLL: the request to the web app is
+// parked on the server and answered the instant someone presses a button, so a
+// switch reaches the lights in a fraction of a second (a plain poll could only
+// notice it on its next round). When the cloud is unreachable the last good
+// copy (cached on disk, also used after a reboot) is enforced instead, so an
+// internet outage never changes the lights.
+let latest: SavedStates | null = readCache()?.desired ?? null;
+let version = ""; // fingerprint of the last answer; echoed back as `since`
+let firstFetchDone = false;
+let lastFirstAttempt = 0;
+
+async function fetchDesired(waitMs: number): Promise<{ changed: boolean }> {
+  const query = waitMs > 0 && version ? `?wait=${waitMs}&since=${version}` : "";
+  const res = await fetch(`${cloudUrl}/api/modbus-agent/desired${query}`, {
+    headers: authHeaders,
+    signal: AbortSignal.timeout(waitMs + 8000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await res.json();
+  const desired = normalizeDesired(body.desired, COIL_COUNT);
+  // `modules` is null when the web app couldn't read its settings table:
+  // keep using what we already have rather than snapping back to .env.
+  if (Array.isArray(body.modules)) {
+    const incoming = normalizeOverrides(body.modules, MODULE_COUNT);
+    if (JSON.stringify(incoming) !== JSON.stringify(knownModules)) {
+      log(`module addresses from the web app: ${incoming.map((m, i) => `#${i + 1} ${m ? `${m.host}:${m.port}` : "(from .env)"}`).join(", ")}`);
+    }
+    knownModules = incoming;
+    setModuleOverrides(incoming);
+  }
+  // An older web app sends no `version`: treat every answer as a change.
+  const newVersion = typeof body.version === "string" ? body.version : "";
+  const changed = newVersion === "" || newVersion !== version || !firstFetchDone;
+  version = newVersion;
+  latest = desired;
+  firstFetchDone = true;
+  if (changed) writeCache({ desired, modules: knownModules ?? normalizeOverrides(null, MODULE_COUNT) });
+  return { changed };
+}
+
+// What the supervisor reads every tick: the in-memory copy. Until the first
+// answer from the cloud arrives it keeps trying (every 2 s) and meanwhile
+// enforces whatever the disk cache holds.
 async function loadDesired(): Promise<SavedStates> {
-  try {
-    const res = await fetch(`${cloudUrl}/api/modbus-agent/desired`, {
-      headers: authHeaders,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
-    const desired = normalizeDesired(body.desired, COIL_COUNT);
-    // `modules` is null when the web app couldn't read its settings table:
-    // keep using what we already have rather than snapping back to .env.
-    if (Array.isArray(body.modules)) {
-      const incoming = normalizeOverrides(body.modules, MODULE_COUNT);
-      if (JSON.stringify(incoming) !== JSON.stringify(knownModules)) {
-        log(`module addresses from the web app: ${incoming.map((m, i) => `#${i + 1} ${m ? `${m.host}:${m.port}` : "(from .env)"}`).join(", ")}`);
-      }
-      knownModules = incoming;
-      setModuleOverrides(incoming);
-    }
-    writeCache({ desired, modules: knownModules ?? normalizeOverrides(null, MODULE_COUNT) });
-    return desired;
-  } catch (e) {
-    const cached = readCache();
-    if (cached) {
+  if (!firstFetchDone && Date.now() - lastFirstAttempt >= 2000) {
+    lastFirstAttempt = Date.now();
+    try {
+      await fetchDesired(0);
+    } catch (e) {
       logThrottled("cloud", `unreachable (${errMsg(e)}), enforcing the last known state`);
-      return cached.desired;
     }
-    throw e;
+  }
+  if (latest) return latest;
+  throw new Error("no wanted state yet (cloud unreachable and nothing cached)");
+}
+
+// Apply a change right now (instead of waiting for the next timer tick) and
+// report the result straight away.
+async function applyNow() {
+  await supervisor.tick();
+  await report();
+}
+
+// Keeps asking the cloud; each answer that changed anything is applied at once.
+async function pollLoop() {
+  for (;;) {
+    const started = Date.now();
+    try {
+      const { changed } = await fetchDesired(longPollMs);
+      if (changed) void applyNow();
+      // A parked request normally returns only on a change or after ~20 s. If
+      // it came back at once (long polling off, or an older server), pace it.
+      const spent = Date.now() - started;
+      const pace = longPollMs > 0 ? 300 : pollMs;
+      if (spent < pace) await sleep(pace - spent);
+    } catch (e) {
+      logThrottled("cloud", `unreachable (${errMsg(e)}), enforcing the last known state`);
+      await sleep(2000);
+    }
   }
 }
 
@@ -126,7 +180,7 @@ const supervisor = createSupervisor({
     return { restored, errors };
   },
   intervalMs: tickMs,
-  refreshMs: pollMs,
+  refreshMs: 0, // reads the in-memory copy kept fresh by pollLoop()
   onRestore: (channels) => log(`applied saved state to channel(s) ${channels.map((c) => c + 1).join(", ")}`),
   onError: (scope, error) => logThrottled(scope, errMsg(error)),
 });
@@ -183,4 +237,5 @@ log(
 );
 supervisor.start();
 setInterval(() => void report(), tickMs);
+void pollLoop();
 void report();
