@@ -97,7 +97,6 @@ export default function ModuleAddressEditor({
   };
 
   const n = moduleIndex + 1;
-  const first = moduleIndex * COILS_PER_MODULE + 1;
 
   if (loadError) return <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{loadError}</p>;
   if (!info) return <p className="text-sm text-gray-500">กำลังโหลด...</p>;
@@ -117,7 +116,7 @@ export default function ModuleAddressEditor({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {showHeader && (
           <h3 className="text-sm font-semibold text-gray-800">
-            โมดูล {n} (CH{first}–CH{first + COILS_PER_MODULE - 1})
+            โมดูล {n} (address 0–{COILS_PER_MODULE - 1})
           </h3>
         )}
         {status && (

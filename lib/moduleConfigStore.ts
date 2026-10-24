@@ -2,7 +2,8 @@ import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { MODULE_COUNT } from "@/lib/relayState";
 import { normalizeOverrides, type ModuleOverride } from "@/lib/moduleSettings";
-import { setModuleOverrides } from "@/lib/modbus";
+import { setChannelMap, setModuleOverrides } from "@/lib/modbus";
+import { loadChannelMap } from "@/lib/channelWiringStore";
 
 // Module addresses edited on the /modbus page live in the database. The web
 // server (direct mode) pushes them into lib/modbus.ts through
@@ -36,7 +37,13 @@ export async function ensureModuleConfig(force = false): Promise<void> {
   const now = Date.now();
   if (!force && now < (g.__moduleConfigNextLoad ?? 0)) return;
   try {
-    setModuleOverrides(await loadModuleOverrides());
+    // Addresses and wiring are read together; the wiring is applied even if
+    // the addresses can't be (and vice versa) so one bad table can't block both.
+    const [overrides, wiring] = await Promise.allSettled([loadModuleOverrides(), loadChannelMap()]);
+    if (wiring.status === "fulfilled") setChannelMap(wiring.value);
+    else logError("Modbus channel-wiring read failed:", wiring.reason);
+    if (overrides.status === "rejected") throw overrides.reason;
+    setModuleOverrides(overrides.value);
     g.__moduleConfigNextLoad = now + REFRESH_MS;
   } catch (error) {
     g.__moduleConfigNextLoad = now + RETRY_AFTER_FAILURE_MS;

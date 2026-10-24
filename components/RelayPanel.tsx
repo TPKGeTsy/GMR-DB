@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Info, Power, RefreshCw, RotateCcw, Settings2, WifiOff } from "lucide-react";
+import { Info, Pencil, Power, RefreshCw, RotateCcw, Settings2, WifiOff } from "lucide-react";
 import { getRelayStates, restoreRelays, setRelay, type RelayResult } from "@/app/actions/modbus";
 import { FLOOR_MAPS, channelAssignments } from "@/lib/zones";
 import {
   COILS_PER_MODULE,
   MODULE_COUNT,
+  channelAt,
   describeModuleStatus,
   moduleOfChannel,
   restorableMismatches,
+  type ChannelMap,
   type ModuleStatus,
   type SavedStates,
 } from "@/lib/relayState";
@@ -17,9 +19,14 @@ import ZoneMap from "./ZoneMap";
 import ModuleSettingsPanel from "./ModuleSettingsPanel";
 import ModuleAddressEditor from "./ModuleAddressEditor";
 import PersonIcon from "./PersonIcon";
+import IoSummary from "./IoSummary";
+import SchedulePanel from "./SchedulePanel";
+import ChannelWiringDialog from "./ChannelWiringDialog";
 
 const POLL_MS = 5000;
 const CHANNELS_TAB = "channels";
+const IO_TAB = "io";
+const SCHEDULE_TAB = "schedule";
 
 export default function RelayPanel({
   channelCount,
@@ -32,6 +39,9 @@ export default function RelayPanel({
   const [states, setStates] = useState<boolean[] | null>(null);
   const [saved, setSaved] = useState<SavedStates | null>(null);
   const [modules, setModules] = useState<ModuleStatus[] | null>(null);
+  const [channelMap, setWiring] = useState<ChannelMap | null>(null); // which module/address each channel drives
+  const [editingChannel, setEditingChannel] = useState<number | null>(null);
+  const [wiringNote, setWiringNote] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // why nothing is live (shown when no module answers)
   const [busy, setBusy] = useState<number | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -43,6 +53,7 @@ export default function RelayPanel({
       setStates(result.states);
       setSaved(result.saved);
       setModules(result.modules);
+      setWiring(result.channelMap);
       setNotice(result.modules.some((m) => m.online) ? null : (result.error ?? null));
       setError(null);
     } else {
@@ -72,7 +83,7 @@ export default function RelayPanel({
     };
   }, [refresh]);
 
-  const moduleOnline = (channel: number) => !!modules?.[moduleOfChannel(channel)]?.online;
+  const moduleOnline = (channel: number) => !!modules?.[moduleOfChannel(channel, channelMap ?? undefined)]?.online;
   const anyOnline = !!modules?.some((m) => m.online);
 
   const toggle = async (index: number) => {
@@ -92,7 +103,7 @@ export default function RelayPanel({
     setBusy(null);
   };
 
-  const mismatches = states && saved && modules ? restorableMismatches(states, modules, saved) : [];
+  const mismatches = states && saved && modules ? restorableMismatches(states, modules, saved, channelMap ?? undefined) : [];
 
   const restore = async () => {
     if (restoring || !anyOnline) return;
@@ -105,13 +116,12 @@ export default function RelayPanel({
 
   const activeMap = FLOOR_MAPS.find((m) => m.id === tab);
 
-  // One note per module that isn't available, naming the channels it covers.
+  // One note per module that isn't available, saying how many channels it covers.
   const moduleNotes = (modules ?? []).flatMap((status, m) => {
     const reason = describeModuleStatus(m, status);
     if (!reason) return [];
-    const first = m * COILS_PER_MODULE + 1;
-    const range = `ช่อง ${first}–${first + COILS_PER_MODULE - 1}`;
-    return [{ m, installed: status.configured, text: `${reason} — ${range} ใช้งานไม่ได้${status.configured ? " (แสดงสถานะที่บันทึกไว้)" : ""}` }];
+    const covered = channelMap ? channelMap.filter((l) => l.module === m).length : COILS_PER_MODULE;
+    return [{ m, installed: status.configured, text: `${reason} — ${covered} ช่องของโมดูลนี้ใช้งานไม่ได้${status.configured ? " (แสดงสถานะที่บันทึกไว้)" : ""}` }];
   });
 
   return (
@@ -167,7 +177,7 @@ export default function RelayPanel({
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 text-sm">
-          {[...FLOOR_MAPS.map((m) => ({ id: m.id, title: m.title })), { id: CHANNELS_TAB, title: "รายช่อง" }].map((t) => (
+          {[...FLOOR_MAPS.map((m) => ({ id: m.id, title: m.title })), { id: CHANNELS_TAB, title: "รายช่อง" }, { id: IO_TAB, title: "สรุป IO" }, { id: SCHEDULE_TAB, title: "ตั้งเวลา" }].map((t) => (
             <button
               key={t.id}
               type="button"
@@ -197,17 +207,29 @@ export default function RelayPanel({
         </div>
       </div>
 
+      {wiringNote && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-900">
+          <p>{wiringNote}</p>
+          <button type="button" onClick={() => setWiringNote(null)} className="text-blue-700 hover:underline">
+            ปิด
+          </button>
+        </div>
+      )}
+
       {activeMap ? (
-        <ZoneMap map={activeMap} states={states} busyChannel={busy} onToggle={toggle} modules={modules} />
+        <ZoneMap map={activeMap} states={states} busyChannel={busy} onToggle={toggle} modules={modules} channelMap={channelMap} />
+      ) : tab === SCHEDULE_TAB ? (
+        <SchedulePanel channelCount={channelCount} canConfigure={canConfigure} />
+      ) : tab === IO_TAB ? (
+        <IoSummary modules={modules} channelMap={channelMap} states={states} channelCount={channelCount} canConfigure={canConfigure} />
       ) : (
         <div className="space-y-6">
           {Array.from({ length: MODULE_COUNT }, (_, m) => {
             const status = modules?.[m];
-            const first = m * COILS_PER_MODULE;
             return (
               <section key={m}>
                 <h2 className="mb-2 text-sm font-semibold text-gray-700">
-                  โมดูล {m + 1} (CH{first + 1}–CH{first + COILS_PER_MODULE})
+                  IO ตัวที่ {m + 1} (address 0–{COILS_PER_MODULE - 1})
                   {status && !status.online && (
                     <span className="ml-2 text-xs font-normal text-gray-500">
                       {status.configured ? "ไม่ตอบ" : "ยังไม่ได้ตั้งค่า"}
@@ -229,21 +251,21 @@ export default function RelayPanel({
                   )
                 )}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {channelAssignments(channelCount)
-                    .slice(first, first + COILS_PER_MODULE)
-                    .map(({ channel: i, zone, name }) => {
-                      const on = states?.[i] ?? false;
-                      const unavailable = !!modules && !moduleOnline(i);
-                      const disabled = !states || busy !== null || unavailable;
-                      const spare = zone === null;
-                      return (
+                  {Array.from({ length: COILS_PER_MODULE }, (_, address) => {
+                    const i = channelMap ? channelAt(channelMap, m, address) : m * COILS_PER_MODULE + address;
+                    const { zone, name } = channelAssignments(channelCount)[i] ?? { zone: null, name: "—" };
+                    const on = states?.[i] ?? false;
+                    const unavailable = !!modules && !moduleOnline(i);
+                    const disabled = !states || busy !== null || unavailable;
+                    const spare = zone === null;
+                    return (
+                      <div key={address} className="relative">
                         <button
-                          key={i}
                           type="button"
                           disabled={disabled}
                           onClick={() => toggle(i)}
                           aria-pressed={on}
-                          className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-4 py-5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                          className={`flex w-full flex-col items-center gap-1.5 rounded-xl border-2 px-4 py-5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                             on
                               ? "border-green-500 bg-green-500 text-white shadow"
                               : spare
@@ -258,15 +280,44 @@ export default function RelayPanel({
                           )}
                           <span>ช่อง {i + 1}</span>
                           <span className={`text-sm ${spare && !on ? "italic" : ""}`}>{name}</span>
-                          <span className="text-xs font-normal opacity-80">{!states ? "—" : on ? "ON" : "OFF"}</span>
+                          <span className="text-xs font-normal opacity-80">
+                            {!states ? "—" : on ? "ON" : "OFF"} · addr {address}
+                          </span>
                         </button>
-                      );
-                    })}
+                        {canConfigure && channelMap && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingChannel(i)}
+                            className={`absolute right-1.5 top-1.5 rounded-md p-1 ${on ? "text-white/80 hover:bg-white/20" : "text-gray-400 hover:bg-gray-100 hover:text-gray-600"}`}
+                            aria-label={`ตั้งที่อยู่ของช่อง ${i + 1}`}
+                            title="ตั้ง IO / address ของช่องนี้"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             );
           })}
         </div>
+      )}
+
+      {editingChannel !== null && channelMap && (
+        <ChannelWiringDialog
+          channel={editingChannel}
+          channelMap={channelMap}
+          channelCount={channelCount}
+          onClose={() => setEditingChannel(null)}
+          onSaved={(map, message) => {
+            setWiring(map);
+            setWiringNote(message);
+            setEditingChannel(null);
+            refresh();
+          }}
+        />
       )}
 
       {canConfigure && <ModuleSettingsPanel modules={modules} onChanged={refresh} />}

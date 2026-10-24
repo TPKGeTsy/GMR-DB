@@ -3,9 +3,10 @@
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
-import { COIL_COUNT, isValidCoilIndex, readAllCoils, setCoil, writeAllCoils } from "@/lib/modbus";
+import { COIL_COUNT, getChannelMap, isValidCoilIndex, readAllCoils, setCoil, writeAllCoils } from "@/lib/modbus";
 import {
   MODULE_COUNT,
+  defaultChannelMap,
   desiredStates,
   describeModuleStatus,
   displayStates,
@@ -14,9 +15,11 @@ import {
   restorableMismatches,
   savedFromRows,
   statesFromSaved,
+  type ChannelMap,
   type ModuleStatus,
   type SavedStates,
 } from "@/lib/relayState";
+import { loadChannelMap } from "@/lib/channelWiringStore";
 import { isAgentFresh, parseStoredModules } from "@/lib/agentProtocol";
 import { notifyDesiredChanged, waitForReport } from "@/lib/agentBus";
 import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
@@ -40,6 +43,8 @@ export type RelayResult =
       saved: SavedStates;
       /** Per module: is an address configured, and did it answer? */
       modules: ModuleStatus[];
+      /** Which module / coil address each channel is wired to. */
+      channelMap: ChannelMap;
       error?: string;
     }
   | { success: false; error: string };
@@ -125,6 +130,17 @@ const AGENT_POLL_MS = 250;
 const AGENT_OFFLINE_MESSAGE =
   "ไม่ได้รับสถานะจาก Raspberry Pi ในออฟฟิศ (Pi ปิดอยู่ ไม่มีอินเทอร์เน็ต หรือต่อโมดูลไม่ได้)";
 
+// The wiring is a convenience for display and routing; if the database hiccups
+// the default wiring keeps the page usable (the Pi has its own copy anyway).
+async function loadChannelMapSafe(): Promise<ChannelMap> {
+  try {
+    return await loadChannelMap();
+  } catch (error) {
+    logError("Modbus channel-wiring read failed:", error);
+    return defaultChannelMap();
+  }
+}
+
 async function loadAgentStatus(): Promise<{ states: boolean[]; modules: ModuleStatus[]; reportedAt: Date } | null> {
   try {
     const row = await prisma.modbusAgentStatus.findUnique({ where: { id: 1 } });
@@ -139,13 +155,14 @@ async function loadAgentStatus(): Promise<{ states: boolean[]; modules: ModuleSt
 }
 
 async function agentStates(): Promise<RelayResult> {
-  const [saved, status] = await Promise.all([loadSaved(), loadAgentStatus()]);
+  const [saved, status, channelMap] = await Promise.all([loadSaved(), loadAgentStatus(), loadChannelMapSafe()]);
   if (status && isAgentFresh(status.reportedAt)) {
     return {
       success: true,
-      states: displayStates(status.states, status.modules, saved),
+      states: displayStates(status.states, status.modules, saved, channelMap),
       saved,
       modules: status.modules,
+      channelMap,
       error: firstProblem(status.modules),
     };
   }
@@ -153,13 +170,13 @@ async function agentStates(): Promise<RelayResult> {
   if (!hasAnySaved(saved)) return { success: false, error: AGENT_OFFLINE_MESSAGE };
   // The Pi has gone quiet: show the saved copy, keeping what we last knew about which modules exist.
   const modules = offlineModules(status?.modules.map((m) => m.configured));
-  return { success: true, states: statesFromSaved(saved), saved, modules, error: AGENT_OFFLINE_MESSAGE };
+  return { success: true, states: statesFromSaved(saved), saved, modules, channelMap, error: AGENT_OFFLINE_MESSAGE };
 }
 
 async function setRelayViaAgent(index: number, on: boolean, username: string | null): Promise<RelayResult> {
   const current = await agentStates();
   if (!current.success) return { success: false, error: AGENT_OFFLINE_MESSAGE };
-  const m = moduleOfChannel(index);
+  const m = moduleOfChannel(index, current.channelMap);
   const problem = describeModuleStatus(m, current.modules[m]);
   if (problem) return { success: false, error: current.modules.some((x) => x.online) ? problem : AGENT_OFFLINE_MESSAGE };
 
@@ -173,9 +190,19 @@ async function setRelayViaAgent(index: number, on: boolean, username: string | n
     await waitForReport(AGENT_POLL_MS);
     const status = await loadAgentStatus();
     if (status && status.reportedAt.getTime() >= requestedAt && status.states[index] === on) {
-      await createActivityLog("MODBUS_RELAY", `ช่อง ${index + 1} -> ${on ? "ON" : "OFF"}`);
-      const saved = await loadSaved();
-      return { success: true, states: displayStates(status.states, status.modules, saved), saved, modules: status.modules };
+      // Not awaited: the log must not delay the answer to the person who pressed the button.
+      createActivityLog("MODBUS_RELAY", `ช่อง ${index + 1} -> ${on ? "ON" : "OFF"}`).catch((error) =>
+        logError("Modbus activity log failed:", error)
+      );
+      // The saved states are what we read at the start plus this one change: no need to read them again.
+      const saved = current.saved.map((v, i) => (i === index ? on : v));
+      return {
+        success: true,
+        states: displayStates(status.states, status.modules, saved, current.channelMap),
+        saved,
+        modules: status.modules,
+        channelMap: current.channelMap,
+      };
     }
   }
 
@@ -208,13 +235,15 @@ export async function getRelayStates(): Promise<RelayResult> {
     const message = snap.errors.find(Boolean) ? describeError(snap.errors.find(Boolean)) : (problem ?? "ไม่พบโมดูล I/O");
     // Nothing remembered yet → nothing useful to show.
     if (!hasAnySaved(saved)) return { success: false, error: message };
-    return { success: true, states: statesFromSaved(saved), saved, modules: snap.modules, error: message };
+    return { success: true, states: statesFromSaved(saved), saved, modules: snap.modules, channelMap: getChannelMap(), error: message };
   }
+  const channelMap = getChannelMap();
   return {
     success: true,
-    states: displayStates(snap.states, snap.modules, saved),
+    states: displayStates(snap.states, snap.modules, saved, channelMap),
     saved,
     modules: snap.modules,
+    channelMap,
     error: problem,
   };
 }
@@ -250,11 +279,13 @@ export async function setRelay(index: number, on: boolean): Promise<RelayResult>
     });
     await createActivityLog("MODBUS_RELAY", `ช่อง ${index + 1} -> ${on ? "ON" : "OFF"}`);
     const saved = await loadSaved();
+    const channelMap = getChannelMap();
     return {
       success: true,
-      states: displayStates(snap.states, snap.modules, saved),
+      states: displayStates(snap.states, snap.modules, saved, channelMap),
       saved,
       modules: snap.modules,
+      channelMap,
       error: firstProblem(snap.modules),
     };
   } catch (error) {
@@ -286,13 +317,15 @@ export async function restoreRelays(): Promise<RelayResult> {
     if (!before.modules.some((m) => m.online)) {
       return { success: false, error: describeError(before.errors.find(Boolean) ?? new Error("")) };
     }
-    const changed = restorableMismatches(before.states, before.modules, saved);
+    const channelMap = getChannelMap();
+    const changed = restorableMismatches(before.states, before.modules, saved, channelMap);
     if (changed.length === 0) {
       return {
         success: true,
-        states: displayStates(before.states, before.modules, saved),
+        states: displayStates(before.states, before.modules, saved, channelMap),
         saved,
         modules: before.modules,
+        channelMap,
         error: firstProblem(before.modules),
       };
     }
@@ -304,9 +337,10 @@ export async function restoreRelays(): Promise<RelayResult> {
     );
     return {
       success: true,
-      states: displayStates(after.states, after.modules, saved),
+      states: displayStates(after.states, after.modules, saved, channelMap),
       saved,
       modules: after.modules,
+      channelMap,
       error: firstProblem(after.modules),
     };
   } catch (error) {

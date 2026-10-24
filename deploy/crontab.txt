@@ -4,3 +4,7 @@
 # (= 00:00 Bangkok). If the server is already on Bangkok time use "0 0 * * *" instead.
 */5 * * * * curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET= /home/gmr-wp/htdocs/wp.gmr.co.th/.env.production | cut -d= -f2-)" http://127.0.0.1:3417/api/cron/checkin-reminders >/dev/null
 0 17 * * * curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET= /home/gmr-wp/htdocs/wp.gmr.co.th/.env.production | cut -d= -f2-)" http://127.0.0.1:3417/api/cron/cleanup-checkin-photos >/dev/null
+
+# Modbus timers (the "ตั้งเวลา" tab on /modbus): runs every minute and fires any timer that is due.
+# Needs CRON_SECRET (it drives physical outputs, so it refuses to run without it).
+* * * * * curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET= /home/gmr-wp/htdocs/wp.gmr.co.th/.env.production | cut -d= -f2-)" http://127.0.0.1:3417/api/cron/modbus-schedule >/dev/null

@@ -691,3 +691,39 @@ model ModbusModuleConfig {
 
   @@map("modbus_module_config")
 }
+
+// Where each channel's output physically is: which I/O module and which coil
+// address (0-15) on it. Edited on the /modbus page. A row exists only for a
+// channel that was moved off the default wiring (channel n = the n-th output,
+// module by module); the web app and the Pi agent overlay these on the
+// default and re-check the result, so the map can never put two channels on
+// one output.
+model ModbusChannelWiring {
+  channel     Int      @id
+  moduleIndex Int      @map("module_index")
+  address     Int
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("modbus_channel_wiring")
+}
+
+// Timers for the /modbus "ตั้งเวลา" tab: at `time` (HH:mm, Bangkok) on the given
+// weekdays, switch the listed channels ON or OFF. An external cron job calls
+// /api/cron/modbus-schedule every minute; lastRunDateKey makes each one run at
+// most once per day.
+model ModbusSchedule {
+  id             String   @id @default(cuid())
+  title          String   @default("")
+  time           String // "HH:mm"
+  days           Int[] // 0 = Sunday ... 6 = Saturday
+  action         String // "ON" | "OFF"
+  channels       Int[] // 0-based global channels
+  enabled        Boolean  @default(true)
+  lastRunDateKey String?  @map("last_run_date_key")
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("modbus_schedules")
+}

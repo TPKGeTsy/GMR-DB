@@ -3,10 +3,13 @@ import {
   COILS_PER_MODULE,
   COIL_COUNT,
   MODULE_COUNT,
+  channelAt,
+  defaultChannelMap,
   desiredStates,
   findMismatches,
-  localCoil,
-  moduleOfChannel,
+  normalizeChannelMap,
+  sameChannelMap,
+  type ChannelMap,
   type ModuleStatus,
   type SavedStates,
 } from "./relayState";
@@ -43,6 +46,26 @@ interface ModuleConfig {
   timeoutMs: number;
   /** 0 disables the keep-alive (outputs will then drop after ~2 s). */
   keepAliveMs: number;
+}
+
+// Which module / coil each channel is wired to. Starts as the default wiring
+// (channel n = the n-th output, module by module); the web server or the Pi
+// agent replaces it with setChannelMap() after reading the wiring saved on the
+// /modbus page. Always a conflict-free map (see normalizeChannelMap), so no
+// two channels can ever drive the same output.
+const mg = globalThis as unknown as { __modbusChannelMap?: ChannelMap };
+let channelMap: ChannelMap = (mg.__modbusChannelMap ??= defaultChannelMap());
+
+/** Use this wiring from now on (anything invalid falls back to the default wiring). */
+export function setChannelMap(next: unknown): void {
+  const normalized = normalizeChannelMap(next);
+  if (sameChannelMap(normalized, channelMap)) return;
+  channelMap = mg.__modbusChannelMap = normalized;
+}
+
+/** The wiring in use right now (a copy). */
+export function getChannelMap(): ChannelMap {
+  return channelMap.map((l) => ({ ...l }));
 }
 
 // Addresses entered on the /modbus page (stored in the database) beat the env
@@ -234,8 +257,13 @@ const allOff = () => new Array<boolean>(COILS_PER_MODULE).fill(false);
 const asError = (e: unknown) => (e instanceof Error ? e : new Error(String(e)));
 
 function snapshotOf(results: { configured: boolean; states: boolean[] | null; error: Error | null }[]): Snapshot {
+  // Re-order the per-module coils into global channels using the wiring.
+  const map = channelMap;
   return {
-    states: results.flatMap((r) => r.states ?? allOff()),
+    states: Array.from({ length: COIL_COUNT }, (_, channel) => {
+      const loc = map[channel];
+      return (results[loc.module]?.states ?? allOff())[loc.address] ?? false;
+    }),
     modules: results.map((r) => ({ configured: r.configured, online: r.states !== null })),
     errors: results.map((r) => r.error),
   };
@@ -262,11 +290,11 @@ export async function readAllCoils(): Promise<Snapshot> {
  */
 export async function setCoil(channel: number, on: boolean): Promise<Snapshot> {
   if (!isValidCoilIndex(channel)) throw new RangeError(`Channel index must be 0-${COIL_COUNT - 1}`);
-  const m = moduleOfChannel(channel);
+  const { module: m, address } = channelMap[channel];
   if (!isModuleConfigured(m)) throw new Error(`Module ${m + 1} is not configured (set MODBUS_HOST_${m + 1})`);
 
   await run(m, async (client) => {
-    await client.writeCoil(localCoil(channel), on);
+    await client.writeCoil(address, on);
     return toCoils((await client.readCoils(0, COILS_PER_MODULE)).data);
   }).then((s) => track(m, s));
   return readAllCoils();
@@ -284,7 +312,12 @@ export async function writeAllCoils(states: boolean[]): Promise<Snapshot> {
   await Promise.all(
     Array.from({ length: MODULE_COUNT }, async (_, m) => {
       if (!isModuleConfigured(m)) return;
-      const slice = states.slice(m * COILS_PER_MODULE, (m + 1) * COILS_PER_MODULE);
+      // The channels wired to this module, laid out by coil address.
+      const slice = new Array<boolean>(COILS_PER_MODULE).fill(false);
+      for (let channel = 0; channel < COIL_COUNT; channel++) {
+        const loc = channelMap[channel];
+        if (loc.module === m) slice[loc.address] = states[channel];
+      }
       try {
         await run(m, (client) => client.writeCoils(0, slice));
       } catch {
@@ -311,11 +344,17 @@ export async function reconcileCoils(getDesired: () => SavedStates): Promise<Sna
       try {
         const states = await run(m, async (client) => {
           const device = toCoils((await client.readCoils(0, COILS_PER_MODULE)).data);
-          const desired = getDesired().slice(m * COILS_PER_MODULE, (m + 1) * COILS_PER_MODULE);
+          // Desired state per coil of THIS module, via the current wiring.
+          const wanted = getDesired();
+          const desired: SavedStates = new Array(COILS_PER_MODULE).fill(null);
+          for (let channel = 0; channel < COIL_COUNT; channel++) {
+            const loc = channelMap[channel];
+            if (loc.module === m) desired[loc.address] = wanted[channel] ?? null;
+          }
           const fix = findMismatches(device, desired);
           if (fix.length === 0) return device;
           await client.writeCoils(0, desiredStates(device, desired));
-          restored.push(...fix.map((c) => c + m * COILS_PER_MODULE));
+          restored.push(...fix.map((address) => channelAt(channelMap, m, address)));
           return toCoils((await client.readCoils(0, COILS_PER_MODULE)).data);
         });
         return { configured: true, states: track(m, states), error: null };

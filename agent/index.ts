@@ -16,11 +16,11 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { COIL_COUNT, MODULE_COUNT, closeModbus, readAllCoils, reconcileCoils, setModuleOverrides } from "../lib/modbus";
+import { COIL_COUNT, MODULE_COUNT, closeModbus, readAllCoils, reconcileCoils, setChannelMap, setModuleOverrides } from "../lib/modbus";
 import { normalizeDesired } from "../lib/agentProtocol";
 import { createSupervisor } from "../lib/relaySupervisor";
 import { normalizeOverrides, type ModuleOverride } from "../lib/moduleSettings";
-import type { ModuleStatus, SavedStates } from "../lib/relayState";
+import { normalizeChannelMap, type ChannelMap, type ModuleStatus, type SavedStates } from "../lib/relayState";
 
 const cloudUrl = (process.env.CLOUD_URL ?? "").replace(/\/+$/, "");
 const token = process.env.MODBUS_AGENT_TOKEN ?? "";
@@ -59,15 +59,20 @@ const authHeaders = { authorization: `Bearer ${token}`, "content-type": "applica
 interface Cache {
   desired: SavedStates;
   modules: (ModuleOverride | null)[];
+  /** Which module / coil each channel drives (the wiring set on the web page). */
+  channelMap: ChannelMap;
 }
 
 function readCache(): Cache | null {
   try {
     const raw = JSON.parse(readFileSync(cacheFile, "utf8"));
-    if (Array.isArray(raw)) return { desired: normalizeDesired(raw, COIL_COUNT), modules: normalizeOverrides(null, MODULE_COUNT) };
+    if (Array.isArray(raw)) {
+      return { desired: normalizeDesired(raw, COIL_COUNT), modules: normalizeOverrides(null, MODULE_COUNT), channelMap: normalizeChannelMap(null) };
+    }
     return {
       desired: normalizeDesired(raw.desired, COIL_COUNT),
       modules: normalizeOverrides(raw.modules, MODULE_COUNT),
+      channelMap: normalizeChannelMap(raw.channelMap),
     };
   } catch {
     return null;
@@ -88,6 +93,12 @@ function writeCache(cache: Cache) {
 // this Pi's own .env.
 let knownModules: (ModuleOverride | null)[] | null = readCache()?.modules ?? null;
 if (knownModules) setModuleOverrides(knownModules);
+
+// The wiring (channel -> module/coil) last received from the web app; the
+// cached copy is used until the first download so a reboot during an internet
+// outage still switches the right outputs. Without any it is the default wiring.
+let knownChannelMap: ChannelMap = readCache()?.channelMap ?? normalizeChannelMap(null);
+setChannelMap(knownChannelMap);
 
 // ---- Wanted state from the cloud ------------------------------------------
 // Held in memory and refreshed by a LONG POLL: the request to the web app is
@@ -120,13 +131,25 @@ async function fetchDesired(waitMs: number): Promise<{ changed: boolean }> {
     knownModules = incoming;
     setModuleOverrides(incoming);
   }
+  // `channelMap` is null/absent when the web app couldn't read it (or is an
+  // older version): keep the wiring we have rather than snapping back to default.
+  if (body.channelMap != null) {
+    const incoming = normalizeChannelMap(body.channelMap);
+    if (JSON.stringify(incoming) !== JSON.stringify(knownChannelMap)) {
+      log("channel wiring updated from the web app");
+    }
+    knownChannelMap = incoming;
+    setChannelMap(incoming);
+  }
   // An older web app sends no `version`: treat every answer as a change.
   const newVersion = typeof body.version === "string" ? body.version : "";
   const changed = newVersion === "" || newVersion !== version || !firstFetchDone;
   version = newVersion;
   latest = desired;
   firstFetchDone = true;
-  if (changed) writeCache({ desired, modules: knownModules ?? normalizeOverrides(null, MODULE_COUNT) });
+  if (changed) {
+    writeCache({ desired, modules: knownModules ?? normalizeOverrides(null, MODULE_COUNT), channelMap: knownChannelMap });
+  }
   return { changed };
 }
 

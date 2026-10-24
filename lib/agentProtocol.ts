@@ -5,7 +5,7 @@ import type { ModuleStatus, SavedStates } from "./relayState";
 // and the Raspberry Pi agent. Plain functions, no framework imports.
 //
 // Protocol (all requests carry `Authorization: Bearer <MODBUS_AGENT_TOKEN>`):
-//   GET  /api/modbus-agent/desired -> { desired: (boolean|null)[] }
+//   GET  /api/modbus-agent/desired -> { desired: (boolean|null)[], modules, channelMap, version }
 //   POST /api/modbus-agent/report  <- { states: boolean[], modules: { configured, online }[] }
 
 /** Agent counts as offline when its last report is older than this. */

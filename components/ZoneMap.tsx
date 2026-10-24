@@ -1,6 +1,6 @@
 "use client";
 
-import { moduleOfChannel, type ModuleStatus } from "@/lib/relayState";
+import { moduleOfChannel, type ChannelMap, type ModuleStatus } from "@/lib/relayState";
 import { ZONE_BY_ID, type FloorMap } from "@/lib/zones";
 import { PersonGlyph } from "./PersonIcon";
 
@@ -13,9 +13,11 @@ interface ZoneMapProps {
   onToggle: (channel: number) => void;
   /** Per-module availability; zones on a module that isn't online can't be switched. */
   modules: ModuleStatus[] | null;
+  /** Which module each channel is wired to (default wiring when omitted). */
+  channelMap?: ChannelMap | null;
 }
 
-export default function ZoneMap({ map, states, busyChannel, onToggle, modules }: ZoneMapProps) {
+export default function ZoneMap({ map, states, busyChannel, onToggle, modules, channelMap }: ZoneMapProps) {
   const disabled = !states || !modules || busyChannel !== null;
 
   return (
@@ -36,7 +38,7 @@ export default function ZoneMap({ map, states, busyChannel, onToggle, modules }:
         const busy = !unassigned && busyChannel === channel;
         // A zone on a module that isn't answering (or isn't installed yet) shows
         // what we know but can't be switched.
-        const moduleIndex = unassigned ? -1 : moduleOfChannel(channel);
+        const moduleIndex = unassigned ? -1 : moduleOfChannel(channel, channelMap ?? undefined);
         const moduleStatus = modules?.[moduleIndex];
         const moduleDown = !unassigned && !!modules && !moduleStatus?.online;
         const notInstalled = moduleDown && !moduleStatus?.configured;

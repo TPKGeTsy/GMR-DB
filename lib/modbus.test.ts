@@ -61,8 +61,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  const { closeModbus } = await import("./modbus");
+  const { closeModbus, setChannelMap } = await import("./modbus");
   closeModbus(); // fresh sockets + no keep-alive left over from the previous test
+  setChannelMap(null); // default wiring unless a test rewires
   configure();
   for (const mod of fake) mod.coils.fill(false);
 });
@@ -75,6 +76,65 @@ afterAll(async () => {
 });
 
 describe("modbus gateway (2 modules)", () => {
+  // --- wiring: which module/coil each channel drives (set on the /modbus page) ---
+  it("follows a rewired channel to the other module and coil", async () => {
+    const { setCoil, setChannelMap, getChannelMap } = await import("./modbus");
+    const { defaultChannelMap, swapIntoLocation } = await import("./relayState");
+    setChannelMap(swapIntoLocation(defaultChannelMap(), 0, 1, 3).map); // CH1 -> module 2, coil 3
+    expect(getChannelMap()[0]).toEqual({ module: 1, address: 3 });
+
+    const snap = await setCoil(0, true);
+    expect(fake[1].coils[3]).toBe(true); // the physical output moved
+    expect(fake[0].coils.some(Boolean)).toBe(false); // and the old one did not
+    expect(snap.states[0]).toBe(true); // read back as channel 0 again
+    expect(snap.states.filter(Boolean)).toHaveLength(1); // the channel that took its place stays off
+    await setCoil(0, false);
+  });
+
+  it("writes and reads every channel through the wiring", async () => {
+    const { writeAllCoils, readAllCoils, setChannelMap } = await import("./modbus");
+    const { defaultChannelMap, swapIntoLocation } = await import("./relayState");
+    let map = swapIntoLocation(defaultChannelMap(), 2, 0, 9).map; // CH3 <-> CH10 trade outputs
+    map = swapIntoLocation(map, 20, 0, 1).map; // CH21 <-> CH2 trade outputs
+    setChannelMap(map);
+
+    const pattern = allOff();
+    pattern[2] = true; // CH3
+    pattern[20] = true; // CH21
+    const snap = await writeAllCoils(pattern);
+    expect(snap.states).toEqual(pattern); // global view is unchanged
+    expect(fake[0].coils[9]).toBe(true); // CH3 now drives module 1 coil 9
+    expect(fake[0].coils[2]).toBe(false);
+    expect(fake[0].coils[1]).toBe(true); // CH21 now drives module 1 coil 1
+    expect(fake[1].coils[4]).toBe(false);
+    expect((await readAllCoils()).states).toEqual(pattern);
+    await writeAllCoils(allOff());
+  });
+
+  it("reconcile fixes the right output when a channel is rewired and reports global channels", async () => {
+    const { reconcileCoils, setChannelMap } = await import("./modbus");
+    const { defaultChannelMap, swapIntoLocation } = await import("./relayState");
+    setChannelMap(swapIntoLocation(defaultChannelMap(), 4, 1, 6).map); // CH5 -> module 2, coil 6
+    const saved = Array.from({ length: 32 }, (_, i) => (i === 4 ? true : null));
+
+    const result = await reconcileCoils(() => saved);
+    expect(result.restored).toEqual([4]);
+    expect(fake[1].coils[6]).toBe(true);
+    expect(fake[0].coils[4]).toBe(false);
+    expect((await reconcileCoils(() => saved)).restored).toEqual([]);
+  });
+
+  it("ignores a conflicting wiring and keeps the default", async () => {
+    const { setCoil, setChannelMap } = await import("./modbus");
+    const { defaultChannelMap } = await import("./relayState");
+    const bad = defaultChannelMap();
+    bad[1] = { ...bad[0] }; // two channels on one output
+    setChannelMap(bad);
+    await setCoil(1, true);
+    expect(fake[0].coils[1]).toBe(true); // default wiring: CH2 = module 1 coil 1
+    await setCoil(1, false);
+  });
+
   it("reads all 32 channels from both modules, initially OFF", async () => {
     const { readAllCoils } = await import("./modbus");
     const snap = await readAllCoils();
