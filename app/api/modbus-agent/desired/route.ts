@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
-import { parseBearer, tokensMatch } from "@/lib/agentProtocol";
+import { isHot, parseBearer, tokensMatch } from "@/lib/agentProtocol";
 import { COIL_COUNT, savedFromRows } from "@/lib/relayState";
 import { loadModuleOverrides } from "@/lib/moduleConfigStore";
 import type { ModuleOverride } from "@/lib/moduleSettings";
@@ -23,7 +23,7 @@ async function readDesired() {
   // addresses edited on the /modbus page ride along, so the Pi needs no
   // per-module settings of its own. A failure reading them (e.g. the table
   // isn't migrated yet) must not stop the Pi from getting the desired state.
-  const [rows, modules, channelMap] = await Promise.all([
+  const [rows, modules, channelMap, activity] = await Promise.all([
     prisma.modbusRelayState.findMany(),
     loadModuleOverrides().catch((error): (ModuleOverride | null)[] | null => {
       logError("Modbus agent module-config read failed:", error);
@@ -35,12 +35,15 @@ async function readDesired() {
       logError("Modbus agent channel-wiring read failed:", error);
       return null;
     }),
+    // Someone using the page? A failure here only costs speed, never correctness.
+    prisma.modbusWebActivity.findUnique({ where: { id: 1 } }).catch(() => null),
   ]);
   const desired = savedFromRows(rows, COIL_COUNT);
   // A short fingerprint of everything the agent acts on: it echoes it back as
   // `since`, and we only keep the request parked while it is still current.
   const version = createHash("sha1").update(JSON.stringify({ desired, modules, channelMap })).digest("hex").slice(0, 16);
-  return { desired, modules, channelMap, version };
+  // `hot` is deliberately NOT in the version: it flips on its own and must not wake a parked long poll.
+  return { desired, modules, channelMap, hot: isHot(activity?.seenAt), version };
 }
 
 /**

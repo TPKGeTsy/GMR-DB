@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Info, Pencil, Power, RefreshCw, RotateCcw, Settings2, WifiOff } from "lucide-react";
-import { getRelayStates, restoreRelays, setRelay, type RelayResult } from "@/app/actions/modbus";
+import { getRelayStates, restoreRelays, type RelayResult } from "@/app/actions/modbus";
 import { FLOOR_MAPS, channelAssignments } from "@/lib/zones";
 import {
   COILS_PER_MODULE,
@@ -36,6 +36,23 @@ function quietFor(seconds: number): string {
 }
 const SCHEDULE_TAB = "schedule";
 
+// Switch one channel with a plain request, NOT the server action: Next.js runs
+// a page's server actions one at a time, so a second press would sit behind the
+// first press's wait for the Pi. Requests run side by side.
+async function sendRelay(index: number, on: boolean): Promise<RelayResult> {
+  try {
+    const res = await fetch("/api/modbus/relay", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index, on }),
+    });
+    if (res.status === 401 || res.status === 403) return { success: false, error: "หมดเวลาล็อกอิน กรุณาล็อกอินใหม่" };
+    return (await res.json()) as RelayResult;
+  } catch {
+    return { success: false, error: "ส่งคำสั่งไม่สำเร็จ (เครือข่ายขัดข้อง) กรุณาลองใหม่" };
+  }
+}
+
 export default function RelayPanel({
   channelCount,
   canConfigure = false,
@@ -54,15 +71,21 @@ export default function RelayPanel({
   const [editingChannel, setEditingChannel] = useState<number | null>(null);
   const [wiringNote, setWiringNote] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // why nothing is live (shown when no module answers)
-  const [busy, setBusy] = useState<number | null>(null);
+  const [pending, setPending] = useState<number[]>([]); // channels whose switch is still being confirmed
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<string>(FLOOR_MAPS[0].id);
 
+  // channel -> the state the user just asked for, while its switch is in flight.
+  const pendingRef = useRef(new Map<number, boolean>());
+  const withPending = <T extends (boolean | null)[]>(list: T): T =>
+    list.map((v, i) => (pendingRef.current.has(i) ? pendingRef.current.get(i)! : v)) as T;
+
   const apply = useCallback((result: RelayResult) => {
     if (result.success) {
-      setStates(result.states);
-      setSaved(result.saved);
+      // Channels pressed a moment ago keep what the user asked for until their own answer arrives.
+      setStates(withPending(result.states));
+      setSaved(withPending(result.saved));
       setModules(result.modules);
       setWiring(result.channelMap);
       if (result.mode) setMode(result.mode);
@@ -74,13 +97,31 @@ export default function RelayPanel({
     }
   }, []);
 
-  // While a switch is in flight the page already shows the new state; a
-  // background refresh landing now would read the old one and flip it back.
-  const switching = useRef(false);
+  // "Someone is using the page": lets the Pi poll fast for the next minute (see
+        // /api/modbus/activity). Fired on load, on coming back to the tab and on any
+        // interaction, at most every 15 s — NOT by the background refresh, so a tab
+        // left open on a desk doesn't keep the Pi busy all day.
+  const lastActivity = useRef(0);
+  const ping = useCallback(() => {
+    const now = Date.now();
+    if (now - lastActivity.current < 15_000 || document.visibilityState !== "visible") return;
+    lastActivity.current = now;
+    fetch("/api/modbus/activity", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", keepalive: true }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    ping();
+    const events = ["pointerdown", "pointermove", "keydown", "touchstart", "scroll"] as const;
+    events.forEach((e) => window.addEventListener(e, ping, { passive: true }));
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, ping));
+      document.removeEventListener("visibilitychange", ping);
+    };
+  }, [ping]);
 
   const refresh = useCallback(async () => {
-    const result = await getRelayStates();
-    if (!switching.current) apply(result);
+    apply(await getRelayStates());
   }, [apply]);
 
   useEffect(() => {
@@ -105,20 +146,19 @@ export default function RelayPanel({
   const anyOnline = !!modules?.some((m) => m.online);
 
   const toggle = async (index: number) => {
-    if (!states || busy !== null || !moduleOnline(index)) return;
-    const before = states;
-    const turnOn = !before[index];
-    switching.current = true;
-    setBusy(index);
-    // Optimistic: show the new state the instant it is pressed; the answer
-    // from the Pi (normally well under a second) confirms it, and a failure
-    // puts the old state back with the error.
-    setStates(before.map((v, i) => (i === index ? turnOn : v)));
-    const result = await setRelay(index, turnOn);
-    if (!result.success) setStates(before);
+    // Only a channel that is itself still waiting is locked; the others stay pressable.
+    if (!states || pendingRef.current.has(index) || !moduleOnline(index)) return;
+    const turnOn = !states[index];
+    // Optimistic: show the new state the instant it is pressed. The answer from
+    // the Pi confirms it; a failure puts the old state back and shows the error.
+    pendingRef.current.set(index, turnOn);
+    setPending([...pendingRef.current.keys()]);
+    setStates((prev) => (prev ? prev.map((v, i) => (i === index ? turnOn : v)) : prev));
+    const result = await sendRelay(index, turnOn);
+    pendingRef.current.delete(index);
+    setPending([...pendingRef.current.keys()]);
+    if (!result.success) setStates((prev) => (prev ? prev.map((v, i) => (i === index ? !turnOn : v)) : prev));
     apply(result);
-    switching.current = false;
-    setBusy(null);
   };
 
   const mismatches = states && saved && modules ? restorableMismatches(states, modules, saved, channelMap ?? undefined) : [];
@@ -264,7 +304,7 @@ export default function RelayPanel({
       )}
 
       {activeMap ? (
-        <ZoneMap map={activeMap} states={states} busyChannel={busy} onToggle={toggle} modules={modules} channelMap={channelMap} />
+        <ZoneMap map={activeMap} states={states} busyChannels={pending} onToggle={toggle} modules={modules} channelMap={channelMap} />
       ) : tab === SCHEDULE_TAB ? (
         <SchedulePanel channelCount={channelCount} canConfigure={canConfigure} />
       ) : tab === IO_TAB ? (
@@ -303,7 +343,7 @@ export default function RelayPanel({
                     const { zone, name } = channelAssignments(channelCount)[i] ?? { zone: null, name: "—" };
                     const on = states?.[i] ?? false;
                     const unavailable = !!modules && !moduleOnline(i);
-                    const disabled = !states || busy !== null || unavailable;
+                    const disabled = !states || pending.includes(i) || unavailable;
                     const spare = zone === null;
                     return (
                       <div key={address} className="relative">
@@ -321,9 +361,9 @@ export default function RelayPanel({
                           }`}
                         >
                           {zone?.icon ? (
-                            <PersonIcon kind={zone.icon} className={`h-8 w-6 ${busy === i ? "animate-pulse" : ""}`} />
+                            <PersonIcon kind={zone.icon} className={`h-8 w-6 ${pending.includes(i) ? "animate-pulse" : ""}`} />
                           ) : (
-                            <Power className={`h-6 w-6 ${busy === i ? "animate-pulse" : ""}`} />
+                            <Power className={`h-6 w-6 ${pending.includes(i) ? "animate-pulse" : ""}`} />
                           )}
                           <span>ช่อง {i + 1}</span>
                           <span className={`text-sm ${spare && !on ? "italic" : ""}`}>{name}</span>

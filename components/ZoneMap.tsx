@@ -8,8 +8,8 @@ interface ZoneMapProps {
   map: FloorMap;
   /** Output states by global channel, or null while still loading. */
   states: boolean[] | null;
-  /** Channel currently being switched, if any. */
-  busyChannel: number | null;
+  /** Channels whose switch is still being confirmed (each is locked, the others are not). */
+  busyChannels: number[];
   onToggle: (channel: number) => void;
   /** Per-module availability; zones on a module that isn't online can't be switched. */
   modules: ModuleStatus[] | null;
@@ -17,8 +17,8 @@ interface ZoneMapProps {
   channelMap?: ChannelMap | null;
 }
 
-export default function ZoneMap({ map, states, busyChannel, onToggle, modules, channelMap }: ZoneMapProps) {
-  const disabled = !states || !modules || busyChannel !== null;
+export default function ZoneMap({ map, states, busyChannels, onToggle, modules, channelMap }: ZoneMapProps) {
+  const disabled = !states || !modules;
 
   return (
     <svg
@@ -35,14 +35,14 @@ export default function ZoneMap({ map, states, busyChannel, onToggle, modules, c
         const channel = zone.channel;
         const unassigned = channel === null;
         const on = !unassigned && (states?.[channel] ?? false);
-        const busy = !unassigned && busyChannel === channel;
+        const busy = !unassigned && busyChannels.includes(channel);
         // A zone on a module that isn't answering (or isn't installed yet) shows
         // what we know but can't be switched.
         const moduleIndex = unassigned ? -1 : moduleOfChannel(channel, channelMap ?? undefined);
         const moduleStatus = modules?.[moduleIndex];
         const moduleDown = !unassigned && !!modules && !moduleStatus?.online;
         const notInstalled = moduleDown && !moduleStatus?.configured;
-        const zoneDisabled = disabled || unassigned || moduleDown;
+        const zoneDisabled = disabled || unassigned || moduleDown || busy;
         const activate = () => {
           if (!zoneDisabled && !unassigned) onToggle(channel);
         };

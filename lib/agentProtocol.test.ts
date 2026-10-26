@@ -68,3 +68,28 @@ describe("agent protocol", () => {
     expect(normalizeDesired(undefined, 3)).toEqual([null, null, null]);
   });
 });
+
+describe("isHot (is someone using the web page?)", () => {
+  const now = Date.parse("2026-10-26T10:00:00Z");
+  const ago = (ms: number) => new Date(now - ms);
+
+  it("is hot right after an interaction and for the whole window", async () => {
+    const { isHot, HOT_WINDOW_MS } = await import("./agentProtocol");
+    expect(isHot(ago(0), now)).toBe(true);
+    expect(isHot(ago(30_000), now)).toBe(true);
+    expect(isHot(ago(HOT_WINDOW_MS), now)).toBe(true);
+  });
+
+  it("goes cold after the window, and when nobody ever used the page", async () => {
+    const { isHot, HOT_WINDOW_MS } = await import("./agentProtocol");
+    expect(isHot(ago(HOT_WINDOW_MS + 1), now)).toBe(false);
+    expect(isHot(null, now)).toBe(false);
+    expect(isHot(undefined, now)).toBe(false);
+  });
+
+  it("tolerates a little clock skew but not a timestamp far in the future", async () => {
+    const { isHot } = await import("./agentProtocol");
+    expect(isHot(new Date(now + 2_000), now)).toBe(true);
+    expect(isHot(new Date(now + 60_000), now)).toBe(false);
+  });
+});

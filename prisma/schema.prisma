@@ -727,3 +727,14 @@ model ModbusSchedule {
 
   @@map("modbus_schedules")
 }
+
+// When someone last used the /modbus page (opened it, came back to the tab,
+// moved the mouse, pressed a switch). One row. The Raspberry Pi agent is told
+// "someone is here" for a minute after that, and polls fast during it; the rest
+// of the time it polls slowly, which keeps request counts low on Vercel.
+model ModbusWebActivity {
+  id     Int      @id @default(1)
+  seenAt DateTime @map("seen_at")
+
+  @@map("modbus_web_activity")
+}

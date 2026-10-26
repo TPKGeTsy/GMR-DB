@@ -8,6 +8,16 @@ import type { ModuleStatus, SavedStates } from "./relayState";
 //   GET  /api/modbus-agent/desired -> { desired: (boolean|null)[], modules, channelMap, version }
 //   POST /api/modbus-agent/report  <- { states: boolean[], modules: { configured, online }[] }
 
+/** The agent is told "someone is using the page" for this long after the last interaction. */
+export const HOT_WINDOW_MS = 60_000;
+
+/** Has someone used the /modbus page within `windowMs`? (Then the Pi should poll fast.) */
+export function isHot(seenAt: Date | null | undefined, now: number = Date.now(), windowMs = HOT_WINDOW_MS): boolean {
+  if (!seenAt) return false;
+  const age = now - seenAt.getTime();
+  return age >= -5_000 && age <= windowMs; // a little clock skew into the future is fine
+}
+
 /** Agent counts as offline when its last report is older than this. */
 export const AGENT_STALE_MS = 10_000;
 

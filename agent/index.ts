@@ -33,6 +33,11 @@ const tickMs = Math.max(100, Number(process.env.AGENT_TICK_MS ?? 400));
 // Long poll: how long the web app may hold a request open waiting for a change
 // (0 = plain polling every AGENT_POLL_MS). Keep it under any proxy timeout.
 const longPollMs = Math.min(25_000, Math.max(0, Number(process.env.AGENT_LONGPOLL_MS ?? 20_000)));
+// Plain polling only (AGENT_LONGPOLL_MS=0, e.g. against Vercel): ask this often
+// while someone is using the web page or a switch was just pressed, and every
+// AGENT_POLL_MS the rest of the time (so an idle building makes few requests).
+const fastPollMs = Math.max(100, Number(process.env.AGENT_FAST_POLL_MS ?? 250));
+let hotUntil = 0;
 const reportEveryMs = Number(process.env.AGENT_REPORT_MS ?? 5000);
 const cacheFile = process.env.AGENT_CACHE_FILE ?? join(__dirname, "desired.json");
 
@@ -141,6 +146,8 @@ async function fetchDesired(waitMs: number): Promise<{ changed: boolean }> {
     knownChannelMap = incoming;
     setChannelMap(incoming);
   }
+  // The web app says whether someone is using the page right now.
+  if (body.hot === true) hotUntil = Math.max(hotUntil, Date.now() + 20_000);
   // An older web app sends no `version`: treat every answer as a change.
   const newVersion = typeof body.version === "string" ? body.version : "";
   const changed = newVersion === "" || newVersion !== version || !firstFetchDone;
@@ -182,11 +189,14 @@ async function pollLoop() {
     const started = Date.now();
     try {
       const { changed } = await fetchDesired(longPollMs);
-      if (changed) void applyNow();
+      if (changed) {
+        void applyNow();
+        hotUntil = Math.max(hotUntil, Date.now() + 60_000); // follow-up presses come in bursts
+      }
       // A parked request normally returns only on a change or after ~20 s. If
       // it came back at once (long polling off, or an older server), pace it.
       const spent = Date.now() - started;
-      const pace = longPollMs > 0 ? 300 : pollMs;
+      const pace = longPollMs > 0 ? 300 : Date.now() < hotUntil ? fastPollMs : pollMs;
       if (spent < pace) await sleep(pace - spent);
     } catch (e) {
       logThrottled("cloud", `unreachable (${errMsg(e)}), enforcing the last known state`);
