@@ -22,6 +22,7 @@ import {
 import { loadChannelMap } from "@/lib/channelWiringStore";
 import { isAgentFresh, parseStoredModules } from "@/lib/agentProtocol";
 import { notifyDesiredChanged, waitForReport } from "@/lib/agentBus";
+import { isAgentMode } from "@/lib/modbusMode";
 import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
 import { ensureModuleConfig } from "@/lib/moduleConfigStore";
 import { createActivityLog } from "./auth";
@@ -45,6 +46,10 @@ export type RelayResult =
       modules: ModuleStatus[];
       /** Which module / coil address each channel is wired to. */
       channelMap: ChannelMap;
+      /** How this web app reaches the modules (only set by calls that know it). */
+      mode?: "agent" | "direct";
+      /** Agent mode: when the Pi last reported (ISO), or null if it never has. */
+      agentReportedAt?: string | null;
       error?: string;
     }
   | { success: false; error: string };
@@ -55,9 +60,7 @@ export type RelayResult =
 //   modules' LAN does the talking. The database is the mailbox: this side
 //   writes the wanted state, the Pi carries it out and reports the live state
 //   back (see agent/ and app/api/modbus-agent/*).
-function isAgentMode(): boolean {
-  return (process.env.MODBUS_MODE ?? "direct").toLowerCase() === "agent";
-}
+
 
 function describeError(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
@@ -163,6 +166,8 @@ async function agentStates(): Promise<RelayResult> {
       saved,
       modules: status.modules,
       channelMap,
+      mode: "agent",
+      agentReportedAt: status.reportedAt.toISOString(),
       error: firstProblem(status.modules),
     };
   }
@@ -170,7 +175,16 @@ async function agentStates(): Promise<RelayResult> {
   if (!hasAnySaved(saved)) return { success: false, error: AGENT_OFFLINE_MESSAGE };
   // The Pi has gone quiet: show the saved copy, keeping what we last knew about which modules exist.
   const modules = offlineModules(status?.modules.map((m) => m.configured));
-  return { success: true, states: statesFromSaved(saved), saved, modules, channelMap, error: AGENT_OFFLINE_MESSAGE };
+  return {
+    success: true,
+    states: statesFromSaved(saved),
+    saved,
+    modules,
+    channelMap,
+    mode: "agent",
+    agentReportedAt: status ? status.reportedAt.toISOString() : null,
+    error: AGENT_OFFLINE_MESSAGE,
+  };
 }
 
 async function setRelayViaAgent(index: number, on: boolean, username: string | null): Promise<RelayResult> {
@@ -202,6 +216,8 @@ async function setRelayViaAgent(index: number, on: boolean, username: string | n
         saved,
         modules: status.modules,
         channelMap: current.channelMap,
+        mode: "agent",
+        agentReportedAt: status.reportedAt.toISOString(),
       };
     }
   }
@@ -235,7 +251,7 @@ export async function getRelayStates(): Promise<RelayResult> {
     const message = snap.errors.find(Boolean) ? describeError(snap.errors.find(Boolean)) : (problem ?? "ไม่พบโมดูล I/O");
     // Nothing remembered yet → nothing useful to show.
     if (!hasAnySaved(saved)) return { success: false, error: message };
-    return { success: true, states: statesFromSaved(saved), saved, modules: snap.modules, channelMap: getChannelMap(), error: message };
+    return { success: true, states: statesFromSaved(saved), saved, modules: snap.modules, channelMap: getChannelMap(), mode: "direct", error: message };
   }
   const channelMap = getChannelMap();
   return {
@@ -244,6 +260,7 @@ export async function getRelayStates(): Promise<RelayResult> {
     saved,
     modules: snap.modules,
     channelMap,
+    mode: "direct",
     error: problem,
   };
 }

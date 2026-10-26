@@ -8,6 +8,7 @@ import { isAgentFresh } from "@/lib/agentProtocol";
 import { ensureModuleConfig } from "@/lib/moduleConfigStore";
 import { COIL_COUNT } from "@/lib/relayState";
 import { notifyDesiredChanged } from "@/lib/agentBus";
+import { isAgentMode } from "@/lib/modbusMode";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     // flip the saved state to OFF — the Raspberry Pi sees it and switches the
     // output off within a couple of seconds. If the Pi has gone quiet we can't
     // tell what's really ON, so assume the saved ON channels are.
-    if ((process.env.MODBUS_MODE ?? "direct").toLowerCase() === "agent") {
+    if (isAgentMode()) {
       const status = await prisma.modbusAgentStatus.findUnique({ where: { id: 1 } });
       const live = status && isAgentFresh(status.reportedAt) && status.states.length === COIL_COUNT;
       const assumed = live ? status.states : new Array(COIL_COUNT).fill(true);

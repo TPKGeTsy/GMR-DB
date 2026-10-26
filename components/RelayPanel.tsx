@@ -26,6 +26,14 @@ import ChannelWiringDialog from "./ChannelWiringDialog";
 const POLL_MS = 5000;
 const CHANNELS_TAB = "channels";
 const IO_TAB = "io";
+
+// "2 hours", "3 days"... for how long the Pi has been silent.
+function quietFor(seconds: number): string {
+  if (seconds < 120) return `${seconds} วินาที`;
+  if (seconds < 7200) return `${Math.round(seconds / 60)} นาที`;
+  if (seconds < 172800) return `${Math.round(seconds / 3600)} ชั่วโมง`;
+  return `${Math.round(seconds / 86400)} วัน`;
+}
 const SCHEDULE_TAB = "schedule";
 
 export default function RelayPanel({
@@ -40,6 +48,9 @@ export default function RelayPanel({
   const [saved, setSaved] = useState<SavedStates | null>(null);
   const [modules, setModules] = useState<ModuleStatus[] | null>(null);
   const [channelMap, setWiring] = useState<ChannelMap | null>(null); // which module/address each channel drives
+  const [mode, setMode] = useState<"agent" | "direct" | null>(null); // how the web app reaches the modules
+  const [agentReportedAt, setAgentReportedAt] = useState<string | null>(null); // when the Pi last reported
+  const [clock, setClock] = useState(() => Date.now()); // ticks so "N seconds ago" stays current
   const [editingChannel, setEditingChannel] = useState<number | null>(null);
   const [wiringNote, setWiringNote] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // why nothing is live (shown when no module answers)
@@ -54,6 +65,8 @@ export default function RelayPanel({
       setSaved(result.saved);
       setModules(result.modules);
       setWiring(result.channelMap);
+      if (result.mode) setMode(result.mode);
+      if (result.agentReportedAt !== undefined) setAgentReportedAt(result.agentReportedAt);
       setNotice(result.modules.some((m) => m.online) ? null : (result.error ?? null));
       setError(null);
     } else {
@@ -82,6 +95,11 @@ export default function RelayPanel({
       clearInterval(timer);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const t = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const moduleOnline = (channel: number) => !!modules?.[moduleOfChannel(channel, channelMap ?? undefined)]?.online;
   const anyOnline = !!modules?.some((m) => m.online);
@@ -206,6 +224,35 @@ export default function RelayPanel({
           </button>
         </div>
       </div>
+
+      {mode && (
+        <p className="mb-3 flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
+          {mode === "agent" ? (
+            (() => {
+              const age = agentReportedAt ? Math.max(0, Math.round((clock - new Date(agentReportedAt).getTime()) / 1000)) : null;
+              const fresh = age !== null && age <= 10;
+              return (
+                <>
+                  <span className={`inline-block h-2 w-2 rounded-full ${fresh ? "bg-green-500" : "bg-amber-500"}`} />
+                  <span>
+                    โหมด: ผ่าน Raspberry Pi ·{" "}
+                    {age === null
+                      ? "ยังไม่เคยได้รับรายงานจาก Pi"
+                      : fresh
+                        ? `Pi รายงานล่าสุด ${age} วินาทีที่แล้ว`
+                        : `Pi เงียบมา ${quietFor(age)} (ยังไม่ได้รับรายงานใหม่)`}
+                  </span>
+                </>
+              );
+            })()
+          ) : (
+            <>
+              <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
+              <span>โหมด: เว็บเซิร์ฟเวอร์ต่อโมดูลโดยตรง (ไม่ผ่าน Pi)</span>
+            </>
+          )}
+        </p>
+      )}
 
       {wiringNote && (
         <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-900">

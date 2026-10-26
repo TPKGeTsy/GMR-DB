@@ -10,6 +10,7 @@ import { validateModuleSettings, type ModuleOverride } from "@/lib/moduleSetting
 import { COILS_PER_MODULE, COIL_COUNT, MODULE_COUNT, defaultChannelMap, type ChannelMap } from "@/lib/relayState";
 import { loadChannelMap, resetChannelWiring, saveChannelWiring } from "@/lib/channelWiringStore";
 import { notifyDesiredChanged } from "@/lib/agentBus";
+import { isAgentMode } from "@/lib/modbusMode";
 import { createActivityLog } from "./auth";
 
 // Editing a module's network address is a configuration change, not an
@@ -35,7 +36,6 @@ export type ModuleSettingsResult =
   | { success: true; mode: "direct" | "agent"; modules: ModuleSettingsInfo[] }
   | { success: false; error: string };
 
-const isAgentMode = () => (process.env.MODBUS_MODE ?? "direct").toLowerCase() === "agent";
 
 async function currentSettings(): Promise<ModuleSettingsResult> {
   const agent = isAgentMode();

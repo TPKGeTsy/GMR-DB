@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { notifyDesiredChanged } from "@/lib/agentBus";
+import { isAgentMode } from "@/lib/modbusMode";
 import { setCoil } from "@/lib/modbus";
 import { ensureModuleConfig } from "@/lib/moduleConfigStore";
 import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
@@ -9,7 +10,6 @@ import { getRelaySupervisor, startRelaySupervisor } from "@/lib/relayRuntime";
 // schedule cron job). Mirrors what a button press does: the saved state is the
 // source of truth, and in direct mode the module is switched too.
 
-const isAgentMode = () => (process.env.MODBUS_MODE ?? "direct").toLowerCase() === "agent";
 
 export interface ApplyResult {
   /** 0-based channels switched (agent mode: saved; the Pi carries it out). */
