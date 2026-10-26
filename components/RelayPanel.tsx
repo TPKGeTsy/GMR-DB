@@ -308,7 +308,18 @@ export default function RelayPanel({
       ) : tab === SCHEDULE_TAB ? (
         <SchedulePanel channelCount={channelCount} canConfigure={canConfigure} />
       ) : tab === IO_TAB ? (
-        <IoSummary modules={modules} channelMap={channelMap} states={states} channelCount={channelCount} canConfigure={canConfigure} />
+        <IoSummary
+          modules={modules}
+          channelMap={channelMap}
+          states={states}
+          channelCount={channelCount}
+          canConfigure={canConfigure}
+          onWiringChanged={(map, message) => {
+            setWiring(map);
+            setWiringNote(message);
+            refresh();
+          }}
+        />
       ) : (
         <div className="space-y-6">
           {Array.from({ length: MODULE_COUNT }, (_, m) => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, CircleSlash } from "lucide-react";
-import { getModuleSettings, type ModuleSettingsInfo } from "@/app/actions/modbusSettings";
+import { getModuleSettings, setChannelWiring, type ModuleSettingsInfo } from "@/app/actions/modbusSettings";
 import { COILS_PER_MODULE, MODULE_COUNT, channelAt, type ChannelMap, type ModuleStatus } from "@/lib/relayState";
 import { channelAssignments } from "@/lib/zones";
 
@@ -35,8 +35,10 @@ function StatusChip({ status }: { status: ModuleStatus | undefined }) {
 
 /**
  * The "สรุป IO" tab: for each I/O module its address and status, and what each
- * of its 16 outputs (address 0–15) is currently wired to. Read-only; the wiring
- * itself is changed from the channel list (pencil on each channel).
+ * of its 16 outputs (address 0–15) is currently wired to. ADMIN / OPERATOR get a
+ * dropdown on every row to choose which channel that output drives (the channel
+ * already there trades places with it); everyone else sees plain text. The same
+ * wiring can also be edited from the pencil on each channel in the channel list.
  */
 export default function IoSummary({
   modules,
@@ -44,6 +46,7 @@ export default function IoSummary({
   states,
   channelCount,
   canConfigure,
+  onWiringChanged,
 }: {
   modules: ModuleStatus[] | null;
   channelMap: ChannelMap | null;
@@ -51,7 +54,11 @@ export default function IoSummary({
   channelCount: number;
   /** Only ADMIN / OPERATOR may see the modules' network addresses. */
   canConfigure: boolean;
+  /** Called after the wiring was changed here, with the new map and a note (when two channels traded places). */
+  onWiringChanged?: (map: ChannelMap, message: string | null) => void;
 }) {
+  const [saving, setSaving] = useState<string | null>(null); // "module:address" being saved
+  const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ModuleSettingsInfo[] | null>(null);
   const [mode, setMode] = useState<"direct" | "agent">("direct");
 
@@ -81,8 +88,39 @@ export default function IoSummary({
 
   if (!channelMap) return <p className="text-sm text-gray-500">กำลังโหลด…</p>;
 
+  // Make output (module, address) drive `channel`. Asks first: this moves a real
+  // output, and if `channel` is wired elsewhere the two channels trade places.
+  const changeWiring = async (module: number, address: number, channel: number) => {
+    if (!channelMap || !onWiringChanged) return;
+    const current = channelAt(channelMap, module, address);
+    if (channel === current) return;
+    const nameOf = (c: number) => `CH${c + 1} (${assignments[c]?.name ?? "—"})`;
+    const was = channelMap[channel];
+    const ok = window.confirm(
+      `ให้ IO ตัวที่ ${module + 1} address ${address} ควบคุม ${nameOf(channel)}?\n\n` +
+        `• ${nameOf(channel)} จะย้ายมาที่นี่ (จากเดิม IO ตัวที่ ${was.module + 1} address ${was.address})\n` +
+        `• ${nameOf(current)} ที่ใช้ที่นี่อยู่ จะไปใช้ที่อยู่เดิมของ ${nameOf(channel)} (สลับที่กัน)\n\n` +
+        `ระบบจะสั่งตามการต่อสายใหม่ทันที ควรปิดไฟของสองช่องนี้ก่อน`
+    );
+    if (!ok) return;
+    setSaving(`${module}:${address}`);
+    setError(null);
+    const result = await setChannelWiring(channel, module, address);
+    setSaving(null);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    onWiringChanged(result.channelMap, result.message ?? null);
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div>
+      {error && <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {canConfigure && onWiringChanged && (
+        <p className="mb-3 text-xs text-gray-500">เลือกช่องในคอลัมน์ “ช่อง” เพื่อกำหนดว่า address นั้นควบคุมไฟดวงไหน (ถ้าช่องนั้นอยู่ที่อื่น สองช่องจะสลับที่กัน)</p>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
       {Array.from({ length: MODULE_COUNT }, (_, m) => {
         const status = modules?.[m];
         const wired = Array.from({ length: COILS_PER_MODULE }, (_, a) => channelAt(channelMap, m, a)).filter((c) => c >= 0);
@@ -117,7 +155,27 @@ export default function IoSummary({
                   return (
                     <tr key={a} className="border-t border-gray-100">
                       <td className="px-4 py-1.5 font-mono text-gray-600">{a}</td>
-                      <td className="px-2 py-1.5 text-gray-700">{ch >= 0 ? `CH${ch + 1}` : "—"}</td>
+                      <td className="px-2 py-1.5 text-gray-700">
+                        {canConfigure && onWiringChanged && ch >= 0 ? (
+                          <select
+                            value={ch}
+                            disabled={saving !== null}
+                            onChange={(e) => changeWiring(m, a, Number(e.target.value))}
+                            aria-label={`IO ตัวที่ ${m + 1} address ${a} ควบคุมช่อง`}
+                            className="w-full max-w-[10rem] rounded-md border border-gray-300 bg-white px-1.5 py-1 text-sm text-gray-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 disabled:opacity-60"
+                          >
+                            {assignments.map(({ channel, name }) => (
+                              <option key={channel} value={channel}>
+                                CH{channel + 1} · {name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : ch >= 0 ? (
+                          `CH${ch + 1}`
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className={`px-2 py-1.5 ${assignment?.zone ? "text-gray-800" : "italic text-gray-400"}`}>
                         {assignment ? assignment.name : "ไม่ได้ต่อ"}
                       </td>
@@ -138,6 +196,7 @@ export default function IoSummary({
           </section>
         );
       })}
+      </div>
     </div>
   );
 }
