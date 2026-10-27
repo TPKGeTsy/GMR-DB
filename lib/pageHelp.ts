@@ -146,6 +146,7 @@ export const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
       { name: "อัตราต่อวันของแต่ละเกรด", from: "ตาราง WageGrade (กล่อง “เกรดค่าแรง” ในหน้านี้)" },
       { name: "เกรดของแต่ละคน (แต่ละวัน)", from: "ตาราง InternGradeChange (ประวัติเกรดในหน้าโปรไฟล์) วันไหนอยู่เกรดอะไรใช้ตามวันที่เริ่ม; ไม่มีประวัติใช้เกรดปัจจุบันของพนักงาน" },
       { name: "ยอดที่แอดมินแก้", from: "ตาราง WageOverride (หนึ่งรายการต่อคนต่อวัน)" },
+      { name: "เหตุผลที่อยู่ OT (💬 ในแถวรายวัน)", from: "ตาราง OtReason: หน้า Check-in ถามตอนกด Finish Work ถ้าทำงานเกิน 8 ชม. 30 นาที พนักงานพิมพ์เหตุผลหรือข้ามได้" },
     ],
     rules: [
       {
@@ -338,6 +339,7 @@ export const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
       { name: "การลา", from: "ตาราง LeaveRequest" },
       { name: "ค่าแรงที่ถูกแก้", from: "ตาราง WageOverride" },
       { name: "Activity Logs", from: "ตาราง ActivityLog" },
+      { name: "เหตุผลที่อยู่ OT (💬 ในไทม์ชีต)", from: "ตาราง OtReason ที่พนักงานกรอกตอนเช็คเอาท์หลังทำงานเกิน 8 ชม. 30 นาที" },
     ],
     rules: [HOURS_RULE, TENTHS_RULE],
     tips: [AUTO_CHECKOUT_TIP],

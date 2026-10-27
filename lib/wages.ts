@@ -64,6 +64,9 @@ export interface DailyWageRow {
   // overridden is true; null otherwise.
   originalRate: number | null;
   overrideNote: string | null;
+  // Why they stayed for OT (asked at check-out after 8 h 30 min). Set by the
+  // caller from the OtReason table, like `overridden`; absent/null = none given.
+  otReason?: string | null;
 }
 
 export const OT_MULTIPLIER = 1.5;

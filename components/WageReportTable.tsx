@@ -229,6 +229,11 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                       {formatHoursTenths(d.regularHours)} ชม. → {d.baseRate.toLocaleString()} บาท
                                     </span>
                                   )}
+                                  {d.otReason && (
+                                    <span className="max-w-[16rem] truncate text-amber-700" title={`เหตุผลที่อยู่ OT: ${d.otReason}`}>
+                                      💬 {d.otReason}
+                                    </span>
+                                  )}
                                   {!d.overridden && d.otHours > 0 && (
                                     <span className="text-orange-600">
                                       +OT {formatHoursTenths(d.otHours)} ชม. ({d.otPay.toLocaleString()} บาท)

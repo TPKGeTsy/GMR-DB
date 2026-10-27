@@ -77,6 +77,8 @@ export default async function UserProfilePage({
   const leaveHistory = leaveHistoryResult?.success && leaveHistoryResult.data ? leaveHistoryResult.data : [];
 
   const dailyRows = canSeeAttendance ? buildDailySummary(user.checkIns) : [];
+  const otReasonRows = canSeeAttendance ? await prisma.otReason.findMany({ where: { userId: id } }) : [];
+  const otReasonByDate = new Map(otReasonRows.map((r) => [r.dateKey, r.reason]));
   const latestCheckIn = user.checkIns[0];
   const isOnline = latestCheckIn?.type === "IN";
   // Accumulated "meal" count — one per calendar day this person went out to
@@ -232,6 +234,7 @@ export default async function UserProfilePage({
                 totalHours: row.totalHours,
                 otHours: row.otHours,
                 location: row.location,
+                otReason: otReasonByDate.get(row.dateKey) ?? null,
               }))}
               canEdit={isAdmin}
             />

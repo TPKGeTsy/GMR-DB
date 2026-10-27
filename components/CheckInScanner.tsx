@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
-import { recordCheckIn } from "@/app/actions/checkin";
+import { getCheckoutOtPrompt, recordCheckIn } from "@/app/actions/checkin";
 import { ScanFace, Camera, CheckCircle2, XCircle, LogIn, LogOut, MapPin, Loader2, RefreshCw } from "lucide-react";
 import { formatThaiTime } from "@/lib/datetime";
 
@@ -99,6 +99,9 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
   const [pendingMatch, setPendingMatch] = useState<PendingMatch | null>(null);
   const [outsideOffice, setOutsideOffice] = useState(false);
   const [note, setNote] = useState("");
+  // Set when the person is checking out after more than 8 h 30 min: asks why they stayed.
+  const [otPrompt, setOtPrompt] = useState<{ workedHours: number } | null>(null);
+  const [otReason, setOtReason] = useState("");
 
   const [modelsRetryCount, setModelsRetryCount] = useState(0);
 
@@ -252,7 +255,19 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
     return snapshotCanvas.toDataURL("image/jpeg", 0.8);
   };
 
-  const handleConfirm = async (type: "IN" | "OUT") => {
+  // "Finish Work": after a long day (> 8 h 30 min) ask for the OT reason first.
+  const handleFinish = async () => {
+    setIsSubmitting(true);
+    const prompt = await getCheckoutOtPrompt();
+    if (prompt.ask) {
+      setOtPrompt({ workedHours: prompt.workedHours });
+      setIsSubmitting(false);
+      return;
+    }
+    await handleConfirm("OUT");
+  };
+
+  const handleConfirm = async (type: "IN" | "OUT", reason?: string) => {
     if (!pendingMatch) return;
     setIsSubmitting(true);
 
@@ -263,7 +278,8 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
       type,
       outsideOffice ? "OUTSIDE" : "OFFICE",
       note.trim() || undefined,
-      photoDataUrl
+      photoDataUrl,
+      reason?.trim() || undefined
     );
 
     if (result.success && result.data) {
@@ -274,6 +290,8 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
       setPendingMatch(null);
       setOutsideOffice(false);
       setNote("");
+      setOtPrompt(null);
+      setOtReason("");
       stopCamera();
     } else {
       setStatusText(result.error || "Failed to record check-in.");
@@ -282,6 +300,8 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
   };
 
   const handleCancelMatch = () => {
+    setOtPrompt(null);
+    setOtReason("");
     setPendingMatch(null);
     setOutsideOffice(false);
     setNote("");
@@ -389,6 +409,38 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
               className="w-full rounded-md border-gray-300 text-sm focus:border-orange-500 focus:ring-orange-500"
             />
 
+            {otPrompt && (
+              <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-medium text-amber-900">
+                  วันนี้ทำงานเกิน 8 ชม. 30 นาทีแล้ว มีเหตุผลที่อยู่ OT ไหมคะ?
+                </p>
+                <textarea
+                  value={otReason}
+                  onChange={(e) => setOtReason(e.target.value)}
+                  maxLength={300}
+                  rows={2}
+                  placeholder="เช่น รอส่งงานลูกค้า, ติดตั้งหน้างานยังไม่เสร็จ (ไม่มีก็ข้ามได้)"
+                  className="w-full rounded-md border-gray-300 text-sm focus:border-orange-500 focus:ring-orange-500"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleConfirm("OUT", otReason)}
+                    disabled={isSubmitting || !otReason.trim()}
+                    className="rounded-lg bg-gray-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    บันทึกเหตุผลและเช็คเอาท์
+                  </button>
+                  <button
+                    onClick={() => handleConfirm("OUT")}
+                    disabled={isSubmitting}
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    ไม่มี เช็คเอาท์เลย
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-3 pt-1">
               <button
                 onClick={() => handleConfirm("IN")}
@@ -399,7 +451,7 @@ export default function CheckInScanner({ initialRoster }: { initialRoster: Roste
                 Start Work
               </button>
               <button
-                onClick={() => handleConfirm("OUT")}
+                onClick={handleFinish}
                 disabled={isSubmitting}
                 className="inline-flex items-center justify-center flex-1 sm:flex-none px-5 py-4 rounded-lg text-white bg-gray-700 hover:bg-gray-800 disabled:opacity-50 font-semibold text-base"
               >

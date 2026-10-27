@@ -16,6 +16,7 @@ export interface TimesheetRow {
   totalHours: number;
   otHours: number;
   location: string | null;
+  otReason?: string | null;
 }
 
 /** Daily Timesheet, with admin-only add/edit/delete right from the profile
@@ -144,6 +145,11 @@ export default function UserDailyTimesheetPanel({
                       </span>
                     ) : (
                       <span className="text-gray-300">-</span>
+                    )}
+                    {row.otReason && (
+                      <span className="ml-1.5 inline-block max-w-[14rem] truncate align-middle text-amber-700" title={`เหตุผลที่อยู่ OT: ${row.otReason}`}>
+                        💬 {row.otReason}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-2 whitespace-nowrap">

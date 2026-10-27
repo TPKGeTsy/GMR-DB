@@ -99,6 +99,7 @@ model User {
   outsideWorkTripMemberships OutsideWorkTripMember[]
   wageOverrides              WageOverride[]
   internGradeChanges         InternGradeChange[]
+  otReasons                  OtReason[]
   laborHiresResponsible      OutsideLaborHire[]      @relation("LaborHireResponsible")
   laborHiresCreated          OutsideLaborHire[]      @relation("LaborHireCreator")
 
@@ -562,6 +563,23 @@ model WageGrade {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("wage_grades")
+}
+
+// Why someone stayed past the normal day ("เหตุผลที่อยู่ OT"), asked at
+// check-out once they've worked more than 8 h 30 min. One note per person per
+// work day (dateKey = the day the shift started, same as hours/wages).
+model OtReason {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  dateKey   String   @map("date_key")
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey])
+  @@map("ot_reasons")
 }
 
 // Month-to-month grade history for an intern: from `effectiveFrom` (a plain

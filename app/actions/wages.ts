@@ -329,6 +329,11 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
       : [];
     const overrideByUserAndDate = new Map(overrides.map((o) => [`${o.userId}|${o.dateKey}`, o]));
 
+    const otReasons = userIds.length
+      ? await prisma.otReason.findMany({ where: { userId: { in: userIds }, dateKey: { gte: from, lte: to } } })
+      : [];
+    const otReasonByUserAndDate = new Map(otReasons.map((r) => [`${r.userId}|${r.dateKey}`, r.reason]));
+
     const data: EmployeeWageReportRow[] = activeUsers
       .filter((u) => u.internGrade || u.internGradeChanges.length > 0)
       .map((u) => {
@@ -342,7 +347,8 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
         const allDays = buildDailyWages(historyByUser.get(u.id) || [], rateFor);
         const days = allDays
           .filter((d) => d.dateKey >= from && d.dateKey <= to)
-          .map((d) => {
+          .map((withoutReason) => {
+            const d = { ...withoutReason, otReason: otReasonByUserAndDate.get(`${u.id}|${withoutReason.dateKey}`) ?? null };
             const override = overrideByUserAndDate.get(`${u.id}|${d.dateKey}`);
             if (!override) return d;
             return { ...d, rate: override.rate, overridden: true, originalRate: d.rate, overrideNote: override.note };

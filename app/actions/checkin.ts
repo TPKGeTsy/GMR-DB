@@ -10,6 +10,7 @@ import { bangkokDateKey, bangkokDayRange, bangkokDateAt, paddedCheckInWindow } f
 import { saveDataUrlImage } from "@/lib/storage";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { pushLineMessage } from "@/lib/line";
+import { cleanOtReason, shouldAskOtReason } from "@/lib/otReason";
 
 // "เช็คอินก่อน 9.00 เกิน 45 นาที" — more than 45 min before 9:00, i.e. at or
 // before 8:15.
@@ -386,12 +387,43 @@ export async function getAttendanceTableRows({
   }
 }
 
+/** Asked by the check-out screen before it confirms: has the logged-in person
+ *  worked more than 8 h 30 min today (counting the shift they are about to
+ *  close, with the same lunch/session rules as the Attendance page)? If so the
+ *  screen asks for an OT reason. */
+export async function getCheckoutOtPrompt(): Promise<{ ask: boolean; workedHours: number }> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { ask: false, workedHours: 0 };
+    const userId = session.user.id;
+    const latest = await prisma.checkIn.findFirst({ where: { userId }, orderBy: { createdAt: "desc" } });
+    if (!latest || latest.type !== "IN") return { ask: false, workedHours: 0 };
+
+    const now = new Date();
+    const dateKey = bangkokDateKey(latest.createdAt);
+    const history = await prisma.checkIn.findMany({
+      where: { userId, createdAt: { gte: bangkokDayRange(dateKey).start } },
+      orderBy: { createdAt: "asc" },
+      select: { type: true, location: true, createdAt: true, otStartOverride: true },
+    });
+    const row = buildDailySummary([...history, { type: "OUT", location: latest.location, createdAt: now }]).find(
+      (d) => d.dateKey === dateKey
+    );
+    const workedHours = row?.totalHours ?? 0;
+    return { ask: shouldAskOtReason(workedHours), workedHours };
+  } catch (error) {
+    logError("Error computing checkout OT prompt:", error);
+    return { ask: false, workedHours: 0 };
+  }
+}
+
 export async function recordCheckIn(
   confidence: number,
   type: "IN" | "OUT",
   location: "OFFICE" | "OUTSIDE",
   note?: string,
-  photoDataUrl?: string
+  photoDataUrl?: string,
+  otReason?: string
 ) {
   try {
     const session = await auth();
@@ -440,6 +472,17 @@ export async function recordCheckIn(
     const checkIn = await prisma.checkIn.create({
       data: { userId, confidence, type, location, note: trimmedNote, photoUrl },
     });
+
+    // Reason for staying late, saved against the day this shift started.
+    const reason = type === "OUT" ? cleanOtReason(otReason) : null;
+    if (reason && latest) {
+      const dateKey = bangkokDateKey(latest.createdAt);
+      await prisma.otReason.upsert({
+        where: { userId_dateKey: { userId, dateKey } },
+        create: { userId, dateKey, reason },
+        update: { reason },
+      });
+    }
 
     const actionLabel = type === "IN" ? "Started work" : "Finished work";
     const locationLabel = location === "OUTSIDE" ? ` (Outside office${trimmedNote ? `: ${trimmedNote}` : ""})` : "";
