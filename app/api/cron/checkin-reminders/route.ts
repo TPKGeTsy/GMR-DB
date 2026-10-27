@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { pushLineMessage } from "@/lib/line";
 import { notifyOtManagers } from "@/lib/lineApprovals";
 import { realizeOutsideTripOtGrant } from "@/lib/otGrant";
-import { bangkokDateKey, bangkokDateAt, bangkokDayRange } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
 import { buildDailySummary } from "@/lib/attendance";
 
 const WORK_MS = 8 * 60 * 60 * 1000;
@@ -17,9 +17,8 @@ const EXPECTED_SPAN_MS = WORK_MS + LUNCH_BREAK_MS;
 const WARNING_BEFORE_MS = 15 * 60 * 1000;
 const WARNING_THRESHOLD_MS = EXPECTED_SPAN_MS - WARNING_BEFORE_MS;
 // If nobody's confirmed OT by the time the calendar day rolls over, assume
-// they just forgot to check out and cut it off at a normal 18:00 quitting
-// time rather than let hours quietly pile up to midnight.
-const FALLBACK_QUIT_HOUR = 18;
+// they just forgot to check out and cut it off at 00:00 (the end of the day
+// they checked in) rather than let hours keep piling up.
 // How often to nudge someone on an approved outside-work-trip OT session to
 // check in / check out, once they're past the point OT started counting.
 const OT_NUDGE_INTERVAL_MS = 60 * 60 * 1000;
@@ -66,7 +65,7 @@ async function autoCheckOut(userId: string, location: string, detail: string, cr
  *   auto-checkout (realizing the OtGrant from whatever got approved) so a
  *   forgotten session doesn't run forever.
  * - OUTSIDE, not tied to a trip: unchanged — self-serve ask at 8 worked
- *   hours, plus the midnight-rollover fallback (auto-checkout at 18:00 if
+ *   hours, plus the midnight-rollover fallback (auto-checkout at 00:00 if
  *   never confirmed, one more re-ask if they did).
  *
  * "Still clocked in" mirrors getUserStatuses()'s definition: their most
@@ -148,12 +147,12 @@ export async function GET(request: NextRequest) {
         // OT is approved.
         if (checkIn.tripId) {
           if (bangkokDateKey(now) !== bangkokDateKey(checkIn.createdAt)) {
-            const fallbackQuitTime = bangkokDateAt(checkIn.createdAt, FALLBACK_QUIT_HOUR);
+            const fallbackQuitTime = bangkokDayRange(bangkokDateKey(checkIn.createdAt)).end;
             const outAt = fallbackQuitTime > checkIn.createdAt ? fallbackQuitTime : checkIn.createdAt;
             await autoCheckOut(
               checkIn.userId,
               checkIn.location,
-              `Auto checked out at ${FALLBACK_QUIT_HOUR}:00 — outside-work trip, no checkout by midnight`,
+              `Auto checked out at ${OFFICE_CUTOFF_LABEL} — outside-work trip, no checkout by midnight`,
               outAt
             );
             await realizeOutsideTripOtGrant(checkIn.id, checkIn.userId);
@@ -224,7 +223,7 @@ export async function GET(request: NextRequest) {
         // for a LINE-linked user; someone without LINE can't answer a
         // prompt they never receive, so they just ride the same midnight
         // fallback silently (no ask, no reminder) until it backdates their
-        // checkout to 18:00 once the day rolls over.
+        // checkout to 00:00 once the day rolls over.
         if (bangkokDateKey(now) !== bangkokDateKey(checkIn.createdAt)) {
           if (lineUserId && checkIn.otConfirmedAt) {
             if (!checkIn.midnightOtPromptSentAt) {
@@ -238,12 +237,12 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          const fallbackQuitTime = bangkokDateAt(checkIn.createdAt, FALLBACK_QUIT_HOUR);
+          const fallbackQuitTime = bangkokDayRange(bangkokDateKey(checkIn.createdAt)).end;
           const outAt = fallbackQuitTime > checkIn.createdAt ? fallbackQuitTime : checkIn.createdAt;
           await autoCheckOut(
             checkIn.userId,
             checkIn.location,
-            `Auto checked out at ${FALLBACK_QUIT_HOUR}:00 — no response by midnight`,
+            `Auto checked out at ${OFFICE_CUTOFF_LABEL} — no response by midnight`,
             outAt
           );
           autoCheckedOut++;
