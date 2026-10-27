@@ -2,10 +2,11 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, MapPin, Pencil, X, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronRight, MapPin, MessageSquare, Pencil, X, RotateCcw } from "lucide-react";
 import { formatThaiDateLong, formatThaiTime } from "@/lib/datetime";
 import { formatHoursTenths } from "@/lib/attendance";
-import { setWageOverride, clearWageOverride } from "@/app/actions/wages";
+import { setWageOverride, clearWageOverride, setOtReason } from "@/app/actions/wages";
+import { MAX_OT_REASON_LENGTH } from "@/lib/otReason";
 import InternGradeSelect from "./InternGradeSelect";
 import type { EmployeeWageReportRow } from "@/app/actions/wages";
 
@@ -75,9 +76,68 @@ function DayRateEditor({
   );
 }
 
+function OtReasonEditor({
+  userId,
+  dateKey,
+  initial,
+  onDone,
+}: {
+  userId: string;
+  dateKey: string;
+  initial: string;
+  onDone: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    const result = await setOtReason(userId, dateKey, text);
+    if (!result.success) {
+      setError(result.error || "บันทึกไม่สำเร็จ");
+      setSaving(false);
+      return;
+    }
+    onDone();
+  };
+
+  return (
+    <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <input
+        type="text"
+        value={text}
+        maxLength={MAX_OT_REASON_LENGTH}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") onDone();
+        }}
+        placeholder="เหตุผลที่อยู่ OT (เว้นว่าง = ลบ)"
+        className="w-56 rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:border-orange-500 focus:ring-orange-500 outline-none"
+        autoFocus
+      />
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className="px-2 py-0.5 rounded bg-orange-600 text-white text-[10px] font-semibold hover:bg-orange-700 disabled:opacity-50"
+      >
+        {saving ? "..." : "บันทึก"}
+      </button>
+      <button type="button" onClick={onDone} disabled={saving} className="text-gray-400 hover:text-gray-600">
+        <X className="w-3.5 h-3.5" />
+      </button>
+      {error && <span className="text-red-600">{error}</span>}
+    </span>
+  );
+}
+
 export default function WageReportTable({ rows, gradeOptions }: { rows: EmployeeWageReportRow[]; gradeOptions: string[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editingDay, setEditingDay] = useState<string | null>(null); // `${userId}|${dateKey}`
+  const [editingOtReason, setEditingOtReason] = useState<string | null>(null); // same key
 
   const toggle = (userId: string) => {
     setExpanded((prev) => {
@@ -157,6 +217,7 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                         {row.days.map((d) => {
                           const dayKey = `${row.userId}|${d.dateKey}`;
                           const isEditing = editingDay === dayKey;
+                          const isEditingOt = editingOtReason === dayKey;
                           return (
                             <li key={d.dateKey} className="px-3 py-1.5 flex items-center justify-between text-xs gap-2">
                               <span className="text-gray-700 shrink-0">{formatThaiDateLong(d.dateKey)}</span>
@@ -166,6 +227,13 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                   dateKey={d.dateKey}
                                   currentRate={d.rate}
                                   onDone={() => setEditingDay(null)}
+                                />
+                              ) : isEditingOt ? (
+                                <OtReasonEditor
+                                  userId={row.userId}
+                                  dateKey={d.dateKey}
+                                  initial={d.otReason ?? ""}
+                                  onDone={() => setEditingOtReason(null)}
                                 />
                               ) : (
                                 <span className="flex items-center gap-2 flex-wrap justify-end">
@@ -238,6 +306,16 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                     <span className="text-orange-600">
                                       +OT {formatHoursTenths(d.otHours)} ชม. ({d.otPay.toLocaleString()} บาท)
                                     </span>
+                                  )}
+                                  {(d.otHours > 0 || d.otReason) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingOtReason(dayKey)}
+                                      className="text-gray-400 hover:text-amber-600"
+                                      title={d.otReason ? "แก้ไขเหตุผลที่อยู่ OT" : "เพิ่มเหตุผลที่อยู่ OT"}
+                                    >
+                                      <MessageSquare className="w-3 h-3" />
+                                    </button>
                                   )}
                                   {d.overridden && (
                                     <span

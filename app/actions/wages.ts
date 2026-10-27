@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
 import { bangkokDateKey, bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
+import { cleanOtReason } from "@/lib/otReason";
 import { DATE_KEY_RE, gradeForDay, type GradeChange } from "@/lib/internGrade";
 import { buildDailyWages, type WageGradeRate, type DailyWageRow } from "@/lib/wages";
 
@@ -469,5 +470,43 @@ export async function clearWageOverride(userId: string, dateKey: string) {
   } catch (error) {
     logError("Error clearing wage override:", error);
     return { success: false, error: "ลบค่าแรงที่แก้ไขไม่สำเร็จ" };
+  }
+}
+
+/** Admin sets, changes or (empty text) removes the reason someone stayed for OT
+ *  on one day - the same record the check-out prompt writes. */
+export async function setOtReason(userId: string, dateKey: string, reason: string | null) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    if (!DATE_KEY_RE.test(dateKey)) return { success: false, error: "วันที่ไม่ถูกต้อง" };
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) return { success: false, error: "ไม่พบพนักงานคนนี้" };
+
+    const cleaned = cleanOtReason(reason);
+    if (cleaned) {
+      await prisma.otReason.upsert({
+        where: { userId_dateKey: { userId, dateKey } },
+        create: { userId, dateKey, reason: cleaned },
+        update: { reason: cleaned },
+      });
+    } else {
+      await prisma.otReason.deleteMany({ where: { userId, dateKey } });
+    }
+
+    await createActivityLog(
+      "SET_OT_REASON",
+      cleaned
+        ? `Admin set ${targetUser.username}'s OT reason for ${dateKey}: ${cleaned}`
+        : `Admin removed ${targetUser.username}'s OT reason for ${dateKey}`
+    );
+
+    revalidatePath("/wages");
+    revalidatePath(`/users/${userId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting OT reason:", error);
+    return { success: false, error: "บันทึกเหตุผล OT ไม่สำเร็จ" };
   }
 }
