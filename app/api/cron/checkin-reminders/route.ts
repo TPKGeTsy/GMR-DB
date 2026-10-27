@@ -24,12 +24,10 @@ const FALLBACK_QUIT_HOUR = 18;
 // check in / check out, once they're past the point OT started counting.
 const OT_NUDGE_INTERVAL_MS = 60 * 60 * 1000;
 // OFFICE auto-cutoff is a fixed wall-clock time, not "9 hours after
-// check-in" — early arrivals, the 45-min-early flow, etc. all still just
-// end the day at the same normal quitting time (30 min of grace past
-// 18:00) rather than the elapsed-time math giving everyone a different
-// personal cutoff.
-const OFFICE_CUTOFF_HOUR = 18;
-const OFFICE_CUTOFF_MINUTE = 30;
+// check-in" - everyone who forgot to check out is cut off at the same moment:
+// 00:00 (the end of the day they checked in), rather than the elapsed-time math
+// giving everyone a different personal cutoff.
+const OFFICE_CUTOFF_LABEL = "00:00";
 
 async function autoCheckOut(userId: string, location: string, detail: string, createdAt?: Date) {
   await prisma.checkIn.create({
@@ -54,7 +52,7 @@ async function autoCheckOut(userId: string, location: string, detail: string, cr
  *   someone from LINE instead (see the OT_GRANT_TRIGGER handling in the
  *   webhook route), or the employee requests it themselves (OT_REQUEST_COMMAND,
  *   pending approval), which sets otGrantedHours on their open CheckIn.
- *   Auto-checkout is a *fixed wall-clock cutoff* (18:30 Bangkok, not "9
+ *   Auto-checkout is a *fixed wall-clock cutoff* (00:00 Bangkok, end of the check-in day, not "9
  *   hours after check-in") — everyone ends the day at the same normal
  *   quitting time regardless of when they clocked in (early arrivals,
  *   granted OT extends the cutoff by that many hours instead of moving
@@ -111,7 +109,7 @@ export async function GET(request: NextRequest) {
         const elapsedMs = nowMs - checkIn.createdAt.getTime();
 
         if (checkIn.location === "OFFICE") {
-          const baseCutoff = bangkokDateAt(checkIn.createdAt, OFFICE_CUTOFF_HOUR, OFFICE_CUTOFF_MINUTE);
+          const baseCutoff = bangkokDayRange(bangkokDateKey(checkIn.createdAt)).end;
           const deadline = checkIn.otGrantedHours
             ? new Date(baseCutoff.getTime() + checkIn.otGrantedHours * 3_600_000)
             : baseCutoff;
@@ -123,7 +121,7 @@ export async function GET(request: NextRequest) {
               checkIn.location,
               checkIn.otGrantedHours
                 ? `Auto checked out — granted OT (${checkIn.otGrantedHours}h) expired`
-                : `Auto checked out at ${OFFICE_CUTOFF_HOUR}:${String(OFFICE_CUTOFF_MINUTE).padStart(2, "0")} — no OT opened`,
+                : `Auto checked out at ${OFFICE_CUTOFF_LABEL} — no OT opened`,
               outAt
             );
             autoCheckedOut++;

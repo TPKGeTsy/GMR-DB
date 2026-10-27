@@ -6,6 +6,7 @@ import { bangkokDateKey, formatThaiDateLong, formatThaiTime } from "@/lib/dateti
 import { MapPin, Users, Clock } from "lucide-react";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function OutsideTripPage({
@@ -38,7 +39,7 @@ export default async function OutsideTripPage({
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <MapPin className="mr-2 h-6 w-6 text-orange-600" />
           ออกหน้างาน (Outside Work Trip)
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="outsideTrip" /></span></h1>
         <p className="text-gray-500">
           บันทึกทีมที่ออกไปทำงานนอกสถานที่ — ใครที่เช็คอินอยู่ในออฟฟิศจะถูกเช็คเอาท์ให้อัตโนมัติแล้วเปลี่ยนเป็นทำงานนอกสถานที่
         </p>

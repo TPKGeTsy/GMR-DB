@@ -5,6 +5,7 @@ import { canManageUsers } from "@/lib/roles";
 import { COIL_COUNT } from "@/lib/relayState";
 import { describeAutoOff, parseAutoOffConfig } from "@/lib/autoOff";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 // Login is enforced by auth.config.ts (every route except /login and
@@ -18,7 +19,7 @@ export default async function ModbusPage() {
       <div className="mb-6 flex items-center gap-3">
         <Power className="h-7 w-7 text-orange-500" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Modbus Output (ควบคุมเอาต์พุต)</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Modbus Output (ควบคุมเอาต์พุต)<span className="ml-2 inline-flex"><PageHelp id="modbus" /></span></h1>
           <p className="text-sm text-gray-500">กดที่โซนหรือช่องเพื่อสลับ เปิด/ปิด — เปิดแล้วจะค้างอยู่จนกว่าจะกดปิด</p>
           {autoOffNote && <p className="mt-0.5 text-sm text-amber-700">{autoOffNote}</p>}
         </div>

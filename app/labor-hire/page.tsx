@@ -7,6 +7,7 @@ import { bangkokDateKey } from "@/lib/datetime";
 import { HardHat, History } from "lucide-react";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function LaborHirePage({
@@ -47,7 +48,7 @@ export default async function LaborHirePage({
             <HardHat className="h-5 w-5 text-orange-600" />
           </span>
           Consult: ช่าง/คนงานนอก
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="laborHire" /></span></h1>
         <p className="text-gray-500 ml-[46px]">
           บันทึกว่าใครเป็นผู้รับผิดชอบการจ้างช่างหรือคนงานนอก จ้างมากี่คน และค่าใช้จ่ายเท่าไหร่
         </p>

@@ -25,6 +25,14 @@ export interface DailyWageRow {
   dateKey: string;
   wentOutside: boolean;
   otHours: number;
+  // Grade whose rates were used for this day (can differ between days when the
+  // person's grade changed during the range).
+  grade: string;
+  // Hours inside the regular 8 (what the base pay is prorated on), the full
+  // day rate before proration, and the base pay actually earned for those
+  // hours: baseRate = round(dayRate / 8 * regularHours).
+  regularHours: number;
+  dayRate: number;
   baseRate: number;
   otPay: number;
   rate: number; // baseRate + otPay
@@ -58,17 +66,27 @@ export interface DailyWageRow {
   overrideNote: string | null;
 }
 
-const OT_MULTIPLIER = 1.5;
-const REGULAR_HOURS_PER_DAY = 8;
+export const OT_MULTIPLIER = 1.5;
+export const REGULAR_HOURS_PER_DAY = 8;
+// Worked 7.3 on the timesheet (= 7 h 30 min, each ".1" is 10 min) or more
+// counts as a full 8 for base pay; below that it is prorated by the hours.
+export const ROUND_UP_TO_FULL_DAY_MINUTES = 7.5 * 60;
 
-/** One row per calendar day a graded intern worked: a flat day-rate (no
- *  partial-day proration for the base pay) using the grade's outsideRate
- *  instead of onsiteRate if any of that day's check-ins were OUTSIDE, plus
- *  OT pay on top — OT hours (computed the same way as the Attendance page,
- *  including the untracked-lunch subtraction and midnight-crossing
- *  handling) times an hourly rate derived from that day's own rate
- *  (rate/8 * 1.5), rounded to the nearest baht. */
-export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRate): DailyWageRow[] {
+/** One row per calendar day a graded intern worked. Base pay is prorated by
+ *  the hours actually worked, up to the regular 8: dayRate / 8 * hours (6 h at
+ *  a 400/day rate = 300), but 7 h 30 min or more counts as the full 8. The day rate is the grade's outsideRate instead of
+ *  onsiteRate if any of that day's check-ins were OUTSIDE. Hours past 8 are OT
+ *  (computed the same way as the Attendance page, including the
+ *  untracked-lunch subtraction and midnight-crossing handling), paid at
+ *  dayRate/8 * 1.5 per hour. Everything rounds to the nearest baht.
+ *
+ *  `grade` can be a function of the day so a mid-range grade change (A until
+ *  31 Aug, A+ from 1 Sep) prices each day with the grade in force that day. */
+export function buildDailyWages(
+  checkIns: WageCheckInEvent[],
+  grade: WageGradeRate | ((dateKey: string) => WageGradeRate | null)
+): DailyWageRow[] {
+  const gradeFor = typeof grade === "function" ? grade : () => grade;
   const outsideByDate = new Map<string, boolean>();
   const noteByDate = new Map<string, string>();
   const outsideStartByDate = new Map<string, Date>();
@@ -100,16 +118,26 @@ export function buildDailyWages(checkIns: WageCheckInEvent[], grade: WageGradeRa
   const summaryRows = buildDailySummary(checkIns);
 
   return summaryRows
-    .map((row) => {
+    .flatMap((row) => {
+      const dayGrade = gradeFor(row.dateKey);
+      return dayGrade ? [{ row, dayGrade }] : [];
+    })
+    .map(({ row, dayGrade }) => {
       const wentOutside = outsideByDate.get(row.dateKey) ?? false;
-      const baseRate = wentOutside ? grade.outsideRate : grade.onsiteRate;
-      const otPay = Math.round(row.otHours * (baseRate / REGULAR_HOURS_PER_DAY) * OT_MULTIPLIER);
+      const dayRate = wentOutside ? dayGrade.outsideRate : dayGrade.onsiteRate;
+      const workedRegular = Math.min(row.regularHours, REGULAR_HOURS_PER_DAY);
+      const regularHours = Math.round(workedRegular * 60) >= ROUND_UP_TO_FULL_DAY_MINUTES ? REGULAR_HOURS_PER_DAY : workedRegular;
+      const baseRate = Math.round((dayRate / REGULAR_HOURS_PER_DAY) * regularHours);
+      const otPay = Math.round(row.otHours * (dayRate / REGULAR_HOURS_PER_DAY) * OT_MULTIPLIER);
       const outsideStart = outsideStartByDate.get(row.dateKey);
       const outsideEnd = outsideEndByDate.get(row.dateKey);
       return {
         dateKey: row.dateKey,
         wentOutside,
         otHours: row.otHours,
+        grade: dayGrade.code,
+        regularHours,
+        dayRate,
         baseRate,
         otPay,
         rate: baseRate + otPay,

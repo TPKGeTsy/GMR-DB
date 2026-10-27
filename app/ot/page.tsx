@@ -7,6 +7,7 @@ import { isOtManagerRole } from "@/lib/roles";
 import { Timer, Bell } from "lucide-react";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 const STATUS_LABEL: Record<string, { text: string; className: string }> = {
@@ -38,7 +39,7 @@ export default async function OtPage() {
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <Timer className="mr-2 h-6 w-6 text-orange-600" />
           OT
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="ot" /></span></h1>
         <p className="text-gray-500">ประวัติการเปิด OT ทั้งหมด — สั่งผ่านไลน์ด้วยคำสั่ง &quot;เปิด OT&quot;</p>
       </div>
 

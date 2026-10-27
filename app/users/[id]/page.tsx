@@ -14,13 +14,15 @@ import { countMealDays } from "@/lib/wages";
 import { gradeBadgeClass } from "@/lib/gradeColor";
 import { formatThaiDateTime, bangkokDateKey } from "@/lib/datetime";
 import { getUserActivityLogs, getUserActivityActions } from "@/app/actions/auth";
-import { getUserWageOverrides } from "@/app/actions/wages";
+import { getUserWageOverrides, getInternGradeHistory, getWageGrades } from "@/app/actions/wages";
+import InternGradeHistoryPanel from "@/components/InternGradeHistoryPanel";
 import { getUserLeaveHistory } from "@/app/actions/leave";
 import UserWageOverridesPanel from "@/components/UserWageOverridesPanel";
 import UserLeaveHistoryPanel from "@/components/UserLeaveHistoryPanel";
 import UserDailyTimesheetPanel from "@/components/UserDailyTimesheetPanel";
 import { canManageUsers } from "@/lib/roles";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function UserProfilePage({
@@ -50,7 +52,7 @@ export default async function UserProfilePage({
   // own history of).
   const isAdmin = currentUser?.role === "ADMIN";
 
-  const [user, logsResult, availableActions, wageOverridesResult, leaveHistoryResult] = await Promise.all([
+  const [user, logsResult, availableActions, wageOverridesResult, leaveHistoryResult, gradeHistoryResult, gradesResult] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: {
@@ -63,6 +65,8 @@ export default async function UserProfilePage({
     getUserActivityActions(id),
     isAdmin ? getUserWageOverrides(id) : Promise.resolve(null),
     canSeeAttendance ? getUserLeaveHistory(id) : Promise.resolve(null),
+    isAdmin ? getInternGradeHistory(id) : Promise.resolve(null),
+    isAdmin ? getWageGrades() : Promise.resolve(null),
   ]);
 
   if (!user) return <div className="p-8 text-center">User not found</div>;
@@ -99,7 +103,7 @@ export default async function UserProfilePage({
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <User className="mr-2 h-6 w-6 text-orange-600" />
           User Profile: {user.username}
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="profile" /></span></h1>
         {canManageUsers(currentUser?.role) && (
           <Link href="/users" className="text-sm text-orange-600 hover:text-orange-500 font-medium">
             &larr; Back to Users
@@ -235,6 +239,14 @@ export default async function UserProfilePage({
 
           {canSeeAttendance && <UserLeaveHistoryPanel initialLeaves={leaveHistory} canEdit={isAdmin} />}
 
+          {isAdmin && user.internGrade && gradeHistoryResult?.success && gradesResult?.success && (
+            <InternGradeHistoryPanel
+              userId={user.id}
+              initial={gradeHistoryResult.data}
+              gradeOptions={gradesResult.data.map((g) => g.code)}
+              today={bangkokDateKey(new Date())}
+            />
+          )}
           {isAdmin && <UserWageOverridesPanel userId={user.id} initialOverrides={wageOverrides} />}
 
           <div className="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">

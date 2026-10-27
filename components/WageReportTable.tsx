@@ -127,9 +127,19 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                     </Link>
                   </td>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                    <div className="w-24">
-                      <InternGradeSelect userId={row.userId} initialGrade={row.grade} gradeOptions={gradeOptions} />
-                    </div>
+                    {row.gradeChanged ? (
+                      <Link
+                        href={`/users/${row.userId}`}
+                        title="เกรดเปลี่ยนระหว่างช่วงนี้ — แก้ประวัติเกรดที่หน้าโปรไฟล์"
+                        className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 hover:bg-purple-200"
+                      >
+                        {row.grade}
+                      </Link>
+                    ) : (
+                      <div className="w-24" title="เปลี่ยนเกรดตั้งแต่วันนี้เป็นต้นไป (ตั้งวันที่เริ่มอื่นได้ที่หน้าโปรไฟล์)">
+                        <InternGradeSelect userId={row.userId} initialGrade={row.grade} gradeOptions={gradeOptions} />
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right text-sm text-gray-700">{row.totalDays}</td>
                   <td className="px-4 py-2 text-right text-sm text-gray-700">{officeDays}</td>
@@ -206,7 +216,19 @@ export default function WageReportTable({ rows, gradeOptions }: { rows: Employee
                                         </span>
                                       )
                                     ))}
-                                  {!d.overridden && <span className="text-gray-500">{d.baseRate.toLocaleString()} บาท</span>}
+                                  {row.gradeChanged && (
+                                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                                      เกรด {d.grade}
+                                    </span>
+                                  )}
+                                  {!d.overridden && (
+                                    <span
+                                      className="text-gray-500"
+                                      title={`${d.dayRate.toLocaleString()} ÷ 8 × ${formatHoursTenths(d.regularHours)} ชม.`}
+                                    >
+                                      {formatHoursTenths(d.regularHours)} ชม. → {d.baseRate.toLocaleString()} บาท
+                                    </span>
+                                  )}
                                   {!d.overridden && d.otHours > 0 && (
                                     <span className="text-orange-600">
                                       +OT {formatHoursTenths(d.otHours)} ชม. ({d.otPay.toLocaleString()} บาท)

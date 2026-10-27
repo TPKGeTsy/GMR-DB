@@ -6,6 +6,7 @@ import { formatHoursTenths } from "@/lib/attendance";
 import { BarChart3 } from "lucide-react";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function OtSummaryPage({
@@ -28,7 +29,7 @@ export default async function OtSummaryPage({
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <BarChart3 className="mr-2 h-6 w-6 text-orange-600" />
           สรุป OT (OT Summary)
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="otSummary" /></span></h1>
         <p className="text-gray-500">
           จำนวนวันทำงานและชั่วโมง OT รวมของแต่ละคน — เลือกช่วงวันที่ด้านล่างเพื่อกรอง (ค่าเริ่มต้นคือทั้งหมด)
         </p>

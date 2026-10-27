@@ -6,6 +6,7 @@ import AttendanceCalendar from "@/components/AttendanceCalendar";
 import AttendanceFilters from "@/components/AttendanceFilters";
 import { ClipboardList, Download } from "lucide-react";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function AttendancePage({
@@ -38,7 +39,7 @@ export default async function AttendancePage({
               <ClipboardList className="h-5 w-5 text-orange-600" />
             </span>
             Attendance
-          </h1>
+          <span className="ml-2 inline-flex"><PageHelp id="attendance" /></span></h1>
           <p className="text-gray-500 ml-[46px]">Face check-in / check-out history for all employees</p>
         </div>
         <div className="flex items-center gap-2">

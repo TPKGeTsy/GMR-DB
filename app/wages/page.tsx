@@ -6,6 +6,7 @@ import WageReportTable from "@/components/WageReportTable";
 import { bangkokDateKey } from "@/lib/datetime";
 import { Wallet } from "lucide-react";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function WagesPage({
@@ -38,7 +39,7 @@ export default async function WagesPage({
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <Wallet className="mr-2 h-6 w-6 text-orange-600" />
           ค่าแรงเด็กฝึกงาน (Wages)
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="wages" /></span></h1>
         <p className="text-gray-500">คำนวณค่าแรงรายวันตามเกรดและสถานที่ทำงาน</p>
       </div>
 

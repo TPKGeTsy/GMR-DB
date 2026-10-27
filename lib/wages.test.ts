@@ -29,6 +29,9 @@ describe("buildDailyWages", () => {
         dateKey: "2026-01-05",
         wentOutside: false,
         otHours: 0,
+        grade: "A",
+        regularHours: 8,
+        dayRate: 300,
         baseRate: 300,
         otPay: 0,
         rate: 300,
@@ -76,26 +79,37 @@ describe("buildDailyWages", () => {
     expect(rowsA[0].rate).not.toBe(rowsB[0].rate);
   });
 
-  it("pays the full flat day-rate for any check-in that day, no partial-day proration", () => {
-    // A single IN with no OUT yet still counts as a full paid day, no OT.
+  it("pays 0 base for a day still open (no check-out yet) until the hours are known", () => {
     const rows = buildDailyWages([ev("IN", "2026-01-05T23:50:00")], GRADE_B);
-    expect(rows[0]).toEqual({
-      dateKey: "2026-01-05",
-      wentOutside: false,
-      otHours: 0,
-      baseRate: 250,
-      otPay: 0,
-      rate: 250,
-      note: null,
-      workStartTime: new Date("2026-01-05T23:50:00").toISOString(),
-      workEndTime: null,
-      outsideStartTime: null,
-      outsideEndTime: null,
-      tripId: null,
-      overridden: false,
-      originalRate: null,
-      overrideNote: null,
-    });
+    expect(rows[0]).toMatchObject({ regularHours: 0, dayRate: 250, baseRate: 0, otPay: 0, rate: 0 });
+  });
+
+  it("prorates the base pay by the hours worked: 6 h at 300/day = 300/8*6", () => {
+    const rows = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T15:00:00")], GRADE_A);
+    expect(rows[0]).toMatchObject({ regularHours: 6, dayRate: 300, baseRate: 225, otPay: 0, rate: 225 });
+  });
+
+  it("counts 7 h 30 min or more as a full 8 hours, but 7 h 20 min is prorated", () => {
+    const full = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T16:30:00")], GRADE_A);
+    expect(full[0]).toMatchObject({ regularHours: 8, baseRate: 300 });
+    const short = buildDailyWages([ev("IN", "2026-01-05T09:00:00"), ev("OUT", "2026-01-05T16:20:00")], GRADE_A);
+    expect(short[0].baseRate).toBe(Math.round((300 / 8) * (7 + 1 / 3)));
+  });
+
+  it("prices each day with the grade in force that day when given a resolver", () => {
+    const rows = buildDailyWages(
+      [
+        ev("IN", "2026-08-31T09:00:00"),
+        ev("OUT", "2026-08-31T17:00:00"),
+        ev("IN", "2026-09-01T09:00:00"),
+        ev("OUT", "2026-09-01T17:00:00"),
+      ],
+      (dateKey) => (dateKey < "2026-09-01" ? GRADE_B : GRADE_A)
+    );
+    expect(rows.map((r) => [r.grade, r.rate])).toEqual([
+      ["B", 250],
+      ["A", 300],
+    ]);
   });
 
   it("returns one row per distinct calendar day, sorted ascending", () => {

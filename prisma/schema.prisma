@@ -98,6 +98,7 @@ model User {
   createdOutsideTrips        OutsideWorkTrip[]       @relation("OutsideTripCreatedBy")
   outsideWorkTripMemberships OutsideWorkTripMember[]
   wageOverrides              WageOverride[]
+  internGradeChanges         InternGradeChange[]
   laborHiresResponsible      OutsideLaborHire[]      @relation("LaborHireResponsible")
   laborHiresCreated          OutsideLaborHire[]      @relation("LaborHireCreator")
 
@@ -561,6 +562,24 @@ model WageGrade {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("wage_grades")
+}
+
+// Month-to-month grade history for an intern: from `effectiveFrom` (a plain
+// "YYYY-MM-DD" Bangkok day, inclusive) the person is paid at `grade` until the
+// next change. A day takes the latest change on or before it; days before the
+// first change use the first change's grade. User.internGrade mirrors the grade
+// in effect today (kept for filtering/display); see lib/internGrade.ts.
+model InternGradeChange {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  grade         String // a WageGrade.code, loose (non-FK) like User.internGrade
+  effectiveFrom String   @map("effective_from")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, effectiveFrom])
+  @@map("intern_grade_changes")
 }
 
 // Admin override of one employee's computed rate for one calendar day —

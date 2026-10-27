@@ -6,6 +6,7 @@ import { formatHoursTenths } from "@/lib/attendance";
 import { Utensils, Timer, BarChart3 } from "lucide-react";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 export default async function SummaryPage({
@@ -36,7 +37,7 @@ export default async function SummaryPage({
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <BarChart3 className="mr-2 h-6 w-6 text-orange-600" />
           สรุปมื้อ + OT
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="summary" /></span></h1>
         <p className="text-gray-500">สรุปจำนวนมื้อสะสมและชั่วโมง OT รวมของแต่ละคนในช่วงเวลาที่เลือก</p>
       </div>
 

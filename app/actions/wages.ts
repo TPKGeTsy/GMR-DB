@@ -6,33 +6,121 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { createActivityLog } from "./auth";
 import { revalidatePath } from "next/cache";
-import { bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
+import { bangkokDateKey, bangkokDayRange, paddedCheckInWindow } from "@/lib/datetime";
+import { DATE_KEY_RE, gradeForDay, type GradeChange } from "@/lib/internGrade";
 import { buildDailyWages, type WageGradeRate, type DailyWageRow } from "@/lib/wages";
 
-/** Sets or clears (null) an employee's intern pay grade. Separate from
- *  updateUserRole — grade only affects wage calculation, not app
- *  permissions, and is intentionally admin-only since it drives payroll. */
+/** Keeps User.internGrade (used for filtering/display) equal to the grade in
+ *  force today according to the history; no history leaves it as is. */
+async function syncCurrentGrade(userId: string) {
+  const changes = await prisma.internGradeChange.findMany({ where: { userId } });
+  if (changes.length === 0) return;
+  const current = gradeForDay(changes, bangkokDateKey(new Date()), null);
+  await prisma.user.update({ where: { id: userId }, data: { internGrade: current } });
+}
+
+function revalidateGradePages(userId: string) {
+  revalidatePath(`/users/${userId}`);
+  revalidatePath("/users");
+  revalidatePath("/wages");
+}
+
+/** Sets or clears (null) an employee's intern pay grade *from today on*
+ *  (earlier days keep the grade they had). Separate from updateUserRole —
+ *  grade only affects wage calculation, not app permissions, and is
+ *  intentionally admin-only since it drives payroll. Clearing (null) removes
+ *  the person from the intern wage report and drops their grade history. */
 export async function updateUserInternGrade(userId: string, grade: string | null) {
+  return changeInternGrade(userId, grade, bangkokDateKey(new Date()));
+}
+
+/** Same, but from a chosen date ("YYYY-MM-DD") - e.g. A until 31 Aug and A+
+ *  from 1 Sep. A second change on the same date replaces the first. */
+export async function changeInternGrade(userId: string, grade: string | null, effectiveFrom: string) {
   try {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
 
-    if (grade !== null) {
-      const exists = await prisma.wageGrade.findUnique({ where: { code: grade } });
-      if (!exists) return { success: false, error: "ไม่พบเกรดนี้ในระบบ" };
+    if (grade === null) {
+      await prisma.$transaction([
+        prisma.internGradeChange.deleteMany({ where: { userId } }),
+        prisma.user.update({ where: { id: userId }, data: { internGrade: null } }),
+      ]);
+      await createActivityLog("UPDATE_INTERN_GRADE", `Cleared intern grade for user ${userId}`);
+      revalidateGradePages(userId);
+      return { success: true };
     }
 
-    const user = await prisma.user.update({ where: { id: userId }, data: { internGrade: grade } });
+    if (!DATE_KEY_RE.test(effectiveFrom)) return { success: false, error: "วันที่ไม่ถูกต้อง" };
+    const exists = await prisma.wageGrade.findUnique({ where: { code: grade } });
+    if (!exists) return { success: false, error: "ไม่พบเกรดนี้ในระบบ" };
 
-    await createActivityLog("UPDATE_INTERN_GRADE", `Set intern grade for ${user.username} to ${grade ?? "(none)"}`);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { internGradeChanges: { select: { id: true } } },
+    });
+    if (!user) return { success: false, error: "ไม่พบพนักงานคนนี้" };
 
-    revalidatePath(`/users/${userId}`);
-    revalidatePath("/users");
-    revalidatePath("/wages");
+    // First time with history: keep the grade they already had as the starting
+    // point, so work before the new date is still paid at the old grade.
+    if (user.internGradeChanges.length === 0 && user.internGrade && user.internGrade !== grade) {
+      await prisma.internGradeChange.create({
+        data: { userId, grade: user.internGrade, effectiveFrom: "2000-01-01" },
+      });
+    }
+    await prisma.internGradeChange.upsert({
+      where: { userId_effectiveFrom: { userId, effectiveFrom } },
+      create: { userId, grade, effectiveFrom },
+      update: { grade },
+    });
+    await syncCurrentGrade(userId);
+
+    await createActivityLog("UPDATE_INTERN_GRADE", `Set intern grade for ${user.username} to ${grade} from ${effectiveFrom}`);
+    revalidateGradePages(userId);
     return { success: true };
   } catch (error) {
     logError("Error updating intern grade:", error);
     return { success: false, error: "แก้ไขเกรดไม่สำเร็จ" };
+  }
+}
+
+export interface InternGradeChangeRow {
+  id: string;
+  grade: string;
+  effectiveFrom: string;
+}
+
+export async function getInternGradeHistory(
+  userId: string
+): Promise<{ success: true; data: InternGradeChangeRow[] } | { success: false; error: string }> {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    const rows = await prisma.internGradeChange.findMany({ where: { userId }, orderBy: { effectiveFrom: "desc" } });
+    return { success: true, data: rows.map((r) => ({ id: r.id, grade: r.grade, effectiveFrom: r.effectiveFrom })) };
+  } catch (error) {
+    logError("Error fetching intern grade history:", error);
+    return { success: false, error: "โหลดประวัติเกรดไม่สำเร็จ" };
+  }
+}
+
+export async function deleteInternGradeChange(id: string) {
+  try {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return { success: false, error: "Unauthorized" };
+    const row = await prisma.internGradeChange.findUnique({ where: { id } });
+    if (!row) return { success: false, error: "ไม่พบรายการนี้" };
+    await prisma.internGradeChange.delete({ where: { id } });
+    await syncCurrentGrade(row.userId);
+    await createActivityLog(
+      "DELETE_INTERN_GRADE_CHANGE",
+      `Removed grade ${row.grade} from ${row.effectiveFrom} for user ${row.userId}`
+    );
+    revalidateGradePages(row.userId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting intern grade change:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
 
@@ -135,7 +223,9 @@ export async function deleteWageGrade(id: string) {
     const grade = await prisma.wageGrade.findUnique({ where: { id } });
     if (!grade) return { success: false, error: "ไม่พบเกรดนี้" };
 
-    const inUse = await prisma.user.count({ where: { internGrade: grade.code } });
+    const inUse = await prisma.user.count({
+      where: { OR: [{ internGrade: grade.code }, { internGradeChanges: { some: { grade: grade.code } } }] },
+    });
     if (inUse > 0) {
       return { success: false, error: `ลบไม่ได้ ยังมีพนักงาน ${inUse} คนอยู่เกรดนี้` };
     }
@@ -156,7 +246,8 @@ export async function deleteWageGrade(id: string) {
 export interface EmployeeWageReportRow {
   userId: string;
   employeeName: string;
-  grade: string;
+  grade: string; // e.g. "A", or "A → A+" when it changed inside the range
+  gradeChanged: boolean;
   days: DailyWageRow[];
   totalDays: number;
   outsideDays: number;
@@ -182,8 +273,15 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
 
     const [activeUsers, grades] = await Promise.all([
       prisma.user.findMany({
-        where: { internGrade: { not: null }, checkIns: { some: { createdAt: { gte: start, lt: end } } } },
-        select: { id: true, username: true, fullName: true, nickname: true, internGrade: true },
+        where: { OR: [{ internGrade: { not: null } }, { internGradeChanges: { some: {} } }], checkIns: { some: { createdAt: { gte: start, lt: end } } } },
+        select: {
+          id: true,
+          username: true,
+          fullName: true,
+          nickname: true,
+          internGrade: true,
+          internGradeChanges: { select: { grade: true, effectiveFrom: true } },
+        },
       }),
       prisma.wageGrade.findMany(),
     ]);
@@ -232,10 +330,16 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
     const overrideByUserAndDate = new Map(overrides.map((o) => [`${o.userId}|${o.dateKey}`, o]));
 
     const data: EmployeeWageReportRow[] = activeUsers
-      .filter((u) => u.internGrade && gradeByCode.has(u.internGrade))
+      .filter((u) => u.internGrade || u.internGradeChanges.length > 0)
       .map((u) => {
-        const gradeRate = gradeByCode.get(u.internGrade!)!;
-        const allDays = buildDailyWages(historyByUser.get(u.id) || [], gradeRate);
+        const changes: GradeChange[] = u.internGradeChanges;
+        // Each day is priced with the grade in force that day; a day whose
+        // grade no longer exists (deleted) is left out rather than guessed.
+        const rateFor = (dateKey: string) => {
+          const code = gradeForDay(changes, dateKey, u.internGrade);
+          return code ? (gradeByCode.get(code) ?? null) : null;
+        };
+        const allDays = buildDailyWages(historyByUser.get(u.id) || [], rateFor);
         const days = allDays
           .filter((d) => d.dateKey >= from && d.dateKey <= to)
           .map((d) => {
@@ -243,10 +347,13 @@ export async function getWageReport({ from, to }: { from: string; to: string }):
             if (!override) return d;
             return { ...d, rate: override.rate, overridden: true, originalRate: d.rate, overrideNote: override.note };
           });
+        const gradesUsed = Array.from(new Set(days.map((d) => d.grade)));
+        const gradeLabel = gradesUsed.length > 0 ? gradesUsed.join(" → ") : (u.internGrade ?? "");
         return {
           userId: u.id,
           employeeName: u.nickname || u.fullName || u.username,
-          grade: gradeRate.code,
+          grade: gradeLabel,
+          gradeChanged: gradesUsed.length > 1,
           days,
           totalDays: days.length,
           outsideDays: days.filter((d) => d.wentOutside).length,

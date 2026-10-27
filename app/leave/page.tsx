@@ -7,6 +7,7 @@ import { CalendarHeart, ShieldAlert, Clock } from "lucide-react";
 import { formatThaiDate } from "@/lib/datetime";
 import Link from "next/link";
 
+import PageHelp from "@/components/PageHelp";
 export const dynamic = "force-dynamic";
 
 interface MyLeaveRequest {
@@ -76,7 +77,7 @@ export default async function LeavePage() {
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
           <CalendarHeart className="mr-2 h-6 w-6 text-orange-600" />
           การลา
-        </h1>
+        <span className="ml-2 inline-flex"><PageHelp id="leave" /></span></h1>
         <p className="text-gray-500">ยื่นใบลาป่วย ลากิจ หรือลาพักร้อน — ต้องได้รับอนุมัติจาก Operator หรือ Admin ก่อน</p>
       </div>
 
