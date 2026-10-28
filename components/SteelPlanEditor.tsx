@@ -30,6 +30,17 @@ import {
   type SteelType,
 } from "@/lib/steel";
 
+/** Inside one kind of steel: by the name of the file first (rows typed by hand last), then the longest cut first.
+ *  Equal lengths from different files stay separate rows. */
+function byFileThenLength(a: EditorPart, b: EditorPart): number {
+  if (a.sourceFile !== b.sourceFile) {
+    if (a.sourceFile === null) return 1;
+    if (b.sourceFile === null) return -1;
+    return a.sourceFile.localeCompare(b.sourceFile, "th", { numeric: true });
+  }
+  return b.cutLength - a.cutLength;
+}
+
 export interface EditorPart {
   id: string;
   steelType: string;
@@ -626,7 +637,7 @@ export default function SteelPlanEditor({
       map.set(key, g);
     }
     return [...map.values()]
-      .map((g) => ({ ...g, parts: [...g.parts].sort(comparePieces) }))
+      .map((g) => ({ ...g, parts: [...g.parts].sort(byFileThenLength) }))
       .sort((a, b) => comparePieces({ ...a.profile, cutLength: 0 }, { ...b.profile, cutLength: 0 }));
   }, [parts]);
 

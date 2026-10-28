@@ -193,3 +193,44 @@ describe("size filter", () => {
     expect(matchesSizeFilter({ ...st, sectionX: 50, sectionY: 50 }, parseSizeFilter("75x75"))).toBe(false);
   });
 });
+
+describe("parseBomLines with two tables on one drawing", () => {
+  // Text of XS-63 Long-Set.pdf, line by line.
+  const drawing = [
+    "8 7 6 5 4 3 2 1",
+    "ITEM NO. PART NUMBER DESCRIPTION QTY.",
+    "ST 50 x 50 x 2.3 / L 50 x 50 x 4 L=",
+    "1 1 XS-63 Long 1",
+    "125.5 mm",
+    "2 2L 50x4 L= 5 cm with M12-Bolt L 50 x 50 x 4 mm L= 50 mm 4",
+    "9 8",
+    "ITEM NO. QTY. DESCRIPTION LENGTH",
+    "1 1 ST 50 x 50 x 2.3 1910",
+    "2 2 ST 50 x 50 x 2.3 240.42",
+    "3 2 ST 50 x 50 x 2.3 430 4",
+    "4 2 ST 50 x 50 x 2.3 282.84",
+    "7 1 ST 50 x 50 x 2.3 98",
+    "9 8 L ANGLE 50 x 50 x 4 125.5",
+    "DETAIL A",
+    "SCALE 2 : 15",
+    "A XS-63 LONG 3PCS A",
+  ];
+
+  it("reads only the cut list (ITEM NO. / QTY. / DESCRIPTION / LENGTH)", () => {
+    const { parts, skipped } = parseBomLines(drawing);
+    expect(parts).toHaveLength(6);
+    expect(parts.some((p) => p.cutLength === 50)).toBe(false); // the assembly table's "L= 50 mm" is not read
+    expect(skipped).toEqual([]);
+  });
+
+  it("takes the length right after the size, not a balloon number at the end of the line", () => {
+    const { parts } = parseBomLines(drawing);
+    const row3 = parts.find((p) => p.cutLength === 430);
+    expect(row3).toMatchObject({ steelType: "ST", sectionX: 50, quantity: 2 });
+    expect(parts.find((p) => p.cutLength === 125.5)).toMatchObject({ steelType: "ANGLE", sectionX: 50, sectionY: 50, thickness: 4, quantity: 8 });
+  });
+
+  it("still reads plain rows when there is no table header at all", () => {
+    expect(parseBomLines(["1 16 ST 75 x 75 x 2.3 1742"]).parts).toHaveLength(1);
+  });
+});

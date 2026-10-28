@@ -10,8 +10,6 @@ import SteelSheetPanel, { type SheetPartRow } from "@/components/SteelSheetPanel
 import SteelNestingPanel from "@/components/SteelNestingPanel";
 
 export const dynamic = "force-dynamic";
-// Reading a picture with the vision model can take a while.
-export const maxDuration = 60;
 
 export default async function SteelPlanPage({
   params,
@@ -32,6 +30,7 @@ export default async function SteelPlanPage({
         hardware: { orderBy: { createdAt: "asc" } },
         sheetParts: { orderBy: { createdAt: "asc" } },
         nestDone: true,
+        images: { orderBy: { createdAt: "asc" } },
         project: { select: { createdById: true, members: { select: { userId: true } } } },
       },
     }),
@@ -89,6 +88,7 @@ export default async function SteelPlanPage({
         <SteelHardwarePanel
           planId={plan.id}
           canEdit={canEdit}
+          images={plan.images.map((i) => ({ id: i.id, fileUrl: i.fileUrl, fileName: i.fileName }))}
           rows={plan.hardware.map((h) => ({
             id: h.id,
             itemNo: h.itemNo,

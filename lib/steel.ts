@@ -345,7 +345,19 @@ function bomType(description: string, x: number, y: number): SteelType | null {
 export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipped: SkippedRow[] } {
   const parts: SteelPartInput[] = [];
   const skipped: SkippedRow[] = [];
+  // A drawing can carry two tables: the assembly list (ITEM NO. / PART NUMBER / DESCRIPTION / QTY.)
+  // and the cut list (ITEM NO. / QTY. / DESCRIPTION / LENGTH). Only rows under a header that has
+  // LENGTH and no PART NUMBER are read. Without any such header (plain rows, CSV) every row is read.
+  const isHeader = (line: string) => /ITEM\s*NO/i.test(line);
+  const isCutHeader = (line: string) => isHeader(line) && /LENGTH/i.test(line) && !/PART\s*NUMBER/i.test(line);
+  const hasCutHeader = lines.some(isCutHeader);
+  let active = !hasCutHeader;
   for (const raw of lines) {
+    if (isHeader(raw)) {
+      if (hasCutHeader) active = isCutHeader(raw);
+      continue;
+    }
+    if (!active) continue;
     // The drawing frame puts single row letters (A-F) at the line edges.
     const line = raw.trim().replace(/^[A-F]\s+(?=\d)/, "").replace(/\s+[A-F]$/, "").trim();
     const match = BOM_ROW_RE.exec(line);
@@ -361,7 +373,8 @@ export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipp
       continue;
     }
     const size = SIZE_RE.exec(description);
-    const length = lengthText === undefined ? NaN : Number(lengthText);
+    const afterSize = size ? /^\s*(\d+(?:\.\d+)?)/.exec(description.slice(size.index + size[0].length)) : null;
+    const length = afterSize ? Number(afterSize[1]) : lengthText === undefined ? NaN : Number(lengthText);
     const x = size ? Number(size[1]) : NaN;
     const y = size ? Number(size[2]) : NaN;
     const type = bomType(description, x, y);

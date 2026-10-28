@@ -1,7 +1,5 @@
-// A parts list that arrives as a picture (SolidWorks BOM: ITEM NO. / PART NUMBER /
-// DESCRIPTION / QTY.). The picture is read by a vision model; this file turns its
-// answer into rows, sorts them into kinds (screw / nut / washer / steel / ...) and
-// totals the fasteners per size.
+// Rows of a screw / nut / washer parts list (saved by an older version that read pictures):
+// sorts them into kinds (screw / nut / washer / steel / ...) and totals the fasteners per size.
 
 import type { SteelPartInput } from "./steel";
 
@@ -22,53 +20,6 @@ export const CATEGORY_LABEL: Record<BomCategory, string> = {
   plate: "แผ่นเหล็ก / ชิ้นประกอบ",
   other: "อื่น ๆ",
 };
-
-/** Rows asked for per request: the model may only write ~1,000 tokens a minute. */
-export const BOM_CHUNK_ROWS = 30;
-
-/** The text sent with the picture: the next rows after ITEM NO. `after`, one per line. */
-export function bomChunkPrompt(after: number): string {
-  return (
-    "Read the bill-of-materials table in this image. Output ONLY the rows whose ITEM NO. is greater than " +
-    `${after} (every row when it is 0), in table order, at most ${BOM_CHUNK_ROWS} rows. ` +
-    "One row per line in exactly this form: item|partNumber|description|qty " +
-    "(copy the PART NUMBER and DESCRIPTION text exactly as printed, keeping sizes such as M16 x 2.0 x 60 and L 100x100x10 L = 200 mm; " +
-    "leave description empty when the cell is empty; qty is a whole number). " +
-    "When there are no more rows, print END as the last line. No other text, no table header."
-  );
-}
-
-/** Reads the `item|partNumber|description|qty` lines. `ended` is true once END was printed. */
-export function parseBomPipeLines(reply: string): { rows: BomRow[]; ended: boolean } {
-  const rows: BomRow[] = [];
-  let ended = false;
-  for (const raw of reply.replace(/```[a-z]*/gi, "").split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (/^END\b/i.test(line)) {
-      ended = true;
-      continue;
-    }
-    const cells = line.split("|").map((c) => c.trim());
-    if (cells.length < 4) continue; // a cut-off last line or chatter
-    const qty = Math.round(Number(cells[cells.length - 1].replace(/,/g, "")));
-    const item = Number(cells[0]);
-    const partNumber = fixPartNumber(cells[1]);
-    if (!partNumber || !(qty >= 1) || !Number.isFinite(item)) continue;
-    rows.push({
-      item,
-      partNumber: partNumber.slice(0, 200),
-      description: cells.slice(2, -1).join(" ").trim().slice(0, 200),
-      qty,
-    });
-  }
-  return { rows, ended };
-}
-
-/** Vision models read "B18.2.3.1M" as "818.2.3.1M" / "M18.22M"; put the B back. */
-export function fixPartNumber(text: string): string {
-  return text.replace(/(^|[\s(])(?:8|M|S)18\.(\d)/g, "$1B18.$2");
-}
 
 const SIZE = /\bM\s?(\d+(?:\.\d+)?)/i;
 

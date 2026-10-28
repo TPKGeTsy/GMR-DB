@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageUp, Trash2 } from "lucide-react";
-import { deleteAllHardware, deleteHardwareRow, readBomImageChunk, saveHardware, updateHardwareRow } from "@/app/actions/steelSources";
-import { CATEGORY_LABEL, angleFromRow, classifyBomRow, summarizeFasteners, type BomCategory, type BomRow } from "@/lib/bomImage";
+import { addPartsListImage, deleteAllHardware, deleteHardwareRow, deletePartsListImage, updateHardwareRow } from "@/app/actions/steelSources";
+import { CATEGORY_LABEL, summarizeFasteners, type BomCategory, type BomRow } from "@/lib/bomImage";
 import { usePrintSection } from "./PrintLayout";
 
 export interface HardwareRow {
@@ -16,17 +16,18 @@ export interface HardwareRow {
   category: string;
 }
 
+export interface PartsListImage {
+  id: string;
+  fileUrl: string;
+  fileName: string;
+}
+
 const inputClass =
   "w-full rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
-const buttonClass =
-  "inline-flex items-center gap-1 rounded bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50";
 
 const KIND_LABEL = { screw: "สกรู", nut: "น็อต", washer: "แหวนรอง" } as const;
-const MAX_WAITS_PER_CHUNK = 4;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** A saved row, editable after the upload: part number, description and QTY (saved when the cursor leaves). */
+/** A row saved earlier (read from a picture in an older version), editable: part number, description and QTY. */
 function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: boolean; onChanged: () => void }) {
   const [partNumber, setPartNumber] = useState(row.partNumber);
   const [description, setDescription] = useState(row.description);
@@ -85,103 +86,65 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
   );
 }
 
-/** Picture of a parts list (screws, nuts, washers, angles...) -> checked rows -> saved. */
+/** Pictures of the screw / nut / washer list: dropped or pasted in, turned into a clean scan-like
+ *  page, and printed with the plan. (Rows saved by an older version are still listed below.) */
 export default function SteelHardwarePanel({
   planId,
+  images,
   rows,
   canEdit,
 }: {
   planId: string;
+  images: PartsListImage[];
   rows: HardwareRow[];
   canEdit: boolean;
 }) {
   const router = useRouter();
   const print = usePrintSection("hardware");
-  const [preview, setPreview] = useState<BomRow[] | null>(null);
-  const [sendSteel, setSendSteel] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
 
-  // The vision model can only write ~1,000 tokens a minute, so a long table is read in
-  // chunks of rows; when the quota runs out the page waits (with a countdown) and goes on.
-  const readImage = async (file: File | undefined) => {
-    if (!file) return;
-    setBusy(true);
-    setMessage(null);
-    setPreview(null);
-    const all: BomRow[] = [];
-    let after = 0;
-    let part = 1;
-    let waits = 0;
-    for (;;) {
-      setStatus(`กำลังอ่านรูป ช่วงที่ ${part}${all.length > 0 ? ` (ได้แล้ว ${all.length} แถว)` : ""}…`);
-      const form = new FormData();
-      form.set("file", file);
-      form.set("after", String(after));
-      const result = await readBomImageChunk(form);
-      if (!result.success) {
-        if (result.retryAfter && waits < MAX_WAITS_PER_CHUNK) {
-          waits += 1;
-          for (let left = result.retryAfter + 1; left > 0; left--) {
-            setStatus(`รอโควตา AI ต่อนาที ${left} วินาที แล้วอ่านต่อ (ได้แล้ว ${all.length} แถว)…`);
-            await sleep(1000);
-          }
-          continue;
-        }
-        setMessage(all.length > 0 ? `${result.error} — ได้ ${all.length} แถวแรก ตรวจดูแล้วอ่านส่วนที่เหลือใหม่ได้` : result.error);
-        break;
-      }
-      waits = 0;
-      all.push(...result.rows);
-      setPreview([...all]);
-      if (result.done || result.rows.length === 0) break;
-      after = Math.max(...result.rows.map((r) => r.item ?? 0));
-      part += 1;
-    }
-    setStatus(null);
-    setBusy(false);
-  };
-
-  const confirmSave = async () => {
-    if (!preview) return;
-    setBusy(true);
-    const result = await saveHardware(planId, preview, sendSteel);
-    setBusy(false);
-    if (!result.success) {
-      setMessage(result.error);
+  const upload = async (files: FileList | File[] | null | undefined) => {
+    const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (list.length === 0) {
+      setMessage("เลือกไฟล์รูป (PNG, JPG, WEBP)");
       return;
     }
-    setMessage(`บันทึก ${result.saved} รายการแล้ว${result.sent > 0 ? ` · ส่งเหล็กฉาก ${result.sent} รายการเข้ารายการตัด` : ""}`);
-    setPreview(null);
+    setBusy(true);
+    setMessage(null);
+    const problems: string[] = [];
+    for (const file of list) {
+      const form = new FormData();
+      form.set("file", file);
+      const result = await addPartsListImage(planId, form);
+      if (!result.success) problems.push(`${file.name}: ${result.error}`);
+    }
+    setBusy(false);
+    if (problems.length > 0) setMessage(problems.join(" · "));
     router.refresh();
   };
 
   const savedRows: BomRow[] = rows.map((r) => ({ item: r.itemNo, partNumber: r.partNumber, description: r.description, qty: r.quantity }));
   const totals = summarizeFasteners(savedRows);
-  const angleCount = preview ? preview.filter((r) => angleFromRow(r)).length : 0;
 
-  const setCell = (index: number, patch: Partial<BomRow>) =>
-    setPreview((prev) => (prev ? prev.map((r, i) => (i === index ? { ...r, ...patch } : r)) : prev));
-
-  if (rows.length === 0 && !canEdit) return null;
+  if (images.length === 0 && rows.length === 0 && !canEdit) return null;
 
   return (
     <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
-      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">รายการน็อต / สกรู จากรูป ({rows.length})</h2>
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">รายการน็อต / สกรู ({images.length} รูป)</h2>
       <p className="mb-3 text-xs text-gray-400 print:hidden">
-        โยนรูปตารางรายการ (PNG / JPG) หรือวางรูปที่ก๊อปมา (Ctrl+V) ระบบอ่านเป็นตาราง ตรวจและแก้ได้ก่อนบันทึก ตารางยาวอ่านเป็นช่วง ๆ (มีนับถอยหลังรอโควตา AI)
+        โยนรูปตารางรายการ (PNG / JPG) หรือวางรูปที่ก๊อปมา (Ctrl+V) ระบบเก็บรูปไว้และปรับให้เหมือนหน้าสแกน (พื้นขาว ตัวอักษรดำ) ไว้พิมพ์ต่อท้ายใบงาน ไม่ได้อ่านข้อความออกจากรูป
       </p>
 
       {canEdit && (
         <label
           tabIndex={0}
           onPaste={(e) => {
-            const file = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
-            if (file) {
+            const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+            if (files.length > 0) {
               e.preventDefault();
-              readImage(file);
+              upload(files);
             }
           }}
           onDragOver={(e) => {
@@ -192,151 +155,115 @@ export default function SteelHardwarePanel({
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            readImage(e.dataTransfer.files?.[0]);
+            upload(e.dataTransfer.files);
           }}
           className={`mb-3 flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-4 py-6 text-center outline-none focus:border-orange-500 print:hidden ${
             dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
           } ${busy ? "pointer-events-none opacity-60" : ""}`}
         >
           <ImageUp className="mb-1 h-6 w-6 text-orange-500" />
-          <span className="text-sm font-semibold text-gray-800">{status ?? "ลากรูปตารางมาวาง · คลิกเลือกไฟล์ · หรือกดที่นี่แล้ววาง (Ctrl+V)"}</span>
-          <span className="mt-1 text-xs text-gray-500">รูปไม่เกิน 4 MB ยิ่งชัด ยิ่งอ่านแม่น</span>
+          <span className="text-sm font-semibold text-gray-800">{busy ? "กำลังบันทึกรูป…" : "ลากรูปตารางมาวาง · คลิกเลือกไฟล์ · หรือกดที่นี่แล้ววาง (Ctrl+V)"}</span>
+          <span className="mt-1 text-xs text-gray-500">รูปไม่เกิน 8 MB · วางได้หลายรูป</span>
           <input
             type="file"
+            multiple
             accept="image/png,image/jpeg,image/webp"
             className="sr-only"
             disabled={busy}
             onChange={(e) => {
-              readImage(e.target.files?.[0]);
+              upload(e.target.files);
               e.target.value = "";
             }}
           />
         </label>
       )}
 
-      {message && <p className="mb-3 text-sm text-gray-700 print:hidden">{message}</p>}
+      {message && <p className="mb-3 text-sm text-red-600 print:hidden">{message}</p>}
 
-      {preview && (
-        <div className="mb-4 space-y-2 rounded border border-orange-200 bg-orange-50 p-3 print:hidden">
-          <p className="text-sm font-semibold text-gray-800">
-            อ่านได้ {preview.length} แถว{busy && status ? " (ยังอ่านต่อ…)" : ""} — ตรวจกับรูปอีกครั้ง (ตัวเลขและ part number อาจอ่านเพี้ยน แก้ในช่องได้)
-          </p>
-          <div className="max-h-96 overflow-auto rounded border border-gray-200 bg-white">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-gray-50 text-left text-gray-500">
-                <tr>
-                  <th className="px-2 py-1 font-medium">#</th>
-                  <th className="px-2 py-1 font-medium">PART NUMBER</th>
-                  <th className="px-2 py-1 font-medium">DESCRIPTION</th>
-                  <th className="px-2 py-1 font-medium">QTY</th>
-                  <th className="px-2 py-1 font-medium">ชนิด</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {preview.map((r, i) => (
-                  <tr key={i} className="border-t border-gray-100">
-                    <td className="px-2 py-1 text-gray-400">{r.item ?? ""}</td>
-                    <td className="px-1 py-1">
-                      <input value={r.partNumber} onChange={(e) => setCell(i, { partNumber: e.target.value })} className={inputClass} />
-                    </td>
-                    <td className="px-1 py-1">
-                      <input value={r.description} onChange={(e) => setCell(i, { description: e.target.value })} className={inputClass} />
-                    </td>
-                    <td className="w-20 px-1 py-1">
-                      <input
-                        type="number"
-                        min={1}
-                        value={r.qty}
-                        onChange={(e) => setCell(i, { qty: Math.round(Number(e.target.value)) })}
-                        className={inputClass}
-                      />
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-1 text-gray-600">{CATEGORY_LABEL[classifyBomRow(r)]}</td>
-                    <td className="px-1 py-1 text-right">
-                      <button
-                        type="button"
-                        title="เอาแถวนี้ออก"
-                        onClick={() => setPreview((prev) => (prev ? prev.filter((_, j) => j !== i) : prev))}
-                        className="text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {angleCount > 0 && (
-            <label className="flex items-center gap-1.5 text-xs text-gray-700">
-              <input type="checkbox" checked={sendSteel} onChange={(e) => setSendSteel(e.target.checked)} />
-              ส่งเหล็กฉากที่มีความยาว ({angleCount} รายการ เช่น L 100x100x10 L = 200 mm) เข้ารายการตัดของแผนนี้ด้วย
-            </label>
-          )}
-          <div className="flex gap-2">
-            <button type="button" onClick={confirmSave} disabled={busy || preview.length === 0} className={buttonClass}>
-              บันทึก {preview.length} รายการ
-            </button>
-            <button type="button" onClick={() => setPreview(null)} disabled={busy} className="text-xs text-gray-500 hover:text-gray-700">
-              ยกเลิก
-            </button>
-          </div>
-        </div>
-      )}
-
-      {totals.length > 0 && (
-        <div className="mb-3">
-          <p className="mb-1 text-xs font-semibold text-gray-600">สรุปรวมตามขนาด</p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500">
-                <th className="py-1 font-medium">ชนิด</th>
-                <th className="py-1 font-medium">ขนาด</th>
-                <th className="py-1 text-right font-medium">ยาว (มม.)</th>
-                <th className="py-1 text-right font-medium">รวม (ตัว)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totals.map((t) => (
-                <tr key={`${t.kind}${t.size}${t.length}`} className="border-t border-gray-100">
-                  <td className="py-1">{KIND_LABEL[t.kind]}</td>
-                  <td className="py-1 font-medium">{t.size}</td>
-                  <td className="py-1 text-right">{t.length ?? "—"}</td>
-                  <td className="py-1 text-right font-bold">{t.quantity.toLocaleString("th-TH")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {images.length > 0 && (
+        <div className="space-y-3">
+          {images.map((image) => (
+            <figure key={image.id} className="break-inside-avoid">
+              <div className="mb-1 flex items-center justify-between text-xs text-gray-500 print:hidden">
+                <span className="truncate" title={image.fileName}>
+                  {image.fileName}
+                </span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    title="ลบรูปนี้"
+                    onClick={async () => {
+                      if (!confirm("ลบรูปนี้?")) return;
+                      await deletePartsListImage(image.id);
+                      router.refresh();
+                    }}
+                    className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    ลบ
+                  </button>
+                )}
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.fileUrl} alt={`รายการน็อต/สกรู ${image.fileName}`} className="h-auto w-full border border-gray-300 bg-white" />
+            </figure>
+          ))}
         </div>
       )}
 
       {rows.length > 0 && (
-        <div className="rounded border border-gray-200 text-sm">
-          <div className="flex items-center justify-between bg-gray-50 px-3 py-1.5">
-            <span className="text-xs font-medium text-gray-600">รายการทั้งหมด ({rows.length})</span>
-            {canEdit && (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!confirm(`ลบรายการน็อต/สกรูทั้งหมด ${rows.length} แถว?`)) return;
-                  await deleteAllHardware(planId);
-                  router.refresh();
-                }}
-                className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 print:hidden"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                ลบทั้งหมด
-              </button>
-            )}
+        <div className="mt-4 space-y-3">
+          {totals.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-semibold text-gray-600">สรุปรวมตามขนาด (รายการที่บันทึกไว้เดิม)</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500">
+                    <th className="py-1 font-medium">ชนิด</th>
+                    <th className="py-1 font-medium">ขนาด</th>
+                    <th className="py-1 text-right font-medium">ยาว (มม.)</th>
+                    <th className="py-1 text-right font-medium">รวม (ตัว)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {totals.map((t) => (
+                    <tr key={`${t.kind}${t.size}${t.length}`} className="border-t border-gray-100">
+                      <td className="py-1">{KIND_LABEL[t.kind]}</td>
+                      <td className="py-1 font-medium">{t.size}</td>
+                      <td className="py-1 text-right">{t.length ?? "—"}</td>
+                      <td className="py-1 text-right font-bold">{t.quantity.toLocaleString("th-TH")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="rounded border border-gray-200 text-sm">
+            <div className="flex items-center justify-between bg-gray-50 px-3 py-1.5">
+              <span className="text-xs font-medium text-gray-600">รายการที่บันทึกไว้เดิม ({rows.length})</span>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!confirm(`ลบรายการที่บันทึกไว้เดิมทั้งหมด ${rows.length} แถว?`)) return;
+                    await deleteAllHardware(planId);
+                    router.refresh();
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 print:hidden"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  ลบทั้งหมด
+                </button>
+              )}
+            </div>
+            <table className="w-full text-xs">
+              <tbody>
+                {rows.map((r) => (
+                  <SavedRow key={`${r.id}-${r.partNumber}-${r.description}-${r.quantity}`} row={r} canEdit={canEdit} onChanged={() => router.refresh()} />
+                ))}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-xs">
-            <tbody>
-              {rows.map((r) => (
-                <SavedRow key={`${r.id}-${r.partNumber}-${r.description}-${r.quantity}`} row={r} canEdit={canEdit} onChanged={() => router.refresh()} />
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
     </section>

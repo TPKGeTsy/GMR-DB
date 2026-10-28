@@ -799,6 +799,7 @@ model SteelPlan {
   hardware     SteelPlanHardware[]
   sheetParts   SteelPlanSheetPart[]
   nestDone     SteelPlanNestDone[]
+  images       SteelPlanImage[]
 
   @@map("steel_plans")
 }
@@ -901,4 +902,16 @@ model SteelPlanNestDone {
 
   @@unique([planId, signature])
   @@map("steel_plan_nest_done")
+}
+
+// A picture of a parts list (screws, nuts, washers...) kept as a scan-like image to print with the plan.
+model SteelPlanImage {
+  id        String    @id @default(cuid())
+  planId    String    @map("plan_id")
+  plan      SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  fileUrl   String    @map("file_url")
+  fileName  String    @map("file_name")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("steel_plan_images")
 }

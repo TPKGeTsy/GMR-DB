@@ -2,18 +2,17 @@
 
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
-import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { canEditPlan } from "@/lib/steelAccess";
-import { askGroqAboutImage } from "@/lib/groqVision";
-import { BOM_CHUNK_ROWS, angleFromRow, bomChunkPrompt, classifyBomRow, parseBomPipeLines, type BomRow } from "@/lib/bomImage";
+import { toScanImage } from "@/lib/scanImage";
+import { saveDataUrlImage, deleteUploadedFile } from "@/lib/storage";
+import { classifyBomRow, type BomRow } from "@/lib/bomImage";
 import { analyzeDxf, readDxfFileName, type DxfAnalysis } from "@/lib/dxf";
-import { addSteelParts } from "./steel";
 
 type Fail = { success: false; error: string };
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // Groq's limit for a base64 picture
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_DXF_BYTES = 5 * 1024 * 1024;
 
@@ -21,80 +20,43 @@ function revalidatePlan(planId: string) {
   revalidatePath(`/steel-cutting/${planId}`);
 }
 
-/** Reads the next rows of a picture of a parts list (the ones after item `after`).
- *  The vision model may only write about 1,000 tokens a minute, so the page asks
- *  chunk by chunk and waits (`retryAfter` seconds) when the quota is used up.
- *  Nothing is saved: the page collects the rows, lets the user check them, and
- *  then calls saveHardware. */
-export async function readBomImageChunk(
-  formData: FormData
-): Promise<{ success: true; rows: BomRow[]; done: boolean } | (Fail & { retryAfter?: number })> {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    const file = formData.get("file");
-    if (!(file instanceof File)) return { success: false, error: "ไม่พบไฟล์" };
-    if (!IMAGE_TYPES.includes(file.type)) return { success: false, error: "รองรับเฉพาะรูป PNG, JPG, WEBP" };
-    if (file.size > MAX_IMAGE_BYTES) return { success: false, error: "รูปใหญ่เกิน 4 MB ลองย่อรูปหรือครอปเฉพาะตาราง" };
-    const after = Math.max(0, Math.floor(Number(formData.get("after")) || 0));
-
-    const limit = await checkRateLimit(`readBomImage:${session.user.id}`, { maxAttempts: 30, windowMs: 60_000 });
-    if (!limit.allowed) return { success: false, error: "อ่านรูปถี่เกินไป", retryAfter: limit.retryAfterSeconds };
-
-    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const reply = await askGroqAboutImage(bomChunkPrompt(after), `data:${file.type};base64,${base64}`);
-    if (!reply.ok) return { success: false, error: reply.error, retryAfter: reply.retryAfter };
-
-    const parsed = parseBomPipeLines(reply.text);
-    const ended = parsed.ended;
-    // A reply cut off by the token limit: its last line may be incomplete, so read it again in the next chunk.
-    const rows = reply.truncated ? parsed.rows.slice(0, -1) : parsed.rows;
-    const fresh = rows.filter((r) => r.item !== null && r.item > after);
-    // Finished when the model said END, or gave fewer rows than it was allowed to.
-    const done = ended || (!reply.truncated && fresh.length < Math.min(BOM_CHUNK_ROWS, 5));
-    if (fresh.length === 0 && after === 0) return { success: false, error: "อ่านตารางจากรูปไม่ได้ ลองรูปที่ชัดขึ้นหรือครอปเฉพาะตาราง" };
-    return { success: true, rows: fresh, done };
-  } catch (error) {
-    logError("Error reading BOM image:", error);
-    return { success: false, error: "อ่านรูปไม่สำเร็จ" };
-  }
-}
-
-/** Saves the checked rows of the parts list; angles with a length can also be
- *  sent straight into the plan's pieces to cut. */
-export async function saveHardware(planId: string, rows: BomRow[], sendSteel: boolean) {
+/** Keeps a picture of a parts list (screws, nuts, washers...) with the plan, turned into a
+ *  clean scan-like page that prints as a table. Nothing is read out of it. */
+export async function addPartsListImage(planId: string, formData: FormData): Promise<{ success: true } | Fail> {
   try {
     const check = await canEditPlan(planId);
     if (!("ok" in check)) return check;
-    const clean = rows
-      .filter((r) => r.partNumber.trim() && Number.isInteger(r.qty) && r.qty >= 1 && r.qty <= 1_000_000)
-      .slice(0, 300);
-    if (clean.length === 0) return { success: false as const, error: "ไม่มีรายการ" };
+    const file = formData.get("file");
+    if (!(file instanceof File)) return { success: false, error: "ไม่พบไฟล์" };
+    if (!IMAGE_TYPES.includes(file.type)) return { success: false, error: "รองรับเฉพาะรูป PNG, JPG, WEBP" };
+    if (file.size > MAX_IMAGE_BYTES) return { success: false, error: "รูปใหญ่เกิน 8 MB" };
+    const limit = await checkRateLimit(`partsListImage:${check.userId}`, { maxAttempts: 20, windowMs: 60_000 });
+    if (!limit.allowed) return { success: false, error: `อัปโหลดถี่เกินไป ลองใหม่ใน ${limit.retryAfterSeconds} วินาที` };
 
-    await prisma.steelPlanHardware.createMany({
-      data: clean.map((r) => ({
-        planId,
-        itemNo: r.item !== null && Number.isInteger(r.item) ? r.item : null,
-        partNumber: r.partNumber.trim().slice(0, 200),
-        description: r.description.trim().slice(0, 200),
-        quantity: r.qty,
-        category: classifyBomRow(r),
-      })),
-    });
-
-    let sent = 0;
-    if (sendSteel) {
-      const angles = clean.map((r) => angleFromRow(r)).filter((p): p is NonNullable<typeof p> => p !== null);
-      if (angles.length > 0) {
-        const added = await addSteelParts(planId, angles.map((p) => ({ ...p, sources: ["รายการจากรูป"] })));
-        if (added.success) sent = angles.length;
-      }
-    }
+    const scan = await toScanImage(Buffer.from(await file.arrayBuffer()));
+    const fileUrl = await saveDataUrlImage(`data:image/png;base64,${scan.toString("base64")}`, `steel-plans/${planId}`);
+    await prisma.steelPlanImage.create({ data: { planId, fileUrl, fileName: file.name.slice(0, 200) } });
     revalidatePlan(planId);
-    return { success: true as const, saved: clean.length, sent };
+    return { success: true };
   } catch (error) {
-    logError("Error saving hardware list:", error);
-    return { success: false as const, error: "บันทึกรายการไม่สำเร็จ" };
+    logError("Error saving parts-list image:", error);
+    return { success: false, error: "บันทึกรูปไม่สำเร็จ" };
+  }
+}
+
+export async function deletePartsListImage(id: string) {
+  try {
+    const image = await prisma.steelPlanImage.findUnique({ where: { id } });
+    if (!image) return { success: false, error: "ไม่พบรูป" };
+    const check = await canEditPlan(image.planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanImage.delete({ where: { id } });
+    await deleteUploadedFile(image.fileUrl);
+    revalidatePlan(image.planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting parts-list image:", error);
+    return { success: false, error: "ลบรูปไม่สำเร็จ" };
   }
 }
 
