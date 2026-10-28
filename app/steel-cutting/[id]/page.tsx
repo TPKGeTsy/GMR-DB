@@ -31,6 +31,7 @@ export default async function SteelPlanPage({
         bars: true,
         hardware: { orderBy: { createdAt: "asc" } },
         sheetParts: { orderBy: { createdAt: "asc" } },
+        nestDone: true,
         project: { select: { createdById: true, members: { select: { userId: true } } } },
       },
     }),
@@ -95,7 +96,13 @@ export default async function SteelPlanPage({
           }))}
         />
         <SteelSheetPanel planId={plan.id} canEdit={canEdit} parts={sheetParts} />
-        <SteelNestingPanel parts={sheetParts} defaultGap={plan.kerf} />
+        <SteelNestingPanel
+          planId={plan.id}
+          parts={sheetParts}
+          defaultGap={plan.kerf}
+          canEdit={canEdit}
+          doneBySignature={Object.fromEntries(plan.nestDone.map((d) => [d.signature, d.done]))}
+        />
       </SteelPlanEditor>
     </div>
   );

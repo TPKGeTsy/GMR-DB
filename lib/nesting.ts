@@ -205,3 +205,41 @@ export const SHEET_PRESETS = [
   { label: "1,219 × 3,048 (4×10 ฟุต)", width: 1219, height: 3048 },
   { label: "1,500 × 6,000", width: 1500, height: 6000 },
 ] as const;
+
+/** Identifies a layout: same parts at the same places on the same sheet size and
+ *  thickness give the same text, so equal sheets can be counted together and a
+ *  saved "done" count stays tied to that layout. */
+export function layoutSignature(sheet: Sheet, opts: { sheetWidth: number; sheetHeight: number; thickness: number | null }): string {
+  const parts = sheet.placed
+    .map((p) => `${p.id}:${p.rotated ? "r" : "n"}@${Math.round(p.x)},${Math.round(p.y)}`)
+    .sort()
+    .join(";");
+  const text = `${opts.sheetWidth}x${opts.sheetHeight}|${opts.thickness ?? ""}|${parts}`;
+  // djb2 - short, stable, good enough to tell layouts apart.
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  return `${opts.sheetWidth}x${opts.sheetHeight}-${(h >>> 0).toString(16)}-${sheet.placed.length}`;
+}
+
+export interface NestResultGroup {
+  /** First sheet of this layout (the one drawn). */
+  sheet: Sheet;
+  /** How many identical sheets are needed. */
+  count: number;
+  signature: string;
+}
+
+/** Sheets with exactly the same layout become one "Result" needed `count` times. */
+export function groupIdenticalSheets(
+  sheets: Sheet[],
+  opts: { sheetWidth: number; sheetHeight: number; thickness: number | null }
+): NestResultGroup[] {
+  const groups = new Map<string, NestResultGroup>();
+  for (const sheet of sheets) {
+    const signature = layoutSignature(sheet, opts);
+    const existing = groups.get(signature);
+    if (existing) existing.count += 1;
+    else groups.set(signature, { sheet, count: 1, signature });
+  }
+  return [...groups.values()];
+}

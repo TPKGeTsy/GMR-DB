@@ -168,3 +168,23 @@ export async function deleteSheetPart(id: string) {
     return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
+
+/** Sets how many times a nested sheet layout has been cut (the "Done x/y" counter). */
+export async function setNestDone(planId: string, signature: string, done: number) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (!/^[\w.-]{1,120}$/.test(signature)) return { success: false, error: "ข้อมูลไม่ถูกต้อง" };
+    if (!Number.isInteger(done) || done < 0 || done > 10000) return { success: false, error: "จำนวนไม่ถูกต้อง" };
+    await prisma.steelPlanNestDone.upsert({
+      where: { planId_signature: { planId, signature } },
+      create: { planId, signature, done },
+      update: { done },
+    });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error saving nest done count:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}

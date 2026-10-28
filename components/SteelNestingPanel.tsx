@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Printer } from "lucide-react";
-import { SHEET_PRESETS, loopArea, nest, shapesOnSheet, type Placed } from "@/lib/nesting";
+import { Minus, Plus, Printer } from "lucide-react";
+import { setNestDone } from "@/app/actions/steelSources";
+import { SHEET_PRESETS, groupIdenticalSheets, loopArea, nest, shapesOnSheet, type NestResultGroup, type Placed } from "@/lib/nesting";
 import type { SheetPartRow } from "./SteelSheetPanel";
 
 const inputClass =
@@ -18,18 +19,22 @@ function SheetDrawing({
   width,
   height,
   parts,
-  index,
+  compact = false,
+  className = "h-auto max-h-[34rem] w-full",
 }: {
   placed: Placed[];
   width: number;
   height: number;
   parts: SheetPartRow[];
-  index: number;
+  /** Thumbnail: no numbers, thin lines. */
+  compact?: boolean;
+  className?: string;
 }) {
   const toPath = (pts: [number, number][]) => pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0]} ${p[1]}`).join(" ") + " Z";
-  const fontSize = Math.max(width, height) * 0.022;
+  const longest = Math.max(width, height);
+  const fontSize = longest * 0.022;
   return (
-    <svg viewBox={`0 ${-height} ${width} ${height}`} className="h-auto max-h-[28rem] w-full border-2 border-black bg-white" role="img" aria-label={`แผ่นที่ ${index}`}>
+    <svg viewBox={`0 ${-height} ${width} ${height}`} className={`border border-black bg-white ${className}`} role="img" aria-label="ผังวางชิ้นงานบนแผ่นเหล็ก">
       <g transform="scale(1,-1)">
         {placed.map((p, i) => {
           const part = parts.find((x) => x.id === p.id)!;
@@ -37,15 +42,16 @@ function SheetDrawing({
           const [shape, ...holePaths] = shapesOnSheet(part.geometry.loops, p.rotated);
           return (
             <g key={i} transform={`translate(${p.x} ${p.y})`}>
-              <path d={toPath(shape)} fill={COLORS[partIndex % COLORS.length]} stroke="#111" strokeWidth={Math.max(width, height) * 0.0025} />
-              {holePaths.map((h, k) => (
-                <path key={k} d={toPath(h)} fill="#fff" stroke="#111" strokeWidth={Math.max(width, height) * 0.0015} />
-              ))}
-              <g transform={`translate(${p.w / 2} ${p.h / 2}) scale(1,-1)`}>
-                <text textAnchor="middle" dominantBaseline="central" fontSize={fontSize} fontWeight="700" fill="#111" stroke="#fff" strokeWidth={fontSize * 0.12} paintOrder="stroke">
-                  {partIndex + 1}
-                </text>
-              </g>
+              <path d={toPath(shape)} fill={COLORS[partIndex % COLORS.length]} stroke="#111" strokeWidth={longest * (compact ? 0.004 : 0.0025)} />
+              {!compact &&
+                holePaths.map((h, k) => <path key={k} d={toPath(h)} fill="#fff" stroke="#111" strokeWidth={longest * 0.0015} />)}
+              {!compact && (
+                <g transform={`translate(${p.w / 2} ${p.h / 2}) scale(1,-1)`}>
+                  <text textAnchor="middle" dominantBaseline="central" fontSize={fontSize} fontWeight="700" fill="#111" stroke="#fff" strokeWidth={fontSize * 0.12} paintOrder="stroke">
+                    {partIndex + 1}
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -54,20 +60,44 @@ function SheetDrawing({
   );
 }
 
-/** Lays the DXF parts out on standard sheets, one group per thickness. */
-export default function SteelNestingPanel({ parts, defaultGap }: { parts: SheetPartRow[]; defaultGap: number }) {
+interface ThicknessGroup {
+  thickness: number | null;
+  list: SheetPartRow[];
+  results: NestResultGroup[];
+  sheetCount: number;
+  tooBig: string[];
+  utilization: number;
+}
+
+/** Lays the DXF parts out on standard sheets (one list of "Results" per thickness),
+ *  with a Done x/y counter for how many of each layout have been cut. */
+export default function SteelNestingPanel({
+  planId,
+  parts,
+  defaultGap,
+  canEdit,
+  doneBySignature,
+}: {
+  planId: string;
+  parts: SheetPartRow[];
+  defaultGap: number;
+  canEdit: boolean;
+  doneBySignature: Record<string, number>;
+}) {
   const [presetIndex, setPresetIndex] = useState(0); // -1 = custom
   const [customW, setCustomW] = useState("1219");
   const [customH, setCustomH] = useState("2438");
   const [gap, setGap] = useState(String(defaultGap));
   const [allowRotate, setAllowRotate] = useState(true);
+  const [selected, setSelected] = useState<Record<string, string>>({}); // thickness key -> signature
+  const [done, setDone] = useState<Record<string, number>>(doneBySignature);
 
   const sheetWidth = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].width : Number(customW);
   const sheetHeight = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].height : Number(customH);
   const gapValue = Number.isFinite(Number(gap)) && gap.trim() !== "" ? Number(gap) : defaultGap;
   const valid = sheetWidth > 0 && sheetHeight > 0;
 
-  const groups = useMemo(() => {
+  const groups = useMemo<ThicknessGroup[]>(() => {
     if (!valid) return [];
     const byThickness = new Map<string, SheetPartRow[]>();
     for (const p of parts) {
@@ -77,6 +107,7 @@ export default function SteelNestingPanel({ parts, defaultGap }: { parts: SheetP
     return [...byThickness.entries()]
       .sort((a, b) => Number(a[0] || 0) - Number(b[0] || 0))
       .map(([key, list]) => {
+        const thickness = key === "" ? null : Number(key);
         const result = nest(
           list.map((p) => ({ item: { id: p.id, name: p.name, width: p.width, height: p.height }, quantity: p.quantity })),
           { sheetWidth, sheetHeight, gap: gapValue, allowRotate }
@@ -84,12 +115,31 @@ export default function SteelNestingPanel({ parts, defaultGap }: { parts: SheetP
         const partArea = (id: string) => loopArea(list.find((p) => p.id === id)!.geometry.loops[0] ?? []);
         const used = result.sheets.reduce((sum, s) => sum + s.placed.reduce((n, p) => n + partArea(p.id), 0), 0);
         const total = result.sheets.length * sheetWidth * sheetHeight;
-        return { thickness: key === "" ? null : Number(key), list, result, utilization: total > 0 ? used / total : 0 };
+        return {
+          thickness,
+          list,
+          results: groupIdenticalSheets(result.sheets, { sheetWidth, sheetHeight, thickness }),
+          sheetCount: result.sheets.length,
+          tooBig: result.tooBig,
+          utilization: total > 0 ? used / total : 0,
+        };
       });
   }, [parts, sheetWidth, sheetHeight, gapValue, allowRotate, valid]);
 
   if (parts.length === 0) return null;
-  const totalSheets = groups.reduce((n, g) => n + g.result.sheets.length, 0);
+  const totalSheets = groups.reduce((n, g) => n + g.sheetCount, 0);
+
+  const sheetUtilization = (g: ThicknessGroup, r: NestResultGroup) => {
+    const used = r.sheet.placed.reduce((n, p) => n + loopArea(g.list.find((x) => x.id === p.id)!.geometry.loops[0] ?? []), 0);
+    return (used / (sheetWidth * sheetHeight)) * 100;
+  };
+
+  const changeDone = async (signature: string, count: number, delta: number) => {
+    const next = Math.min(count, Math.max(0, (done[signature] ?? 0) + delta));
+    setDone((prev) => ({ ...prev, [signature]: next }));
+    const res = await setNestDone(planId, signature, next);
+    if (!res.success) setDone((prev) => ({ ...prev, [signature]: done[signature] ?? 0 }));
+  };
 
   return (
     <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none">
@@ -131,30 +181,33 @@ export default function SteelNestingPanel({ parts, defaultGap }: { parts: SheetP
           <input type="checkbox" checked={allowRotate} onChange={(e) => setAllowRotate(e.target.checked)} />
           หมุนชิ้นงาน 90° ได้
         </label>
-        <p className="text-xs text-gray-500">วางตามกรอบสี่เหลี่ยมของแต่ละชิ้น (ไม่สอดชิ้นเข้าในช่องว่างของกันและกัน) ความหนาต่างกันแยกแผ่น</p>
+        <p className="text-xs text-gray-500">วางตามกรอบสี่เหลี่ยมของแต่ละชิ้น ความหนาต่างกันแยกแผ่น แผ่นที่วางเหมือนกันรวมเป็น Result เดียว (Done = ตัดไปแล้วกี่แผ่น)</p>
       </div>
 
       {!valid && <p className="text-sm text-red-600">ขนาดแผ่นไม่ถูกต้อง</p>}
-
       {valid && (
         <p className="mb-3 text-base font-semibold text-gray-900">
           ต้องใช้แผ่นเหล็กรวม {totalSheets} แผ่น (แผ่นละ {fmt(sheetWidth)} × {fmt(sheetHeight)} มม.)
         </p>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-8">
         {groups.map((g) => {
+          const groupKey = g.thickness === null ? "none" : String(g.thickness);
           const kgEach = g.thickness !== null ? sheetWidth * sheetHeight * g.thickness * STEEL_KG_PER_MM3 : null;
+          const chosen = g.results.find((r) => r.signature === selected[groupKey]) ?? g.results[0];
           return (
-            <div key={g.thickness ?? "none"}>
-              <h3 className="mb-1 font-bold text-gray-900">
-                {g.thickness !== null ? `หนา ${fmt(g.thickness)} มม.` : "ยังไม่ระบุความหนา (กรอกที่การ์ดชิ้นงานด้านบน)"} — {g.result.sheets.length} แผ่น
-                <span className="ml-2 text-sm font-normal text-gray-600">
-                  ใช้เนื้อเหล็ก {(g.utilization * 100).toFixed(0)}%
-                  {kgEach !== null && ` · แผ่นละ ~${fmt(kgEach)} กก. รวม ~${fmt(kgEach * g.result.sheets.length)} กก.`}
+            <div key={groupKey}>
+              <h3 className="mb-1 flex flex-wrap items-baseline gap-x-3 font-bold text-gray-900">
+                <span className="text-xl">{g.thickness !== null ? `${fmt(g.thickness)} mm` : "ยังไม่ระบุความหนา"}</span>
+                <span>{g.sheetCount} แผ่น</span>
+                <span className="text-sm font-normal text-gray-600">
+                  ใช้เนื้อเหล็ก {(g.utilization * 100).toFixed(1)}%
+                  {kgEach !== null && ` · แผ่นละ ~${fmt(kgEach)} กก. รวม ~${fmt(kgEach * g.sheetCount)} กก.`}
                 </span>
               </h3>
-              {g.result.tooBig.length > 0 && <p className="mb-2 text-sm text-red-600">ใหญ่เกินแผ่น: {g.result.tooBig.join(", ")}</p>}
+              {g.thickness === null && <p className="mb-1 text-xs text-gray-500 print:hidden">กรอกความหนาที่การ์ดชิ้นงานด้านบน</p>}
+              {g.tooBig.length > 0 && <p className="mb-2 text-sm text-red-600">ใหญ่เกินแผ่น: {g.tooBig.join(", ")}</p>}
               <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
                 {g.list.map((p) => (
                   <li key={p.id} className="inline-flex items-center gap-1.5">
@@ -165,13 +218,85 @@ export default function SteelNestingPanel({ parts, defaultGap }: { parts: SheetP
                   </li>
                 ))}
               </ul>
-              <div className="grid gap-4 md:grid-cols-2">
-                {g.result.sheets.map((s, i) => (
-                  <figure key={i} className="break-inside-avoid">
+
+              {/* On screen: list of Results on the left, the chosen one big on the right. */}
+              <div className="grid gap-4 md:grid-cols-[17rem_1fr] print:hidden">
+                <ul className="max-h-[34rem] space-y-2 overflow-y-auto rounded border border-gray-200 bg-gray-50 p-2">
+                  {g.results.map((r, i) => {
+                    const d = Math.min(done[r.signature] ?? 0, r.count);
+                    const isChosen = r.signature === chosen?.signature;
+                    return (
+                      <li key={r.signature}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelected((prev) => ({ ...prev, [groupKey]: r.signature }))}
+                          onKeyDown={(e) => e.key === "Enter" && setSelected((prev) => ({ ...prev, [groupKey]: r.signature }))}
+                          className={`flex cursor-pointer gap-2 rounded border p-2 text-xs ${isChosen ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white hover:border-orange-400"}`}
+                        >
+                          <SheetDrawing placed={r.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} compact className="h-24 w-auto shrink-0" />
+                          <div className="min-w-0 space-y-0.5">
+                            <p className="text-sm font-bold text-gray-900">Result {i + 1}</p>
+                            <p className="text-gray-600">
+                              {sheetWidth}*{sheetHeight}
+                            </p>
+                            <p className="text-gray-600">Parts Count: {r.sheet.placed.length}</p>
+                            <p className="text-gray-600">Utilization: {sheetUtilization(g, r).toFixed(1)}%</p>
+                            <p className="flex items-center gap-1 font-semibold">
+                              <span className={d >= r.count ? "text-green-700" : "text-amber-600"}>
+                                Done: {d}/{r.count}
+                              </span>
+                              {canEdit && (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="ตัดไปแล้วน้อยลง 1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      changeDone(r.signature, r.count, -1);
+                                    }}
+                                    className="rounded border border-gray-300 p-0.5 text-gray-500 hover:bg-gray-100"
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="ตัดเสร็จเพิ่ม 1 แผ่น"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      changeDone(r.signature, r.count, 1);
+                                    }}
+                                    className="rounded border border-gray-300 p-0.5 text-gray-500 hover:bg-gray-100"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </button>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {chosen && (
+                  <figure>
                     <figcaption className="mb-1 text-sm font-semibold text-gray-800">
-                      แผ่นที่ {i + 1} · {s.placed.length} ชิ้น
+                      Result {g.results.indexOf(chosen) + 1} · {chosen.sheet.placed.length} ชิ้น · ต้องตัด {chosen.count} แผ่น
                     </figcaption>
-                    <SheetDrawing placed={s.placed} width={sheetWidth} height={sheetHeight} parts={parts} index={i + 1} />
+                    <SheetDrawing placed={chosen.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} />
+                  </figure>
+                )}
+              </div>
+
+              {/* In a print: every Result, big. */}
+              <div className="hidden gap-4 print:grid print:grid-cols-2">
+                {g.results.map((r, i) => (
+                  <figure key={r.signature} className="break-inside-avoid">
+                    <figcaption className="mb-1 text-sm font-semibold text-gray-800">
+                      Result {i + 1} · {fmt(sheetWidth)}×{fmt(sheetHeight)} · {r.sheet.placed.length} ชิ้น · {sheetUtilization(g, r).toFixed(1)}% · ตัด {r.count} แผ่น (Done {Math.min(done[r.signature] ?? 0, r.count)}/{r.count})
+                    </figcaption>
+                    <SheetDrawing placed={r.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} />
                   </figure>
                 ))}
               </div>

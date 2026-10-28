@@ -798,6 +798,7 @@ model SteelPlan {
   bars         SteelPlanBar[]
   hardware     SteelPlanHardware[]
   sheetParts   SteelPlanSheetPart[]
+  nestDone     SteelPlanNestDone[]
 
   @@map("steel_plans")
 }
@@ -881,4 +882,19 @@ model SteelPlanSheetPart {
   createdAt  DateTime  @default(now()) @map("created_at")
 
   @@map("steel_plan_sheet_parts")
+}
+
+// How many times each nested sheet layout has been cut ("Done 1/2" on the nesting result).
+// The signature identifies the layout (parts, positions, sheet size, thickness); change
+// the layout and the count starts again.
+model SteelPlanNestDone {
+  id        String    @id @default(cuid())
+  planId    String    @map("plan_id")
+  plan      SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  signature String
+  done      Int       @default(0)
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([planId, signature])
+  @@map("steel_plan_nest_done")
 }

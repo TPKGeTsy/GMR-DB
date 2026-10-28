@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loopArea, nest, shapeOnSheet, shapesOnSheet, type Placed } from "./nesting";
+import { groupIdenticalSheets, loopArea, nest, shapeOnSheet, shapesOnSheet, type Placed } from "./nesting";
 
 const item = (id: string, width: number, height: number) => ({ id, name: id, width, height });
 const opts = { sheetWidth: 2000, sheetHeight: 2000, gap: 0, allowRotate: true };
@@ -80,5 +80,26 @@ describe("geometry helpers", () => {
     const turned = shapeOnSheet(tri, true);
     expect(Math.max(...turned.map((p) => p[0]))).toBe(5);
     expect(Math.max(...turned.map((p) => p[1]))).toBe(20);
+  });
+});
+
+describe("identical layouts", () => {
+  it("counts equal sheets together", () => {
+    // Four 1000 x 1000 parts fill a 2000 x 2000 sheet exactly: 3 full sheets + 1 with a single part.
+    const r = nest([{ item: item("A", 1000, 1000), quantity: 13 }], opts);
+    const groups = groupIdenticalSheets(r.sheets, { sheetWidth: 2000, sheetHeight: 2000, thickness: 3 });
+    expect(r.sheets).toHaveLength(4);
+    expect(groups).toHaveLength(2);
+    expect(groups.map((g) => g.count).sort()).toEqual([1, 3]);
+    expect(new Set(groups.map((g) => g.signature)).size).toBe(2);
+  });
+
+  it("gives the same signature for the same layout and a different one for another thickness", () => {
+    const r = nest([{ item: item("A", 1000, 1000), quantity: 4 }], opts);
+    const a = groupIdenticalSheets(r.sheets, { sheetWidth: 2000, sheetHeight: 2000, thickness: 3 })[0].signature;
+    const b = groupIdenticalSheets(r.sheets, { sheetWidth: 2000, sheetHeight: 2000, thickness: 3 })[0].signature;
+    const c = groupIdenticalSheets(r.sheets, { sheetWidth: 2000, sheetHeight: 2000, thickness: 6 })[0].signature;
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
   });
 });
