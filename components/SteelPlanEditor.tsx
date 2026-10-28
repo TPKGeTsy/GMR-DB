@@ -16,6 +16,7 @@ import {
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
   comparePieces,
+  parseBomLines,
   parsePartsCsv,
   planCuts,
   profileLabel,
@@ -240,15 +241,31 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
     setPreview({ parts: result.parts, skipped: result.skipped });
   };
 
-  const readText = () => {
-    const { parts, errors } = parsePartsCsv(text);
+  // Text copied from a drawing's table (ITEM QTY DESCRIPTION LENGTH) or CSV rows.
+  const readText = (source: string) => {
     setMessage(null);
+    const bom = parseBomLines(source.split(/\r?\n/));
+    if (bom.parts.length > 0) {
+      setPreview({ parts: bom.parts, skipped: bom.skipped });
+      return;
+    }
+    const { parts, errors } = parsePartsCsv(source);
     setPreview({ parts, skipped: errors.map((e) => ({ line: e, reason: "" })) });
   };
 
-  const loadFile = async (file: File | undefined) => {
-    if (file) setText(await file.text());
+  // A PDF is read on the server; any other file is treated as text/CSV.
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      await readPdf(file);
+      return;
+    }
+    const content = await file.text();
+    setText(content);
+    readText(content);
   };
+
+  const [dragging, setDragging] = useState(false);
 
   const confirmImport = async () => {
     if (!preview || preview.parts.length === 0) return;
@@ -272,26 +289,50 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
         นำเข้ารายการชิ้นงานจาก PDF (ตาราง BOM) / CSV
       </summary>
       <div className="mt-2 space-y-3">
+        <label
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            handleFile(e.dataTransfer.files?.[0]);
+          }}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-3 py-5 text-center text-xs ${
+            dragging ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-300 bg-white text-gray-500"
+          }`}
+        >
+          <span className="font-medium text-gray-700">ลากไฟล์ PDF / CSV มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</span>
+          <span className="mt-1">
+            PDF ต้องเป็นแบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) และมีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y, z
+            และ QTY ครบ เรียงเหล็กชนิดเดียวกันไว้ด้วยกัน ตามด้วยความยาวจากมากไปน้อย
+          </span>
+          <input
+            type="file"
+            accept="application/pdf,.pdf,.csv,.txt,.tsv"
+            disabled={busy}
+            onChange={(e) => {
+              handleFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+            className="sr-only"
+          />
+        </label>
         <div>
           <p className="mb-1 text-xs text-gray-500">
-            PDF แบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) ที่มีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y และ z ครบ
-            เรียงเหล็กชนิดเดียวกันไว้ด้วยกัน ตามด้วยความยาวจากมากไปน้อย ให้ตรวจก่อนกดนำเข้า
+            หรือวางข้อความที่ก๊อปจากตารางในแบบ / Excel / CSV เช่น <code>1 16 ST 75 x 75 x 2.3 1742</code> หรือ{" "}
+            <code>ประเภท, x, y, z, จำนวน, t</code> เช่น <code>BOX,50,25,1200,4,2.3</code>
           </p>
-          <input type="file" accept="application/pdf,.pdf" onChange={(e) => readPdf(e.target.files?.[0])} disabled={busy} className="text-xs" />
-        </div>
-        <div>
-          <p className="mb-1 text-xs text-gray-500">
-            หรือ CSV / วางจาก Excel: <code>ประเภท, x, y, z, จำนวน, t(ไม่บังคับ)</code> เช่น <code>BOX,50,25,1200,4,2.3</code>
-          </p>
-          <input type="file" accept=".csv,.txt,.tsv" onChange={(e) => loadFile(e.target.files?.[0])} className="text-xs" />
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={3}
-            className={`${inputClass} mt-1 font-mono`}
-            placeholder="BOX,50,25,1200,4,2.3"
+            className={`${inputClass} font-mono`}
+            placeholder={"1 16 ST 75 x 75 x 2.3 1742\nBOX,50,25,1200,4,2.3"}
           />
-          <button type="button" onClick={readText} disabled={busy || !text.trim()} className={`${buttonClass} mt-1`}>
+          <button type="button" onClick={() => readText(text)} disabled={busy || !text.trim()} className={`${buttonClass} mt-1`}>
             อ่านข้อมูล
           </button>
         </div>
