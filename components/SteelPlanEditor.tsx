@@ -444,19 +444,49 @@ const SIZE_STEPS = [
   { label: "ใหญ่มาก", scale: 1.6 },
 ] as const;
 
+// Space between the items (รายการ), so nothing is squeezed together when printed.
+const ROW_GAPS = [
+  { label: "แน่น", px: 14 },
+  { label: "ปกติ", px: 28 },
+  { label: "กว้าง", px: 48 },
+  { label: "กว้างมาก", px: 72 },
+] as const;
+
+/** Neighbouring cuts of the same length become one chip: 125.5 x 8. */
+function cutRuns(cuts: number[]): { length: number; count: number }[] {
+  const runs: { length: number; count: number }[] = [];
+  for (const c of cuts) {
+    const last = runs[runs.length - 1];
+    if (last && last.length === c) last.count += 1;
+    else runs.push({ length: c, count: 1 });
+  }
+  return runs;
+}
+
 function CutResults({
   planName,
   result,
   kerf,
   standard,
+  kerfText,
+  onKerfText,
+  onKerfCommit,
+  canEdit,
 }: {
   planName: string;
   result: CuttingPlan;
   kerf: number;
   standard: number;
+  /** The saw-blade kerf as typed - it can be changed right here. */
+  kerfText: string;
+  onKerfText: (v: string) => void;
+  onKerfCommit: () => void;
+  canEdit: boolean;
 }) {
   const [sizeIndex, setSizeIndex] = useState(1);
+  const [gapIndex, setGapIndex] = useState(2);
   const scale = SIZE_STEPS[sizeIndex].scale;
+  const rowGap = ROW_GAPS[gapIndex].px;
   const barHeight = Math.round(40 * scale);
   const font = Math.round(14 * scale);
   const totalBars = result.profiles.reduce((sum, p) => sum + p.bars.length, 0);
@@ -492,12 +522,32 @@ function CutResults({
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">ผลการวางแผนตัด</h2>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1 text-xs text-gray-500">
+            ระยะตัด (มม.)
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={kerfText}
+              disabled={!canEdit}
+              onChange={(e) => onKerfText(e.target.value)}
+              onBlur={onKerfCommit}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            ระยะห่างระหว่างรายการ
+            <select value={gapIndex} onChange={(e) => setGapIndex(Number(e.target.value))} className="rounded border border-gray-300 px-2 py-1 text-sm">
+              {ROW_GAPS.map((g, i) => (
+                <option key={g.label} value={i}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
             ขนาดแสดงผล
-            <select
-              value={sizeIndex}
-              onChange={(e) => setSizeIndex(Number(e.target.value))}
-              className="rounded border border-gray-300 px-2 py-1 text-sm"
-            >
+            <select value={sizeIndex} onChange={(e) => setSizeIndex(Number(e.target.value))} className="rounded border border-gray-300 px-2 py-1 text-sm">
               {SIZE_STEPS.map((s, i) => (
                 <option key={s.label} value={i}>
                   {s.label}
@@ -527,7 +577,7 @@ function CutResults({
         {result.profiles.length === 0 ? (
           <p className="text-sm text-gray-400">เพิ่มชิ้นงานเพื่อดูแผนตัด</p>
         ) : (
-          <div className="space-y-6">
+          <div className="flex flex-col" style={{ gap: rowGap }}>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-gray-700" style={{ fontSize: font }}>
               <span className="font-semibold">ใช้เหล็กรวม {totalBars} เส้น</span>
               <span className="inline-flex items-center gap-1.5">
@@ -545,11 +595,11 @@ function CutResults({
             {result.profiles.map((p, pi) => {
               const lengths = [...new Set(p.bars.flatMap((b) => b.cuts))].sort((a, b) => b - a);
               return (
-                <div key={p.key}>
+                <div key={p.key} className={pi > 0 ? "border-t-4 border-black" : ""} style={{ paddingTop: pi > 0 ? rowGap / 2 : 0 }}>
                   <h3 className="mb-1 font-bold text-gray-900" style={{ fontSize: font + 2 }}>
                     {p.label}
                   </h3>
-                  <p className="mb-2 text-gray-600" style={{ fontSize: font - 1 }}>
+                  <p className="mb-3 text-gray-600" style={{ fontSize: font - 1 }}>
                     {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {fmt(p.wasteLength)} มม.
                   </p>
                   {p.tooLong.length > 0 && (
@@ -557,45 +607,65 @@ function CutResults({
                       ยาวเกินเหล็ก: {p.tooLong.map(fmt).join(", ")} มม.
                     </p>
                   )}
-                  <ul className="space-y-3">
-                    {p.bars.map((b, i) => {
-                      return (
-                        <li key={i} className="break-inside-avoid">
-                          <div className="mb-1 flex justify-between text-gray-800" style={{ fontSize: font }}>
-                            <span className="font-semibold">
-                              รายการที่ {firstNumber[pi] + i} · {fmt(b.length)} มม.
-                            </span>
-                            <span>เศษ {fmt(b.leftover)} มม.</span>
-                          </div>
-                          <div className="flex w-full overflow-hidden border-2 border-black bg-white" style={{ height: barHeight }}>
-                            {b.cuts.map((c, j) => (
-                              <Fragment key={j}>
-                                {j > 0 && <div className="shrink-0 border-x border-black" style={{ flex: `${kerf} 0 6px`, ...KERF_STYLE }} title={`ระยะตัด ${fmt(kerf)} มม.`} />}
-                                <div
-                                  style={{ flex: `${c} 1 0`, background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length], fontSize: font }}
-                                  className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap border-x border-black font-bold text-black"
-                                  title={`${fmt(c)} มม.`}
-                                >
-                                  {fmt(c)}
-                                </div>
-                              </Fragment>
-                            ))}
-                            {b.leftover > 0 && (
+                  <ul className="flex flex-col" style={{ gap: rowGap }}>
+                    {p.bars.map((b, i) => (
+                      <li key={i} className="break-inside-avoid rounded border-2 border-black bg-white" style={{ padding: Math.round(10 * scale) }}>
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-gray-900" style={{ fontSize: font }}>
+                          <span className="flex items-center gap-2 font-bold">
+                            <span className="rounded bg-black px-2 py-0.5 text-white">รายการที่ {firstNumber[pi] + i}</span>
+                            เหล็กยาว {fmt(b.length)} มม.
+                          </span>
+                          <span>เศษ {fmt(b.leftover)} มม.</span>
+                        </div>
+                        {/* To scale. A piece too short to hold its number is left blank here and shown in the chips below. */}
+                        <div className="flex w-full overflow-hidden border-2 border-black bg-white" style={{ height: barHeight }}>
+                          {b.cuts.map((c, j) => (
+                            <Fragment key={j}>
+                              {j > 0 && <div className="shrink-0 border-x border-black" style={{ flex: `${kerf} 0 6px`, ...KERF_STYLE }} title={`ระยะตัด ${fmt(kerf)} มม.`} />}
                               <div
-                                style={{ flex: `${b.leftover} 1 0`, ...SCRAP_STYLE, fontSize: font - 2 }}
-                                className="flex min-w-0 items-center justify-center overflow-hidden border-l-2 border-dashed border-black whitespace-nowrap text-gray-700"
-                                title={`เศษ ${fmt(b.leftover)} มม.`}
+                                style={{ flex: `${c} 1 0`, background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length], fontSize: font }}
+                                className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap border-x border-black font-bold text-black"
+                                title={`${fmt(c)} มม.`}
                               >
-                                {b.leftover / b.length > 0.06 ? `เศษ ${fmt(b.leftover)}` : ""}
+                                {c / b.length >= 0.07 ? fmt(c) : ""}
                               </div>
-                            )}
-                          </div>
-                          <p className="mt-1 text-gray-800" style={{ fontSize: font }}>
-                            {b.cuts.map(fmt).join(" + ")}
-                          </p>
-                        </li>
-                      );
-                    })}
+                            </Fragment>
+                          ))}
+                          {b.leftover > 0 && (
+                            <div
+                              style={{ flex: `${b.leftover} 1 0`, ...SCRAP_STYLE, fontSize: font - 2 }}
+                              className="flex min-w-0 items-center justify-center overflow-hidden border-l-2 border-dashed border-black whitespace-nowrap text-gray-700"
+                              title={`เศษ ${fmt(b.leftover)} มม.`}
+                            >
+                              {b.leftover / b.length > 0.1 ? `เศษ ${fmt(b.leftover)}` : ""}
+                            </div>
+                          )}
+                        </div>
+                        {/* Every cut written out large, wrapping onto new lines - short pieces are as easy to read as long ones. */}
+                        <div className="mt-3 flex flex-wrap items-center gap-y-2" style={{ fontSize: font + 1 }}>
+                          {cutRuns(b.cuts).map((r, k) => (
+                            <Fragment key={k}>
+                              {k > 0 && <span className="mx-1 inline-block h-5 w-2 shrink-0 border-x border-black" style={KERF_STYLE} aria-hidden />}
+                              <span
+                                className="whitespace-nowrap rounded border-2 border-black px-2 py-0.5 font-bold text-black"
+                                style={{ background: PIECE_COLORS[lengths.indexOf(r.length) % PIECE_COLORS.length] }}
+                              >
+                                {fmt(r.length)}
+                                {r.count > 1 && <span className="ml-1">× {r.count}</span>}
+                              </span>
+                            </Fragment>
+                          ))}
+                          {b.leftover > 0 && (
+                            <>
+                              <span className="mx-1 inline-block h-5 w-2 shrink-0 border-x border-black" style={KERF_STYLE} aria-hidden />
+                              <span className="whitespace-nowrap rounded border-2 border-dashed border-black px-2 py-0.5 text-gray-700" style={SCRAP_STYLE}>
+                                เศษ {fmt(b.leftover)}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               );
@@ -813,7 +883,16 @@ export default function SteelPlanEditor({
 
       {children}
 
-      <CutResults planName={plan.name} result={result} kerf={kerfValue} standard={standard} />
+      <CutResults
+        planName={plan.name}
+        result={result}
+        kerf={kerfValue}
+        standard={standard}
+        kerfText={kerf}
+        onKerfText={setKerf}
+        onKerfCommit={() => canEdit && saveCutSettings({ kerf: kerfValue, newBarLength: standard })}
+        canEdit={canEdit}
+      />
     </div>
     </PrintLayoutProvider>
   );
