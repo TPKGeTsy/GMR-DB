@@ -17,6 +17,7 @@ import {
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
   comparePieces,
+  mergeParts,
   parseBomLines,
   parsePartsCsv,
   planCuts,
@@ -164,44 +165,50 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const readPdf = async (file: File | undefined) => {
-    if (!file) return;
+  // Text copied from a drawing's table (ITEM QTY DESCRIPTION LENGTH) or CSV rows.
+  const parseText = (source: string): { parts: SteelPartInput[]; skipped: SkippedRow[] } => {
+    const bom = parseBomLines(source.split(/\r?\n/));
+    if (bom.parts.length > 0) return bom;
+    const { parts, errors } = parsePartsCsv(source);
+    return { parts, skipped: errors.map((e) => ({ line: e, reason: "" })) };
+  };
+
+  const readText = (source: string) => {
+    setMessage(null);
+    setPreview(parseText(source));
+  };
+
+  // Several files at once: every PDF is read on the server, any other file as
+  // text/CSV, and everything lands in one preview (same steel + length adds up).
+  const handleFiles = async (files: FileList | File[] | null | undefined) => {
+    const list = Array.from(files ?? []);
+    if (list.length === 0) return;
     setBusy(true);
     setMessage(null);
     setPreview(null);
-    const form = new FormData();
-    form.set("file", file);
-    const result = await parseSteelPdf(form);
+    const parts: SteelPartInput[] = [];
+    const skipped: SkippedRow[] = [];
+    const problems: string[] = [];
+    for (const file of list) {
+      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        const form = new FormData();
+        form.set("file", file);
+        const result = await parseSteelPdf(form);
+        if (!result.success) {
+          problems.push(`${file.name}: ${result.error}`);
+          continue;
+        }
+        parts.push(...result.parts);
+        skipped.push(...result.skipped);
+      } else {
+        const read = parseText(await file.text());
+        parts.push(...read.parts);
+        skipped.push(...read.skipped);
+      }
+    }
     setBusy(false);
-    if (!result.success) {
-      setMessage(result.error);
-      return;
-    }
-    setPreview({ parts: result.parts, skipped: result.skipped });
-  };
-
-  // Text copied from a drawing's table (ITEM QTY DESCRIPTION LENGTH) or CSV rows.
-  const readText = (source: string) => {
-    setMessage(null);
-    const bom = parseBomLines(source.split(/\r?\n/));
-    if (bom.parts.length > 0) {
-      setPreview({ parts: bom.parts, skipped: bom.skipped });
-      return;
-    }
-    const { parts, errors } = parsePartsCsv(source);
-    setPreview({ parts, skipped: errors.map((e) => ({ line: e, reason: "" })) });
-  };
-
-  // A PDF is read on the server; any other file is treated as text/CSV.
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      await readPdf(file);
-      return;
-    }
-    const content = await file.text();
-    setText(content);
-    readText(content);
+    if (problems.length > 0) setMessage(problems.join(" · "));
+    if (parts.length > 0 || skipped.length > 0) setPreview({ parts: mergeParts(parts), skipped });
   };
 
   const [dragging, setDragging] = useState(false);
@@ -237,23 +244,24 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            handleFile(e.dataTransfer.files?.[0]);
+            handleFiles(e.dataTransfer.files);
           }}
           className={`flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-3 py-5 text-center text-xs ${
             dragging ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-300 bg-white text-gray-500"
           }`}
         >
-          <span className="font-medium text-gray-700">ลากไฟล์ PDF / CSV มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</span>
+          <span className="font-medium text-gray-700">ลากไฟล์ PDF / CSV มาวางที่นี่ (หลายไฟล์พร้อมกันได้) หรือคลิกเพื่อเลือกไฟล์</span>
           <span className="mt-1">
             PDF ต้องเป็นแบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) และมีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y, z
             และ QTY ครบ เรียงเหล็กชนิดเดียวกันไว้ด้วยกัน ตามด้วยความยาวจากมากไปน้อย
           </span>
           <input
             type="file"
+            multiple
             accept="application/pdf,.pdf,.csv,.txt,.tsv"
             disabled={busy}
             onChange={(e) => {
-              handleFile(e.target.files?.[0]);
+              handleFiles(e.target.files);
               e.target.value = "";
             }}
             className="sr-only"

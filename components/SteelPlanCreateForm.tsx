@@ -18,6 +18,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   const createEmpty = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,47 +33,56 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     router.push(`/steel-cutting/${result.id}`);
   };
 
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    let parts: SteelPartInput[] = [];
-    let skipped = 0;
+  /** Reads one file into pieces to cut; null + message when it cannot be used. */
+  const readFile = async (file: File): Promise<{ parts: SteelPartInput[]; skipped: number } | string> => {
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       const form = new FormData();
       form.set("file", file);
       const read = await parseSteelPdf(form);
-      if (!read.success) {
-        setError(read.error);
-        setBusy(false);
-        return;
-      }
-      parts = read.parts;
-      skipped = read.skipped.length;
-    } else {
-      const text = await file.text();
-      const bom = parseBomLines(text.split(/\r?\n/));
-      if (bom.parts.length > 0) {
-        parts = bom.parts;
-        skipped = bom.skipped.length;
-      } else {
-        const csv = parsePartsCsv(text);
-        parts = csv.parts;
-        skipped = csv.errors.length;
-      }
+      return read.success ? { parts: read.parts, skipped: read.skipped.length } : read.error;
     }
-    if (parts.length === 0) {
-      setError("ไม่พบรายการที่ใช้ได้ในไฟล์ (ต้องมี x, y, z และ QTY)");
-      setBusy(false);
+    const text = await file.text();
+    const bom = parseBomLines(text.split(/\r?\n/));
+    if (bom.parts.length > 0) return { parts: bom.parts, skipped: bom.skipped.length };
+    const csv = parsePartsCsv(text);
+    return { parts: csv.parts, skipped: csv.errors.length };
+  };
+
+  // Each dropped file becomes its own plan (one drawing = one plan).
+  const handleFiles = async (files: FileList | null | undefined) => {
+    const list = Array.from(files ?? []);
+    if (list.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    const created: { id: string; skipped: number }[] = [];
+    const problems: string[] = [];
+    for (const file of list) {
+      const read = await readFile(file);
+      if (typeof read === "string") {
+        problems.push(`${file.name}: ${read}`);
+        continue;
+      }
+      if (read.parts.length === 0) {
+        problems.push(`${file.name}: ไม่พบรายการที่ใช้ได้ (ต้องมี x, y, z และ QTY)`);
+        continue;
+      }
+      // A typed name only makes sense for a single file.
+      const result = await createSteelPlanWithParts(list.length === 1 ? name : "", projectId || null, read.parts);
+      if (!result.success) {
+        problems.push(`${file.name}: ${result.error}`);
+        continue;
+      }
+      created.push({ id: result.id, skipped: read.skipped });
+    }
+    if (problems.length > 0) setError(problems.join("\n"));
+    if (created.length === 1 && problems.length === 0) {
+      router.push(`/steel-cutting/${created[0].id}${created[0].skipped > 0 ? `?skipped=${created[0].skipped}` : ""}`);
       return;
     }
-    const result = await createSteelPlanWithParts(name, projectId || null, parts);
-    if (!result.success) {
-      setError(result.error);
-      setBusy(false);
-      return;
-    }
-    router.push(`/steel-cutting/${result.id}${skipped > 0 ? `?skipped=${skipped}` : ""}`);
+    if (created.length > 0) setNote(`สร้าง ${created.length} แผนแล้ว (ดูในรายการด้านล่าง)`);
+    setBusy(false);
+    router.refresh();
   };
 
   return (
@@ -86,22 +96,23 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          handleFile(e.dataTransfer.files?.[0]);
+          handleFiles(e.dataTransfer.files);
         }}
         className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center ${
           dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
         } ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
         <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-        <span className="text-base font-semibold text-gray-800">{busy ? "กำลังอ่านไฟล์…" : "ลากไฟล์ PDF / CSV มาวางตรงนี้"}</span>
-        <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · ไม่ต้องตั้งชื่อ ระบบสร้างแผนให้ทันที</span>
+        <span className="text-base font-semibold text-gray-800">{busy ? "กำลังอ่านไฟล์…" : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}</span>
+        <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · 1 ไฟล์ = 1 แผน ไม่ต้องตั้งชื่อ ระบบสร้างให้ทันที</span>
         <input
           type="file"
+          multiple
           accept="application/pdf,.pdf,.csv,.txt,.tsv"
           className="sr-only"
           disabled={busy}
           onChange={(e) => {
-            handleFile(e.target.files?.[0]);
+            handleFiles(e.target.files);
             e.target.value = "";
           }}
         />
@@ -132,7 +143,8 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
           สร้างแผนเปล่า
         </button>
       </form>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {note && <p className="text-sm text-green-700">{note}</p>}
+      {error && <p className="whitespace-pre-line text-sm text-red-600">{error}</p>}
     </div>
   );
 }
