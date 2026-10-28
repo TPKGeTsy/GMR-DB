@@ -5,7 +5,8 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { STEEL_TYPES, isSteelType, type SteelPartInput } from "@/lib/steel";
+import { getDocumentProxy } from "unpdf";
+import { STEEL_TYPES, isSteelType, parseBomLines, type SkippedRow, type SteelPartInput } from "@/lib/steel";
 
 const MAX_MM = 100000;
 const MAX_QTY = 10000;
@@ -14,6 +15,7 @@ const profileShape = {
   steelType: z.string().refine(isSteelType, "ประเภทเหล็กไม่ถูกต้อง"),
   sectionX: z.number().positive("x ต้องมากกว่า 0").max(MAX_MM),
   sectionY: z.number().positive("y ต้องมากกว่า 0").max(MAX_MM).nullable(),
+  thickness: z.number().positive("ความหนาต้องมากกว่า 0").max(MAX_MM).nullable().optional(),
 };
 
 const partSchema = z.object({
@@ -132,7 +134,13 @@ export async function addSteelParts(planId: string, parts: SteelPartInput[]) {
       const bad = checkSection(parsed.data.steelType, parsed.data.sectionY);
       if (bad) return { success: false, error: bad };
       const needsY = STEEL_TYPES[parsed.data.steelType as keyof typeof STEEL_TYPES].needsY;
-      rows.push({ planId, ...parsed.data, sectionY: needsY ? parsed.data.sectionY : null, note: parsed.data.note || null });
+      rows.push({
+        planId,
+        ...parsed.data,
+        sectionY: needsY ? parsed.data.sectionY : null,
+        thickness: parsed.data.thickness ?? null,
+        note: parsed.data.note || null,
+      });
     }
     await prisma.steelPlanPart.createMany({ data: rows });
     revalidatePlan(planId);
@@ -160,7 +168,7 @@ export async function deleteSteelPart(partId: string) {
 
 export async function addSteelStock(
   planId: string,
-  stock: { steelType: string; sectionX: number; sectionY: number | null; length: number; quantity: number }
+  stock: { steelType: string; sectionX: number; sectionY: number | null; thickness?: number | null; length: number; quantity: number }
 ) {
   try {
     const check = await canEditPlan(planId);
@@ -171,7 +179,7 @@ export async function addSteelStock(
     if (bad) return { success: false, error: bad };
     const needsY = STEEL_TYPES[parsed.data.steelType as keyof typeof STEEL_TYPES].needsY;
     await prisma.steelPlanStock.create({
-      data: { planId, ...parsed.data, sectionY: needsY ? parsed.data.sectionY : null },
+      data: { planId, ...parsed.data, sectionY: needsY ? parsed.data.sectionY : null, thickness: parsed.data.thickness ?? null },
     });
     revalidatePlan(planId);
     return { success: true };
@@ -193,5 +201,59 @@ export async function deleteSteelStock(stockId: string) {
   } catch (error) {
     logError("Error deleting steel stock:", error);
     return { success: false, error: "ลบรายการไม่สำเร็จ" };
+  }
+}
+
+const MAX_PDF_BYTES = 5 * 1024 * 1024;
+
+/** Reads the bill-of-materials table of a drawing PDF (text PDFs only - a
+ *  scanned image has no text to read). Nothing is saved: the caller shows the
+ *  result for checking and then calls addSteelParts. */
+export async function parseSteelPdf(
+  formData: FormData
+): Promise<{ success: true; parts: SteelPartInput[]; skipped: SkippedRow[] } | Fail> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    const file = formData.get("file");
+    if (!(file instanceof File)) return { success: false, error: "ไม่พบไฟล์" };
+    if (file.size > MAX_PDF_BYTES) return { success: false, error: "ไฟล์ใหญ่เกิน 5 MB" };
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return { success: false, error: "ไม่ใช่ไฟล์ PDF" };
+
+    const pdf = await getDocumentProxy(bytes);
+    const lines: string[] = [];
+    for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
+      const page = await pdf.getPage(pageNo);
+      const content = await page.getTextContent();
+      // Group the text pieces into table lines by height, then left to right.
+      const rows = new Map<number, { x: number; text: string }[]>();
+      for (const item of content.items) {
+        if (!("str" in item) || !item.str.trim()) continue;
+        const y = Math.round(item.transform[5] / 3);
+        const row = rows.get(y) ?? [];
+        row.push({ x: item.transform[4], text: item.str });
+        rows.set(y, row);
+      }
+      for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+        lines.push(
+          rows
+            .get(y)!
+            .sort((a, b) => a.x - b.x)
+            .map((i) => i.text)
+            .join(" ")
+        );
+      }
+    }
+    if (lines.length === 0) return { success: false, error: "อ่านข้อความจาก PDF ไม่ได้ (อาจเป็นไฟล์ภาพสแกน)" };
+
+    const { parts, skipped } = parseBomLines(lines);
+    if (parts.length === 0 && skipped.length === 0) {
+      return { success: false, error: "ไม่พบตารางรายการวัสดุ (ITEM / QTY / DESCRIPTION / LENGTH) ใน PDF" };
+    }
+    return { success: true, parts, skipped };
+  } catch (error) {
+    logError("Error reading steel PDF:", error);
+    return { success: false, error: "อ่านไฟล์ PDF ไม่สำเร็จ" };
   }
 }

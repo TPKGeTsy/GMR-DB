@@ -18,6 +18,8 @@ export interface SteelProfile {
   steelType: string;
   sectionX: number;
   sectionY: number | null;
+  /** Wall thickness (mm); 50x50x2.3 and 50x50x3.0 tubes are different stock. */
+  thickness?: number | null;
 }
 
 export interface SteelPartInput extends SteelProfile {
@@ -42,12 +44,37 @@ export function steelTypeLabel(type: string): string {
 
 /** "เหล็กกล่อง 50 × 25" - the same profile always gets the same key/label. */
 export function profileKey(p: SteelProfile): string {
-  return `${p.steelType}|${p.sectionX}|${p.sectionY ?? ""}`;
+  return `${p.steelType}|${p.sectionX}|${p.sectionY ?? ""}|${p.thickness ?? ""}`;
 }
 
 export function profileLabel(p: SteelProfile): string {
   const size = p.sectionY != null ? `${p.sectionX} × ${p.sectionY}` : `Ø${p.sectionX}`;
-  return `${steelTypeLabel(p.steelType)} ${size}`;
+  return `${steelTypeLabel(p.steelType)} ${size}${p.thickness != null ? ` หนา ${p.thickness}` : ""}`;
+}
+
+/** Same kind of steel together first (type, then x, y, thickness), and within
+ *  one kind the longest cut first. */
+export function comparePieces(a: SteelProfile & { cutLength: number }, b: SteelProfile & { cutLength: number }): number {
+  const typeDiff = STEEL_TYPE_KEYS.indexOf(a.steelType as SteelType) - STEEL_TYPE_KEYS.indexOf(b.steelType as SteelType);
+  if (typeDiff !== 0) return typeDiff;
+  return (
+    a.sectionX - b.sectionX ||
+    (a.sectionY ?? 0) - (b.sectionY ?? 0) ||
+    (a.thickness ?? 0) - (b.thickness ?? 0) ||
+    b.cutLength - a.cutLength
+  );
+}
+
+/** Adds up rows that are the same steel and the same length (quantity summed). */
+export function mergeParts(parts: SteelPartInput[]): SteelPartInput[] {
+  const merged = new Map<string, SteelPartInput>();
+  for (const part of parts) {
+    const key = `${profileKey(part)}|${part.cutLength}`;
+    const existing = merged.get(key);
+    if (existing) existing.quantity += part.quantity;
+    else merged.set(key, { ...part });
+  }
+  return [...merged.values()].sort(comparePieces);
 }
 
 export interface PlannedBar {
@@ -214,7 +241,7 @@ export function parsePartsCsv(text: string): { parts: SteelPartInput[]; errors: 
     const line = raw.trim();
     if (!line) return;
     const cells = line.split(/[,\t;]/).map((c) => c.trim());
-    const [typeCell, xCell, yCell, zCell, qtyCell] = cells;
+    const [typeCell, xCell, yCell, zCell, qtyCell, tCell] = cells;
     const type = STEEL_TYPE_KEYS.find(
       (k) => k === typeCell.toUpperCase() || STEEL_TYPES[k].label.startsWith(typeCell) || typeCell.startsWith(steelTypeLabel(k))
     );
@@ -235,7 +262,81 @@ export function parsePartsCsv(text: string): { parts: SteelPartInput[]; errors: 
       errors.push(`แถว ${index + 1}: ${STEEL_TYPES[type].label} ต้องมีค่า y`);
       return;
     }
-    parts.push({ steelType: type, sectionX: x, sectionY: STEEL_TYPES[type].needsY ? y : null, cutLength: z, quantity: qty });
+    const t = tCell === undefined || tCell === "" ? null : Number(tCell);
+    if (t !== null && !(t > 0)) {
+      errors.push(`แถว ${index + 1}: ความหนาไม่ถูกต้อง`);
+      return;
+    }
+    parts.push({
+      steelType: type,
+      sectionX: x,
+      sectionY: STEEL_TYPES[type].needsY ? y : null,
+      thickness: t,
+      cutLength: z,
+      quantity: qty,
+    });
   });
-  return { parts, errors };
+  return { parts: mergeParts(parts), errors };
+}
+
+export interface SkippedRow {
+  line: string;
+  reason: string;
+}
+
+const SIZE_RE = /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)(?:\s*[xX×]\s*(\d+(?:\.\d+)?))?/;
+const BOM_ROW_RE = /^(\d+)\s+(\d+)\s*(.*?)\s*(\d+(?:\.\d+)?)?$/;
+
+function bomType(description: string): SteelType | null {
+  if (/\b(ST|RT|SHS|RHS|BOX)\b|TUBE|SQUARE|RECT/i.test(description)) return "BOX";
+  if (/\bFB\b|FLAT/i.test(description)) return "FLAT";
+  if (/ANGLE|^L\s/i.test(description)) return "ANGLE";
+  return null;
+}
+
+/** Reads the bill-of-materials lines of a drawing (SolidWorks/SolidCAM style):
+ *  `ITEM QTY DESCRIPTION LENGTH`, e.g. `1 16 ST 75 x 75 x 2.3 1742` or
+ *  `1 2 TUBE, SQUARE 49.00 X 49.00 X 2.30 1710`. In the description the
+ *  numbers are x, y and the wall thickness; the length is the last column.
+ *  Rows without x, y and z (e.g. `4 1 Sheet`) are skipped and reported; lines
+ *  that are not table rows at all (title block, frame letters) are ignored. */
+export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipped: SkippedRow[] } {
+  const parts: SteelPartInput[] = [];
+  const skipped: SkippedRow[] = [];
+  for (const raw of lines) {
+    // The drawing frame puts single row letters (A-F) at the line edges.
+    const line = raw.trim().replace(/^[A-F]\s+(?=\d)/, "").replace(/\s+[A-F]$/, "").trim();
+    const match = BOM_ROW_RE.exec(line);
+    if (!match) continue;
+    const [, , qtyText, description, lengthText] = match;
+    const quantity = Number(qtyText);
+    if (!(quantity >= 1)) continue;
+    // The axis header ("8 7 6 5 4 3 2 1") has numbers only.
+    if (description && !/[A-Za-z]/.test(description)) continue;
+    // Frame/axis rows such as "8 8" or "7 7" carry no description and no length.
+    if (!description && !lengthText) {
+      if (Number(match[1]) > 8 || quantity !== Number(match[1])) skipped.push({ line, reason: "ไม่มีรายละเอียดและความยาว" });
+      continue;
+    }
+    const type = bomType(description);
+    const size = SIZE_RE.exec(description);
+    const length = lengthText === undefined ? NaN : Number(lengthText);
+    if (!type) {
+      skipped.push({ line, reason: "ไม่ใช่เหล็กที่รู้จัก (ไม่มี x, y, z)" });
+      continue;
+    }
+    if (!size || !(length > 0)) {
+      skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
+      continue;
+    }
+    const x = Number(size[1]);
+    const y = Number(size[2]);
+    const t = size[3] === undefined ? null : Number(size[3]);
+    if (!(x > 0) || !(y > 0)) {
+      skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
+      continue;
+    }
+    parts.push({ steelType: type, sectionX: x, sectionY: y, thickness: t, cutLength: length, quantity });
+  }
+  return { parts: mergeParts(parts), skipped };
 }

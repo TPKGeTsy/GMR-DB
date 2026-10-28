@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import {
+  parseSteelPdf,
   addSteelParts,
   addSteelStock,
   deleteSteelPart,
@@ -14,9 +15,12 @@ import {
 import {
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
+  comparePieces,
   parsePartsCsv,
   planCuts,
   profileLabel,
+  type SkippedRow,
+  type SteelPartInput,
   type SteelType,
 } from "@/lib/steel";
 
@@ -25,6 +29,7 @@ export interface EditorPart {
   steelType: string;
   sectionX: number;
   sectionY: number | null;
+  thickness: number | null;
   cutLength: number;
   quantity: number;
 }
@@ -33,6 +38,7 @@ export interface EditorStock {
   steelType: string;
   sectionX: number;
   sectionY: number | null;
+  thickness: number | null;
   length: number;
   quantity: number;
 }
@@ -49,16 +55,20 @@ function ProfileFields({
   type,
   x,
   y,
+  t,
   onType,
   onX,
   onY,
+  onT,
 }: {
   type: SteelType;
   x: string;
   y: string;
+  t: string;
   onType: (t: SteelType) => void;
   onX: (v: string) => void;
   onY: (v: string) => void;
+  onT: (v: string) => void;
 }) {
   const needsY = STEEL_TYPES[type].needsY;
   return (
@@ -89,6 +99,10 @@ function ProfileFields({
           className={`${inputClass} disabled:bg-gray-100`}
         />
       </label>
+      <label className="block text-xs text-gray-500">
+        t ความหนา (มม.)
+        <input type="number" min={0} step="any" value={t} onChange={(e) => onT(e.target.value)} className={inputClass} />
+      </label>
     </>
   );
 }
@@ -97,6 +111,7 @@ function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
   const [type, setType] = useState<SteelType>("BOX");
   const [x, setX] = useState("");
   const [y, setY] = useState("");
+  const [t, setT] = useState("");
   const [z, setZ] = useState("");
   const [qty, setQty] = useState("1");
   const [busy, setBusy] = useState(false);
@@ -111,6 +126,7 @@ function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
         steelType: type,
         sectionX: Number(x),
         sectionY: STEEL_TYPES[type].needsY ? Number(y) : null,
+        thickness: t.trim() ? Number(t) : null,
         cutLength: Number(z),
         quantity: Number(qty),
       },
@@ -126,8 +142,8 @@ function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <ProfileFields type={type} x={x} y={y} onType={setType} onX={setX} onY={setY} />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+        <ProfileFields type={type} x={x} y={y} t={t} onType={setType} onX={setX} onY={setY} onT={setT} />
         <label className="block text-xs text-gray-500">
           z ความยาวตัด (มม.)
           <input type="number" min={0} step="any" value={z} onChange={(e) => setZ(e.target.value)} className={inputClass} />
@@ -152,6 +168,7 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
   const [type, setType] = useState<SteelType>("BOX");
   const [x, setX] = useState("");
   const [y, setY] = useState("");
+  const [t, setT] = useState("");
   const [len, setLen] = useState("6000");
   const [qty, setQty] = useState("1");
   const [busy, setBusy] = useState(false);
@@ -165,6 +182,7 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
       steelType: type,
       sectionX: Number(x),
       sectionY: STEEL_TYPES[type].needsY ? Number(y) : null,
+      thickness: t.trim() ? Number(t) : null,
       length: Number(len),
       quantity: Number(qty),
     });
@@ -178,8 +196,8 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <ProfileFields type={type} x={x} y={y} onType={setType} onX={setX} onY={setY} />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+        <ProfileFields type={type} x={x} y={y} t={t} onType={setType} onX={setX} onY={setY} onT={setT} />
         <label className="block text-xs text-gray-500">
           ความยาวเหล็กที่มี (มม.)
           <input type="number" min={0} step="any" value={len} onChange={(e) => setLen(e.target.value)} className={inputClass} />
@@ -200,29 +218,49 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
   );
 }
 
-function CsvImport({ planId, onDone }: { planId: string; onDone: () => void }) {
+function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void }) {
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<string[]>([]);
+  const [preview, setPreview] = useState<{ parts: SteelPartInput[]; skipped: SkippedRow[] } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const readPdf = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    setPreview(null);
+    const form = new FormData();
+    form.set("file", file);
+    const result = await parseSteelPdf(form);
+    setBusy(false);
+    if (!result.success) {
+      setMessage(result.error);
+      return;
+    }
+    setPreview({ parts: result.parts, skipped: result.skipped });
+  };
+
+  const readText = () => {
+    const { parts, errors } = parsePartsCsv(text);
+    setMessage(null);
+    setPreview({ parts, skipped: errors.map((e) => ({ line: e, reason: "" })) });
+  };
 
   const loadFile = async (file: File | undefined) => {
     if (file) setText(await file.text());
   };
 
-  const importRows = async () => {
-    const { parts, errors } = parsePartsCsv(text);
-    if (parts.length === 0) {
-      setMessages(errors.length > 0 ? errors : ["ไม่พบรายการที่อ่านได้"]);
-      return;
-    }
+  const confirmImport = async () => {
+    if (!preview || preview.parts.length === 0) return;
     setBusy(true);
-    const result = await addSteelParts(planId, parts);
+    const result = await addSteelParts(planId, preview.parts);
     setBusy(false);
     if (!result.success) {
-      setMessages([result.error ?? "นำเข้าไม่สำเร็จ"]);
+      setMessage(result.error ?? "นำเข้าไม่สำเร็จ");
       return;
     }
-    setMessages([`นำเข้า ${parts.length} รายการแล้ว${errors.length > 0 ? ` (ข้าม ${errors.length} แถว)` : ""}`, ...errors]);
+    setMessage(`นำเข้า ${preview.parts.length} รายการแล้ว`);
+    setPreview(null);
     setText("");
     onDone();
   };
@@ -231,30 +269,80 @@ function CsvImport({ planId, onDone }: { planId: string; onDone: () => void }) {
     <details className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
       <summary className="cursor-pointer font-medium text-gray-700">
         <Upload className="mr-1 inline h-4 w-4" />
-        นำเข้ารายการชิ้นงานจาก CSV / วางจาก Excel
+        นำเข้ารายการชิ้นงานจาก PDF (ตาราง BOM) / CSV
       </summary>
-      <div className="mt-2 space-y-2">
-        <p className="text-xs text-gray-500">
-          1 แถวต่อ 1 รายการ คอลัมน์: <code>ประเภท, x, y, z, จำนวน</code> (คั่นด้วย , ; หรือ Tab) เช่น{" "}
-          <code>BOX,50,25,1200,4</code> หรือ <code>เหล็กแบน,50,6,800,2</code> ประเภทเป็นรหัส (BOX FLAT ANGLE ROUND PIPE) หรือชื่อไทยก็ได้
-        </p>
-        <input type="file" accept=".csv,.txt,.tsv" onChange={(e) => loadFile(e.target.files?.[0])} className="text-xs" />
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={4}
-          className={`${inputClass} font-mono`}
-          placeholder="BOX,50,25,1200,4"
-        />
-        <button type="button" onClick={importRows} disabled={busy || !text.trim()} className={buttonClass}>
-          นำเข้า
-        </button>
-        {messages.length > 0 && (
-          <ul className="text-xs text-gray-600">
-            {messages.map((m, i) => (
-              <li key={i}>{m}</li>
-            ))}
-          </ul>
+      <div className="mt-2 space-y-3">
+        <div>
+          <p className="mb-1 text-xs text-gray-500">
+            PDF แบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) ที่มีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y และ z ครบ
+            เรียงเหล็กชนิดเดียวกันไว้ด้วยกัน ตามด้วยความยาวจากมากไปน้อย ให้ตรวจก่อนกดนำเข้า
+          </p>
+          <input type="file" accept="application/pdf,.pdf" onChange={(e) => readPdf(e.target.files?.[0])} disabled={busy} className="text-xs" />
+        </div>
+        <div>
+          <p className="mb-1 text-xs text-gray-500">
+            หรือ CSV / วางจาก Excel: <code>ประเภท, x, y, z, จำนวน, t(ไม่บังคับ)</code> เช่น <code>BOX,50,25,1200,4,2.3</code>
+          </p>
+          <input type="file" accept=".csv,.txt,.tsv" onChange={(e) => loadFile(e.target.files?.[0])} className="text-xs" />
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            className={`${inputClass} mt-1 font-mono`}
+            placeholder="BOX,50,25,1200,4,2.3"
+          />
+          <button type="button" onClick={readText} disabled={busy || !text.trim()} className={`${buttonClass} mt-1`}>
+            อ่านข้อมูล
+          </button>
+        </div>
+
+        {message && <p className="text-xs text-gray-600">{message}</p>}
+
+        {preview && (
+          <div className="space-y-2 rounded border border-gray-200 bg-white p-2">
+            <p className="text-xs font-semibold text-gray-700">พบ {preview.parts.length} รายการที่ใช้ได้</p>
+            {preview.parts.length > 0 && (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500">
+                    <th className="py-0.5 font-medium">ประเภท / หน้าตัด</th>
+                    <th className="py-0.5 text-right font-medium">z ยาว (มม.)</th>
+                    <th className="py-0.5 text-right font-medium">QTY (จำนวน)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.parts.map((p, i) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="py-0.5">{profileLabel(p)}</td>
+                      <td className="py-0.5 text-right">{fmt(p.cutLength)}</td>
+                      <td className="py-0.5 text-right">{p.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {preview.skipped.length > 0 && (
+              <div className="text-xs text-amber-700">
+                <p className="font-semibold">ข้าม {preview.skipped.length} แถว (ข้อมูลไม่ครบ)</p>
+                <ul>
+                  {preview.skipped.map((k, i) => (
+                    <li key={i}>
+                      {k.line}
+                      {k.reason && ` — ${k.reason}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button type="button" onClick={confirmImport} disabled={busy || preview.parts.length === 0} className={buttonClass}>
+                นำเข้า {preview.parts.length} รายการ
+              </button>
+              <button type="button" onClick={() => setPreview(null)} className="text-xs text-gray-500 hover:text-gray-700">
+                ยกเลิก
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </details>
@@ -276,6 +364,11 @@ export default function SteelPlanEditor({
 }) {
   const router = useRouter();
   const refresh = () => router.refresh();
+  const sortedParts = useMemo(() => [...parts].sort(comparePieces), [parts]);
+  const sortedStock = useMemo(
+    () => [...stock].sort((a, b) => comparePieces({ ...a, cutLength: a.length }, { ...b, cutLength: b.length })),
+    [stock]
+  );
   const [name, setName] = useState(plan.name);
   const [kerf, setKerf] = useState(String(plan.kerf));
   const [newBar, setNewBar] = useState(String(plan.newBarLength));
@@ -378,12 +471,12 @@ export default function SteelPlanEditor({
               <tr className="text-left text-xs text-gray-500">
                 <th className="py-1 font-medium">ประเภท / หน้าตัด</th>
                 <th className="py-1 text-right font-medium">z ยาว (มม.)</th>
-                <th className="py-1 text-right font-medium">จำนวน</th>
+                <th className="py-1 text-right font-medium">QTY (จำนวน)</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {parts.map((p) => (
+              {sortedParts.map((p) => (
                 <tr key={p.id} className="border-t border-gray-100">
                   <td className="py-1">{profileLabel(p)}</td>
                   <td className="py-1 text-right">{fmt(p.cutLength)}</td>
@@ -411,7 +504,7 @@ export default function SteelPlanEditor({
         {canEdit && (
           <div className="space-y-3">
             <PartForm planId={plan.id} onDone={refresh} />
-            <CsvImport planId={plan.id} onDone={refresh} />
+            <ImportPanel planId={plan.id} onDone={refresh} />
           </div>
         )}
       </section>
@@ -429,7 +522,7 @@ export default function SteelPlanEditor({
               </tr>
             </thead>
             <tbody>
-              {stock.map((s) => (
+              {sortedStock.map((s) => (
                 <tr key={s.id} className="border-t border-gray-100">
                   <td className="py-1">{profileLabel(s)}</td>
                   <td className="py-1 text-right">{fmt(s.length)}</td>

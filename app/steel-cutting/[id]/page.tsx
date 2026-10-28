@@ -50,6 +50,7 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
           steelType: p.steelType,
           sectionX: p.sectionX,
           sectionY: p.sectionY,
+          thickness: p.thickness,
           cutLength: p.cutLength,
           quantity: p.quantity,
         }))}
@@ -58,6 +59,7 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
           steelType: s.steelType,
           sectionX: s.sectionX,
           sectionY: s.sectionY,
+          thickness: s.thickness,
           length: s.length,
           quantity: s.quantity,
         }))}

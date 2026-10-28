@@ -806,6 +806,7 @@ model SteelPlanPart {
   steelType String    @map("steel_type") // BOX | FLAT | ANGLE | ROUND | PIPE
   sectionX  Float     @map("section_x") // mm
   sectionY  Float?    @map("section_y") // mm, null for round
+  thickness Float? // mm, wall thickness (e.g. 2.3 on a 50x50x2.3 tube)
   cutLength Float     @map("cut_length") // mm (z)
   quantity  Int
   note      String?
@@ -821,6 +822,7 @@ model SteelPlanStock {
   steelType String    @map("steel_type")
   sectionX  Float     @map("section_x")
   sectionY  Float?    @map("section_y")
+  thickness Float?
   length    Float // mm
   quantity  Int
   createdAt DateTime  @default(now()) @map("created_at")

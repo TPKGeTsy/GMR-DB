@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePartsCsv, planCuts, profileLabel } from "./steel";
+import { parseBomLines, parsePartsCsv, planCuts, profileLabel } from "./steel";
 
 const box = { steelType: "BOX", sectionX: 50, sectionY: 25 };
 const opts = { kerf: 0, newBarLength: 6000 };
@@ -80,5 +80,62 @@ describe("parsePartsCsv", () => {
     expect(parts[0]).toMatchObject({ steelType: "BOX", sectionX: 50, sectionY: 25, cutLength: 1200, quantity: 4 });
     expect(parts[1].steelType).toBe("FLAT");
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe("parseBomLines (drawing bill of materials)", () => {
+  const rb = [
+    "8 7 6 5 4 3 2 1",
+    "ITEM NO. QTY. DESCRIPTION LENGTH",
+    "1 16 ST 75 x 75 x 2.3 1742",
+    "F F",
+    "2 2 RT 75 x 38 x 2.3 5121",
+    "3 2 RT 75 x 38 x 2.3 3571",
+    "5 19 ST 50 x 50 x2.3 238",
+    "6 7 ST 50 x 50 x2.3 875",
+    "8 8 ST 50 x 50 x2.3 1742",
+    "E E",
+    "11 6 ST 50 x 50 x2.3 1325",
+    "13 16",
+    "24 1 Sheet",
+    "B B",
+    "8 7 6 5 4 3 2 1",
+  ];
+
+  it("keeps complete steel rows, skips the rest", () => {
+    const { parts, skipped } = parseBomLines(rb);
+    expect(parts).toHaveLength(7);
+    expect(parts[0]).toMatchObject({ steelType: "BOX", sectionX: 50, sectionY: 50, thickness: 2.3, cutLength: 1742, quantity: 8 });
+    expect(skipped.map((s) => s.line)).toEqual(["13 16", "24 1 Sheet"]);
+  });
+
+  it("sorts same steel together, then longest cut first", () => {
+    const { parts } = parseBomLines(rb);
+    expect(parts.map((p) => `${p.sectionX}x${p.sectionY}:${p.cutLength}`)).toEqual([
+      "50x50:1742",
+      "50x50:1325",
+      "50x50:875",
+      "50x50:238",
+      "75x38:5121",
+      "75x38:3571",
+      "75x75:1742",
+    ]);
+  });
+
+  it("reads the long TUBE, SQUARE form and ignores frame letters", () => {
+    const { parts, skipped } = parseBomLines([
+      "1 2 TUBE, SQUARE 49.00 X 49.00 X 2.30 1710",
+      "E 4 1 Sheet E",
+      "5 2",
+      "SCALE:1:20 SHEET 1 OF 1",
+    ]);
+    expect(parts).toEqual([{ steelType: "BOX", sectionX: 49, sectionY: 49, thickness: 2.3, cutLength: 1710, quantity: 2 }]);
+    expect(skipped).toHaveLength(2);
+  });
+
+  it("adds up identical rows", () => {
+    const { parts } = parseBomLines(["1 2 ST 50 x 50 x 2.3 1000", "2 3 ST 50 x 50 x 2.3 1000"]);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].quantity).toBe(5);
   });
 });
