@@ -7,6 +7,7 @@ import SteelPlanEditor from "@/components/SteelPlanEditor";
 import PageHelp from "@/components/PageHelp";
 import SteelHardwarePanel from "@/components/SteelHardwarePanel";
 import SteelSheetPanel, { type SheetPartRow } from "@/components/SteelSheetPanel";
+import SteelNestingPanel from "@/components/SteelNestingPanel";
 
 export const dynamic = "force-dynamic";
 // Reading a picture with the vision model can take a while.
@@ -43,6 +44,8 @@ export default async function SteelPlanPage({
     (plan.createdById === userId ||
       session?.user?.role === "ADMIN" ||
       (!!plan.project && (plan.project.createdById === userId || plan.project.members.some((m) => m.userId === userId))));
+
+  const sheetParts = plan.sheetParts.map((p) => ({ ...p, features: p.features, steps: p.steps, geometry: p.geometry })) as unknown as SheetPartRow[];
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -91,7 +94,8 @@ export default async function SteelPlanPage({
             category: h.category,
           }))}
         />
-        <SteelSheetPanel planId={plan.id} canEdit={canEdit} parts={plan.sheetParts.map((p) => ({ ...p, features: p.features, steps: p.steps, geometry: p.geometry }) as unknown as SheetPartRow)} />
+        <SteelSheetPanel planId={plan.id} canEdit={canEdit} parts={sheetParts} />
+        <SteelNestingPanel parts={sheetParts} defaultGap={plan.kerf} />
       </SteelPlanEditor>
     </div>
   );
