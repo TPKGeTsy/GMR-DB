@@ -19,6 +19,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
 
   const createEmpty = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +58,8 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     setNote(null);
     const created: { id: string; skipped: number }[] = [];
     const problems: string[] = [];
-    for (const file of list) {
+    for (const [index, file] of list.entries()) {
+      setProgress(list.length > 1 ? ` ${index + 1}/${list.length}` : "");
       const read = await readFile(file);
       if (typeof read === "string") {
         problems.push(`${file.name}: ${read}`);
@@ -103,7 +105,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         } ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
         <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-        <span className="text-base font-semibold text-gray-800">{busy ? "กำลังอ่านไฟล์…" : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}</span>
+        <span className="text-base font-semibold text-gray-800">{busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}</span>
         <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · 1 ไฟล์ = 1 แผน ไม่ต้องตั้งชื่อ ระบบสร้างให้ทันที</span>
         <input
           type="file"
