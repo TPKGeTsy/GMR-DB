@@ -33,6 +33,10 @@ export interface SteelPartInput extends SteelProfile {
   quantity: number;
   /** Names of the files this row came from (saved as the row's note). */
   sources?: string[];
+  /** The file this row came from, its QTY in that file, and the rounds counted - kept so the row can be edited later. */
+  sourceFile?: string | null;
+  baseQuantity?: number | null;
+  rounds?: number;
 }
 
 export interface SteelStockInput extends SteelProfile {

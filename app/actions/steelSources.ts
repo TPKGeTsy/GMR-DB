@@ -112,6 +112,29 @@ export async function deleteAllHardware(planId: string) {
   }
 }
 
+/** Fixes a saved row of the parts list (a wrong part number or quantity read from the picture). */
+export async function updateHardwareRow(id: string, data: { partNumber: string; description: string; quantity: number }) {
+  try {
+    const row = await prisma.steelPlanHardware.findUnique({ where: { id }, select: { planId: true } });
+    if (!row) return { success: false, error: "ไม่พบรายการ" };
+    const check = await canEditPlan(row.planId);
+    if (!("ok" in check)) return check;
+    const partNumber = data.partNumber.trim().slice(0, 200);
+    if (!partNumber) return { success: false, error: "ต้องมี part number" };
+    if (!Number.isInteger(data.quantity) || data.quantity < 1 || data.quantity > 1_000_000) return { success: false, error: "QTY ไม่ถูกต้อง" };
+    const candidate: BomRow = { item: null, partNumber, description: data.description.trim().slice(0, 200), qty: data.quantity };
+    await prisma.steelPlanHardware.update({
+      where: { id },
+      data: { partNumber, description: candidate.description, quantity: data.quantity, category: classifyBomRow(candidate) },
+    });
+    revalidatePlan(row.planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error updating hardware row:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
 export async function deleteHardwareRow(id: string) {
   try {
     const row = await prisma.steelPlanHardware.findUnique({ where: { id }, select: { planId: true } });

@@ -32,6 +32,9 @@ const partSchema = z.object({
   cutLength: z.number().positive("ความยาวตัดต้องมากกว่า 0").max(MAX_MM),
   quantity: z.number().int("จำนวนต้องเป็นจำนวนเต็ม").min(1).max(MAX_QTY),
   note: z.string().trim().max(200).optional(),
+  sourceFile: z.string().trim().max(200).nullable().optional(),
+  baseQuantity: z.number().int().min(0).max(MAX_QTY).nullable().optional(),
+  rounds: z.number().int().min(0).max(1000).optional(),
 });
 
 const stockSchema = z.object({
@@ -130,6 +133,9 @@ export async function createSteelPlanWithParts(
         sectionY: needsY ? parsed.data.sectionY : null,
         thickness: parsed.data.thickness ?? null,
         note: noteFor(raw, parsed.data.note),
+        sourceFile: parsed.data.sourceFile || null,
+        baseQuantity: parsed.data.baseQuantity ?? null,
+        rounds: parsed.data.rounds ?? 1,
       });
     }
     const trimmed = name.trim();
@@ -221,6 +227,9 @@ export async function addSteelParts(planId: string, parts: SteelPartInput[]) {
         sectionY: needsY ? parsed.data.sectionY : null,
         thickness: parsed.data.thickness ?? null,
         note: noteFor(raw, parsed.data.note),
+        sourceFile: parsed.data.sourceFile || null,
+        baseQuantity: parsed.data.baseQuantity ?? null,
+        rounds: parsed.data.rounds ?? 1,
       });
     }
     await prisma.steelPlanPart.createMany({ data: rows });
@@ -229,6 +238,75 @@ export async function addSteelParts(planId: string, parts: SteelPartInput[]) {
   } catch (error) {
     logError("Error adding steel parts:", error);
     return { success: false, error: "เพิ่มรายการไม่สำเร็จ" };
+  }
+}
+
+/** The pieces of a row: its QTY x rounds (a row typed by hand has no file QTY, so its own count is the base). */
+function pieces(base: number, rounds: number) {
+  return Math.max(0, Math.min(MAX_QTY, base * rounds));
+}
+
+/** Edits a row after it was added: length, QTY and rounds (0 rounds = leave the row out). */
+export async function updateSteelPart(partId: string, patch: { cutLength?: number; baseQuantity?: number; rounds?: number }) {
+  try {
+    const part = await prisma.steelPlanPart.findUnique({ where: { id: partId } });
+    if (!part) return { success: false, error: "ไม่พบรายการ" };
+    const check = await canEditPlan(part.planId);
+    if (!("ok" in check)) return check;
+
+    const cutLength = patch.cutLength ?? part.cutLength;
+    const base = patch.baseQuantity ?? part.baseQuantity ?? part.quantity;
+    const rounds = patch.rounds ?? part.rounds;
+    if (!(cutLength > 0 && cutLength <= MAX_MM)) return { success: false, error: "ความยาวต้องมากกว่า 0" };
+    if (!Number.isInteger(base) || base < 0 || base > MAX_QTY) return { success: false, error: "QTY ไม่ถูกต้อง" };
+    if (!Number.isInteger(rounds) || rounds < 0 || rounds > 1000) return { success: false, error: "จำนวนรอบไม่ถูกต้อง" };
+
+    await prisma.steelPlanPart.update({
+      where: { id: partId },
+      data: { cutLength, baseQuantity: base, rounds, quantity: pieces(base, rounds) },
+    });
+    revalidatePlan(part.planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error updating steel part:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+/** Sets the rounds of every row that came from one file. */
+export async function setFileRounds(planId: string, sourceFile: string, rounds: number) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (!Number.isInteger(rounds) || rounds < 0 || rounds > 1000) return { success: false, error: "จำนวนรอบไม่ถูกต้อง" };
+    const rows = await prisma.steelPlanPart.findMany({ where: { planId, sourceFile } });
+    await prisma.$transaction(
+      rows.map((r) =>
+        prisma.steelPlanPart.update({
+          where: { id: r.id },
+          data: { rounds, quantity: pieces(r.baseQuantity ?? r.quantity, rounds), baseQuantity: r.baseQuantity ?? r.quantity },
+        })
+      )
+    );
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting file rounds:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+/** Removes every row that came from one file. */
+export async function deleteFileParts(planId: string, sourceFile: string) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanPart.deleteMany({ where: { planId, sourceFile } });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting file rows:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
 

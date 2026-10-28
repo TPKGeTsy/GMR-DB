@@ -4,11 +4,11 @@ import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
+import { ImportedFiles, PartRow } from "./SteelPartRows";
 import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
 import {
   addSteelParts,
-  deleteSteelPart,
   deleteSteelPlan,
   setSteelBarLength,
   updateSteelPlanCutSettings,
@@ -19,7 +19,6 @@ import {
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
   comparePieces,
-  mergeParts,
   parseBomLines,
   parsePartsCsv,
   planCuts,
@@ -40,6 +39,9 @@ export interface EditorPart {
   cutLength: number;
   quantity: number;
   note: string | null;
+  sourceFile: string | null;
+  baseQuantity: number | null;
+  rounds: number;
 }
 const inputClass =
   "w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
@@ -188,7 +190,7 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
     const ready = staged.items.filter((i) => i.status === "ready");
     if (ready.length === 0) return;
     setMessage(null);
-    const parts = mergeParts(ready.flatMap((i) => finalParts(i, staged.state)));
+    const parts = ready.flatMap((i) => finalParts(i, staged.state)).sort(comparePieces);
     const skipped: SkippedRow[] = ready.filter((i) => i.skipped > 0).map((i) => ({ line: `${i.file.name}: ข้าม ${i.skipped} แถว`, reason: "ข้อมูลไม่ครบ" }));
     if (parts.length === 0) {
       setMessage("ไม่มีรายการให้นำเข้า (ตรวจจำนวนรอบรายแถว)");
@@ -741,6 +743,8 @@ export default function SteelPlanEditor({
           <p className="text-xs text-gray-500">ระยะตัดนับทุกรอยตัดในแผนด้านล่าง ความยาวเหล็กเลือกแยกตามชนิดเหล็กได้ในแต่ละกลุ่ม</p>
         </div>
 
+        <ImportedFiles planId={plan.id} parts={parts} canEdit={canEdit} onChanged={refresh} />
+
         <div className="space-y-4">
           {groups.map((g) => (
             <div key={profileKey(g.profile)} className="rounded border border-gray-200">
@@ -748,7 +752,7 @@ export default function SteelPlanEditor({
                 <h3 className="text-sm font-semibold text-gray-900">
                   {profileLabel(g.profile)}
                   <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-800">
-                    รวม {g.parts.reduce((n, p) => n + p.quantity, 0)} ชิ้น
+                    รวม {g.parts.reduce((n, p) => n + p.quantity, 0).toLocaleString("th-TH")} ชิ้น
                   </span>
                 </h3>
                 <BarLengthControl
@@ -764,33 +768,21 @@ export default function SteelPlanEditor({
                 <thead>
                   <tr className="text-left text-xs text-gray-500">
                     <th className="px-3 py-1 text-right font-medium">z ยาว (มม.)</th>
-                    <th className="px-3 py-1 text-right font-medium">QTY (จำนวน)</th>
+                    <th className="px-3 py-1 text-right font-medium">QTY ในไฟล์</th>
+                    <th className="px-3 py-1 text-right font-medium">× รอบ</th>
+                    <th className="px-3 py-1 text-right font-medium">รวม (ชิ้น)</th>
                     <th className="px-3 py-1 text-left font-medium">จากไฟล์</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {g.parts.map((p) => (
-                    <tr key={p.id} className="border-t border-gray-100">
-                      <td className="px-3 py-1 text-right">{fmt(p.cutLength)}</td>
-                      <td className="px-3 py-1 text-right">{p.quantity}</td>
-                      <td className="px-3 py-1 text-left text-xs text-gray-500">{p.note}</td>
-                      <td className="px-3 py-1 text-right">
-                        {canEdit && (
-                          <button
-                            type="button"
-                            title="ลบ"
-                            onClick={async () => {
-                              await deleteSteelPart(p.id);
-                              refresh();
-                            }}
-                            className="text-gray-400 hover:text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                    <PartRow
+                      key={`${p.id}-${p.cutLength}-${p.baseQuantity ?? p.quantity}-${p.rounds}`}
+                      part={p}
+                      canEdit={canEdit}
+                      onChanged={refresh}
+                    />
                   ))}
                 </tbody>
               </table>

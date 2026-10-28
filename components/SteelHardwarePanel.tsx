@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageUp, Trash2 } from "lucide-react";
-import { deleteAllHardware, deleteHardwareRow, readBomImageChunk, saveHardware } from "@/app/actions/steelSources";
+import { deleteAllHardware, deleteHardwareRow, readBomImageChunk, saveHardware, updateHardwareRow } from "@/app/actions/steelSources";
 import { CATEGORY_LABEL, angleFromRow, classifyBomRow, summarizeFasteners, type BomCategory, type BomRow } from "@/lib/bomImage";
 import { usePrintSection } from "./PrintLayout";
 
@@ -25,6 +25,65 @@ const KIND_LABEL = { screw: "สกรู", nut: "น็อต", washer: "แห
 const MAX_WAITS_PER_CHUNK = 4;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A saved row, editable after the upload: part number, description and QTY (saved when the cursor leaves). */
+function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: boolean; onChanged: () => void }) {
+  const [partNumber, setPartNumber] = useState(row.partNumber);
+  const [description, setDescription] = useState(row.description);
+  const [quantity, setQuantity] = useState(String(row.quantity));
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    const qty = Math.round(Number(quantity));
+    if (partNumber === row.partNumber && description === row.description && qty === row.quantity) return;
+    setError(null);
+    const res = await updateHardwareRow(row.id, { partNumber, description, quantity: qty });
+    if (!res.success) setError(res.error ?? "บันทึกไม่สำเร็จ");
+    else onChanged();
+  };
+
+  return (
+    <tr className="border-t border-gray-100">
+      <td className="px-2 py-1 text-gray-400">{row.itemNo ?? ""}</td>
+      <td className="px-1 py-1">
+        <input value={partNumber} disabled={!canEdit} onChange={(e) => setPartNumber(e.target.value)} onBlur={save} className={`${inputClass} print:border-0`} />
+      </td>
+      <td className="px-1 py-1">
+        <input value={description} disabled={!canEdit} onChange={(e) => setDescription(e.target.value)} onBlur={save} className={`${inputClass} print:border-0`} />
+      </td>
+      <td className="w-24 px-1 py-1">
+        <input
+          type="number"
+          min={1}
+          value={quantity}
+          disabled={!canEdit}
+          onChange={(e) => setQuantity(e.target.value)}
+          onBlur={save}
+          className={`${inputClass} text-right font-semibold print:border-0`}
+        />
+      </td>
+      <td className="px-2 py-1 text-gray-500">
+        {CATEGORY_LABEL[row.category as BomCategory] ?? row.category}
+        {error && <span className="ml-1 text-red-600">{error}</span>}
+      </td>
+      <td className="px-2 py-1 text-right print:hidden">
+        {canEdit && (
+          <button
+            type="button"
+            title="ลบแถวนี้"
+            onClick={async () => {
+              await deleteHardwareRow(row.id);
+              onChanged();
+            }}
+            className="text-gray-400 hover:text-red-600"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
 
 /** Picture of a parts list (screws, nuts, washers, angles...) -> checked rows -> saved. */
 export default function SteelHardwarePanel({
@@ -274,28 +333,7 @@ export default function SteelHardwarePanel({
           <table className="w-full text-xs">
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t border-gray-100">
-                  <td className="px-2 py-1 text-gray-400">{r.itemNo ?? ""}</td>
-                  <td className="px-2 py-1">{r.partNumber}</td>
-                  <td className="px-2 py-1 text-gray-500">{r.description}</td>
-                  <td className="px-2 py-1 text-right font-semibold">{r.quantity.toLocaleString("th-TH")}</td>
-                  <td className="px-2 py-1 text-gray-500">{CATEGORY_LABEL[r.category as BomCategory] ?? r.category}</td>
-                  <td className="px-2 py-1 text-right print:hidden">
-                    {canEdit && (
-                      <button
-                        type="button"
-                        title="ลบแถวนี้"
-                        onClick={async () => {
-                          await deleteHardwareRow(r.id);
-                          router.refresh();
-                        }}
-                        className="text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                <SavedRow key={`${r.id}-${r.partNumber}-${r.description}-${r.quantity}`} row={r} canEdit={canEdit} onChanged={() => router.refresh()} />
               ))}
             </tbody>
           </table>

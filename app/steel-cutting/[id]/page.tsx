@@ -71,6 +71,9 @@ export default async function SteelPlanPage({
           cutLength: p.cutLength,
           quantity: p.quantity,
           note: p.note,
+          sourceFile: p.sourceFile,
+          baseQuantity: p.baseQuantity,
+          rounds: p.rounds,
         }))}
         bars={plan.bars.map((b) => ({
           steelType: b.steelType,

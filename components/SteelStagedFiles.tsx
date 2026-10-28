@@ -51,12 +51,12 @@ export function finalParts(item: StagedFile, state: TimesState): SteelPartInput[
   if (!item.partial) {
     const times = timesFor(item, state);
     const label = base + (times > 1 ? ` ×${times}` : "");
-    return item.parts.map((p) => ({ ...p, quantity: p.quantity * times, sources: [label] }));
+    return item.parts.map((p) => ({ ...p, quantity: p.quantity * times, sources: [label], sourceFile: base, baseQuantity: p.quantity, rounds: times }));
   }
   return item.parts
     .map((p, i) => {
       const times = rowTimesFor(item, i);
-      return { ...p, quantity: p.quantity * times, sources: [base + (times > 1 ? ` ×${times}` : "")] };
+      return { ...p, quantity: p.quantity * times, sources: [base + (times > 1 ? ` ×${times}` : "")], sourceFile: base, baseQuantity: p.quantity, rounds: times };
     })
     .filter((p) => p.quantity > 0);
 }

@@ -9,8 +9,8 @@ import {
   DEFAULT_NEW_BAR_LENGTH_MM,
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
+  comparePieces,
   matchesSizeFilter,
-  mergeParts,
   parseSizeFilter,
   type SteelPartInput,
   type SteelType,
@@ -91,12 +91,12 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
           ? [
               {
                 name: perFile.length === 1 ? name : "",
-                parts: mergeParts(perFile.flatMap((f) => f.parts)),
+                parts: perFile.flatMap((f) => f.parts).sort(comparePieces),
                 skipped: perFile.reduce((n, f) => n + f.skipped, 0),
               },
             ]
           : []
-        : perFile.map((f) => ({ name: "", parts: mergeParts(f.parts), skipped: f.skipped }));
+        : perFile.map((f) => ({ name: "", parts: [...f.parts].sort(comparePieces), skipped: f.skipped }));
 
     const created: { id: string; skipped: number }[] = [];
     for (const g of groups) {

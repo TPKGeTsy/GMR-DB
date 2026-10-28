@@ -804,17 +804,21 @@ model SteelPlan {
 }
 
 model SteelPlanPart {
-  id        String    @id @default(cuid())
-  planId    String    @map("plan_id")
-  plan      SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  steelType String    @map("steel_type") // BOX | FLAT | ANGLE | ROUND | PIPE
-  sectionX  Float     @map("section_x") // mm
-  sectionY  Float?    @map("section_y") // mm, null for round
-  thickness Float? // mm, wall thickness (e.g. 2.3 on a 50x50x2.3 tube)
-  cutLength Float     @map("cut_length") // mm (z)
-  quantity  Int
-  note      String?
-  createdAt DateTime  @default(now()) @map("created_at")
+  id           String    @id @default(cuid())
+  planId       String    @map("plan_id")
+  plan         SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  steelType    String    @map("steel_type") // BOX | FLAT | ANGLE | ROUND | PIPE
+  sectionX     Float     @map("section_x") // mm
+  sectionY     Float?    @map("section_y") // mm, null for round
+  thickness    Float? // mm, wall thickness (e.g. 2.3 on a 50x50x2.3 tube)
+  cutLength    Float     @map("cut_length") // mm (z)
+  quantity     Int // pieces to cut = baseQuantity x rounds (0 = left out)
+  note         String?
+  // Where the row came from and how it was counted, so it can be edited after the upload.
+  sourceFile   String?   @map("source_file")
+  baseQuantity Int?      @map("base_quantity") // QTY in the file; null on a row typed in by hand
+  rounds       Int       @default(1) // how many rounds of it to count
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   @@map("steel_plan_parts")
 }
