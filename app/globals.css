@@ -32,3 +32,13 @@ a,
 [role="button"] {
   touch-action: manipulation;
 }
+
+/* Printing / "Save as PDF": leave out the site navigation bar. */
+@media print {
+  body > nav {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
