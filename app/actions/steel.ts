@@ -1,0 +1,197 @@
+"use server";
+
+import prisma from "@/lib/prisma";
+import { logError } from "@/lib/logger";
+import { auth } from "@/auth";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { STEEL_TYPES, isSteelType, type SteelPartInput } from "@/lib/steel";
+
+const MAX_MM = 100000;
+const MAX_QTY = 10000;
+
+const profileShape = {
+  steelType: z.string().refine(isSteelType, "ประเภทเหล็กไม่ถูกต้อง"),
+  sectionX: z.number().positive("x ต้องมากกว่า 0").max(MAX_MM),
+  sectionY: z.number().positive("y ต้องมากกว่า 0").max(MAX_MM).nullable(),
+};
+
+const partSchema = z.object({
+  ...profileShape,
+  cutLength: z.number().positive("ความยาวตัดต้องมากกว่า 0").max(MAX_MM),
+  quantity: z.number().int("จำนวนต้องเป็นจำนวนเต็ม").min(1).max(MAX_QTY),
+  note: z.string().trim().max(200).optional(),
+});
+
+const stockSchema = z.object({
+  ...profileShape,
+  length: z.number().positive("ความยาวเหล็กต้องมากกว่า 0").max(MAX_MM),
+  quantity: z.number().int("จำนวนต้องเป็นจำนวนเต็ม").min(1).max(MAX_QTY),
+});
+
+type Fail = { success: false; error: string };
+
+/** Round bars and pipes have one size (diameter); the others need x and y. */
+function checkSection(steelType: string, sectionY: number | null): string | null {
+  if (!isSteelType(steelType)) return "ประเภทเหล็กไม่ถูกต้อง";
+  if (STEEL_TYPES[steelType].needsY && sectionY === null) return "เหล็กประเภทนี้ต้องใส่ค่า y";
+  return null;
+}
+
+/** The creator, an admin, or a member of the plan's project can change a plan. */
+async function canEditPlan(planId: string): Promise<{ ok: true; userId: string } | Fail> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { success: false, error: "Unauthorized" };
+  const plan = await prisma.steelPlan.findUnique({
+    where: { id: planId },
+    select: { createdById: true, project: { select: { createdById: true, members: { select: { userId: true } } } } },
+  });
+  if (!plan) return { success: false, error: "ไม่พบแผนนี้" };
+  const isOwner = plan.createdById === userId;
+  const isAdmin = session.user.role === "ADMIN";
+  const inProject =
+    !!plan.project && (plan.project.createdById === userId || plan.project.members.some((m) => m.userId === userId));
+  if (!isOwner && !isAdmin && !inProject) return { success: false, error: "ไม่มีสิทธิ์แก้ไขแผนนี้" };
+  return { ok: true, userId };
+}
+
+function revalidatePlan(planId: string) {
+  revalidatePath("/steel-cutting");
+  revalidatePath(`/steel-cutting/${planId}`);
+}
+
+export async function createSteelPlan(name: string, projectId: string | null) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+    const trimmed = name.trim();
+    if (!trimmed) return { success: false as const, error: "กรุณาใส่ชื่อแผน" };
+    const plan = await prisma.steelPlan.create({
+      data: { name: trimmed.slice(0, 120), projectId: projectId || null, createdById: session.user.id },
+    });
+    revalidatePath("/steel-cutting");
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    return { success: true as const, id: plan.id };
+  } catch (error) {
+    logError("Error creating steel plan:", error);
+    return { success: false as const, error: "สร้างแผนไม่สำเร็จ" };
+  }
+}
+
+export async function updateSteelPlanSettings(
+  planId: string,
+  data: { name: string; kerf: number; newBarLength: number; projectId: string | null }
+) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    const name = data.name.trim();
+    if (!name) return { success: false, error: "กรุณาใส่ชื่อแผน" };
+    if (!(data.kerf >= 0 && data.kerf <= 100)) return { success: false, error: "ความหนาใบเลื่อยไม่ถูกต้อง" };
+    if (!(data.newBarLength > 0 && data.newBarLength <= MAX_MM)) return { success: false, error: "ความยาวเหล็กที่ซื้อไม่ถูกต้อง" };
+    const before = await prisma.steelPlan.findUnique({ where: { id: planId }, select: { projectId: true } });
+    await prisma.steelPlan.update({
+      where: { id: planId },
+      data: { name: name.slice(0, 120), kerf: data.kerf, newBarLength: data.newBarLength, projectId: data.projectId || null },
+    });
+    revalidatePlan(planId);
+    for (const id of [before?.projectId, data.projectId]) if (id) revalidatePath(`/projects/${id}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error updating steel plan:", error);
+    return { success: false, error: "บันทึกการตั้งค่าไม่สำเร็จ" };
+  }
+}
+
+export async function deleteSteelPlan(planId: string) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    const plan = await prisma.steelPlan.delete({ where: { id: planId } });
+    revalidatePath("/steel-cutting");
+    if (plan.projectId) revalidatePath(`/projects/${plan.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting steel plan:", error);
+    return { success: false, error: "ลบแผนไม่สำเร็จ" };
+  }
+}
+
+/** Adds one or many pieces to cut (the many form is used by CSV import). */
+export async function addSteelParts(planId: string, parts: SteelPartInput[]) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (parts.length === 0) return { success: false, error: "ไม่มีรายการ" };
+    if (parts.length > 500) return { success: false, error: "เพิ่มได้ครั้งละไม่เกิน 500 รายการ" };
+    const rows = [];
+    for (const raw of parts) {
+      const parsed = partSchema.safeParse(raw);
+      if (!parsed.success) return { success: false, error: parsed.error.issues[0]?.message ?? "ข้อมูลไม่ถูกต้อง" };
+      const bad = checkSection(parsed.data.steelType, parsed.data.sectionY);
+      if (bad) return { success: false, error: bad };
+      const needsY = STEEL_TYPES[parsed.data.steelType as keyof typeof STEEL_TYPES].needsY;
+      rows.push({ planId, ...parsed.data, sectionY: needsY ? parsed.data.sectionY : null, note: parsed.data.note || null });
+    }
+    await prisma.steelPlanPart.createMany({ data: rows });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error adding steel parts:", error);
+    return { success: false, error: "เพิ่มรายการไม่สำเร็จ" };
+  }
+}
+
+export async function deleteSteelPart(partId: string) {
+  try {
+    const part = await prisma.steelPlanPart.findUnique({ where: { id: partId }, select: { planId: true } });
+    if (!part) return { success: false, error: "ไม่พบรายการ" };
+    const check = await canEditPlan(part.planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanPart.delete({ where: { id: partId } });
+    revalidatePlan(part.planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting steel part:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
+  }
+}
+
+export async function addSteelStock(
+  planId: string,
+  stock: { steelType: string; sectionX: number; sectionY: number | null; length: number; quantity: number }
+) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    const parsed = stockSchema.safeParse(stock);
+    if (!parsed.success) return { success: false, error: parsed.error.issues[0]?.message ?? "ข้อมูลไม่ถูกต้อง" };
+    const bad = checkSection(parsed.data.steelType, parsed.data.sectionY);
+    if (bad) return { success: false, error: bad };
+    const needsY = STEEL_TYPES[parsed.data.steelType as keyof typeof STEEL_TYPES].needsY;
+    await prisma.steelPlanStock.create({
+      data: { planId, ...parsed.data, sectionY: needsY ? parsed.data.sectionY : null },
+    });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error adding steel stock:", error);
+    return { success: false, error: "เพิ่มเหล็กที่มีไม่สำเร็จ" };
+  }
+}
+
+export async function deleteSteelStock(stockId: string) {
+  try {
+    const row = await prisma.steelPlanStock.findUnique({ where: { id: stockId }, select: { planId: true } });
+    if (!row) return { success: false, error: "ไม่พบรายการ" };
+    const check = await canEditPlan(row.planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanStock.delete({ where: { id: stockId } });
+    revalidatePlan(row.planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting steel stock:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
+  }
+}

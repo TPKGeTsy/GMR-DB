@@ -8,7 +8,8 @@ import ProjectFileManager from "@/components/ProjectFileManager";
 import DeadlineBadge from "@/components/DeadlineBadge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Users, Calendar, Briefcase, Cpu, Paperclip } from "lucide-react";
+import { ArrowLeft, Users, Calendar, Briefcase, Cpu, Paperclip, Ruler } from "lucide-react";
+import prisma from "@/lib/prisma";
 import { formatThaiDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   ]);
   const circuits = circuitsResult.success && circuitsResult.data ? circuitsResult.data : [];
   const unlinkedCircuits = unlinkedResult.success && unlinkedResult.data ? unlinkedResult.data : [];
+
+  const steelPlans = await prisma.steelPlan.findMany({
+    where: { projectId: id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, name: true, _count: { select: { parts: true } } },
+  });
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -106,6 +113,32 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             currentUserId={session?.user?.id}
             isAdmin={session?.user?.role === "ADMIN"}
           />
+        </div>
+
+        <div className="bg-white p-6 shadow rounded-lg border border-gray-100 md:col-span-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center justify-between">
+            <span className="flex items-center">
+              <Ruler className="w-4 h-4 mr-1.5" />
+              แผนตัดเหล็ก ({steelPlans.length})
+            </span>
+            <Link href="/steel-cutting" className="text-xs font-medium normal-case text-orange-600 hover:text-orange-700">
+              สร้าง / จัดการแผน →
+            </Link>
+          </h2>
+          {steelPlans.length === 0 ? (
+            <p className="text-sm text-gray-400">ยังไม่มีแผนตัดเหล็กในโปรเจกต์นี้ (สร้างแผนแล้วเลือกโปรเจกต์นี้)</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {steelPlans.map((plan) => (
+                <li key={plan.id}>
+                  <Link href={`/steel-cutting/${plan.id}`} className="flex justify-between py-2 text-sm hover:text-orange-600">
+                    <span>{plan.name}</span>
+                    <span className="text-xs text-gray-400">{plan._count.parts} รายการตัด</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="bg-white p-6 shadow rounded-lg border border-gray-100 md:col-span-3">

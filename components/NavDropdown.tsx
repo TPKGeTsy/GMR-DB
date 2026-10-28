@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   ChevronDown, LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
   ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
-  Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin, HardHat, Power, type LucideIcon,
+  Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin, HardHat, Power, Ruler, type LucideIcon,
 } from "lucide-react";
 
 // Icons must be resolved here (inside the Client Component) rather than passed
@@ -16,7 +16,7 @@ import {
 const ICONS = {
   LayoutDashboard, ListFilter, User, UserPlus, ShoppingBag, Cpu, Share2,
   ClipboardList, PackageCheck, Car, Briefcase, CalendarRange, CalendarHeart,
-  Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin, HardHat, Power,
+  Boxes, ShieldCheck, Timer, BarChart3, Wallet, MapPin, HardHat, Power, Ruler,
 } satisfies Record<string, LucideIcon>;
 
 export type NavIconName = keyof typeof ICONS;

@@ -95,6 +95,7 @@ export default function NavBadges({
     { href: "/projects", label: "Projects (โปรเจกต์)", icon: "Briefcase" },
     { href: "/circuit", label: "Circuit (วงจรไฟฟ้า)", icon: "Cpu" },
     { href: "/diagrams", label: "Wiring (การเดินสาย)", icon: "Share2" },
+    { href: "/steel-cutting", label: "Steel Cutting (ตัดเหล็ก)", icon: "Ruler" },
     { href: "/modbus", label: "Modbus Output (ควบคุมเอาต์พุต)", icon: "Power" },
   ];
 
