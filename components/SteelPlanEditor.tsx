@@ -19,6 +19,7 @@ import {
   parseBomLines,
   parsePartsCsv,
   planCuts,
+  profileKey,
   profileLabel,
   type SkippedRow,
   type SteelPartInput,
@@ -219,6 +220,59 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
   );
 }
 
+/** Adds bars on hand for a kind of steel that is already on screen - the type,
+ *  size and thickness come from the group, so only length and count are typed. */
+function StockInline({
+  planId,
+  profile,
+  onDone,
+}: {
+  planId: string;
+  profile: { steelType: string; sectionX: number; sectionY: number | null; thickness: number | null };
+  onDone: () => void;
+}) {
+  const [len, setLen] = useState("");
+  const [qty, setQty] = useState("1");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const result = await addSteelStock(planId, {
+      steelType: profile.steelType,
+      sectionX: profile.sectionX,
+      sectionY: profile.sectionY,
+      thickness: profile.thickness,
+      length: Number(len),
+      quantity: Number(qty),
+    });
+    setBusy(false);
+    if (!result.success) {
+      setError(result.error ?? "เพิ่มไม่สำเร็จ");
+      return;
+    }
+    setLen("");
+    setQty("1");
+    onDone();
+  };
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-gray-500">เพิ่มเหล็กที่มี ยาว</span>
+      <input type="number" min={0} step="any" value={len} onChange={(e) => setLen(e.target.value)} placeholder="มม." className={`${inputClass} !w-20`} />
+      <span className="text-gray-500">×</span>
+      <input type="number" min={1} step={1} value={qty} onChange={(e) => setQty(e.target.value)} className={`${inputClass} !w-14`} />
+      <span className="text-gray-500">เส้น</span>
+      <button type="submit" disabled={busy || !len.trim()} className="rounded bg-gray-700 px-2 py-1 font-semibold text-white hover:bg-gray-800 disabled:opacity-50">
+        เพิ่ม
+      </button>
+      {error && <span className="text-red-600">{error}</span>}
+    </form>
+  );
+}
+
 function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void }) {
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<{ parts: SteelPartInput[]; skipped: SkippedRow[] } | null>(null);
@@ -405,11 +459,25 @@ export default function SteelPlanEditor({
 }) {
   const router = useRouter();
   const refresh = () => router.refresh();
-  const sortedParts = useMemo(() => [...parts].sort(comparePieces), [parts]);
-  const sortedStock = useMemo(
-    () => [...stock].sort((a, b) => comparePieces({ ...a, cutLength: a.length }, { ...b, cutLength: b.length })),
-    [stock]
-  );
+  // One group per kind of steel: its pieces to cut (longest first) and the bars on hand.
+  const groups = useMemo(() => {
+    const map = new Map<string, { profile: EditorPart | EditorStock; parts: EditorPart[]; stock: EditorStock[] }>();
+    const groupFor = (item: EditorPart | EditorStock) => {
+      const key = profileKey(item);
+      let g = map.get(key);
+      if (!g) {
+        g = { profile: item, parts: [], stock: [] };
+        map.set(key, g);
+      }
+      return g;
+    };
+    for (const p of parts) groupFor(p).parts.push(p);
+    for (const st of stock) groupFor(st).stock.push(st);
+    const asPiece = (g: { profile: EditorPart | EditorStock }) => ({ ...g.profile, cutLength: 0 });
+    return [...map.values()]
+      .map((g) => ({ ...g, parts: [...g.parts].sort(comparePieces), stock: [...g.stock].sort((a, b) => b.length - a.length) }))
+      .sort((a, b) => comparePieces(asPiece(a), asPiece(b)));
+  }, [parts, stock]);
   const [name, setName] = useState(plan.name);
   const [kerf, setKerf] = useState(String(plan.kerf));
   const [newBar, setNewBar] = useState(String(plan.newBarLength));
@@ -505,91 +573,97 @@ export default function SteelPlanEditor({
       </section>
 
       <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({parts.length})</h2>
-        {parts.length > 0 && (
-          <table className="mb-3 w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500">
-                <th className="py-1 font-medium">ประเภท / หน้าตัด</th>
-                <th className="py-1 text-right font-medium">z ยาว (มม.)</th>
-                <th className="py-1 text-right font-medium">QTY (จำนวน)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedParts.map((p) => (
-                <tr key={p.id} className="border-t border-gray-100">
-                  <td className="py-1">{profileLabel(p)}</td>
-                  <td className="py-1 text-right">{fmt(p.cutLength)}</td>
-                  <td className="py-1 text-right">{p.quantity}</td>
-                  <td className="py-1 text-right">
-                    {canEdit && (
-                      <button
-                        type="button"
-                        title="ลบ"
-                        onClick={async () => {
-                          await deleteSteelPart(p.id);
-                          refresh();
-                        }}
-                        className="text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">
+          ชิ้นงานที่ต้องตัด ({parts.length}) และเหล็กที่มี ({stock.length})
+        </h2>
+        <p className="mb-3 text-xs text-gray-400">
+          จัดกลุ่มตามชนิดเหล็ก ในกลุ่มเรียงความยาวจากมากไปน้อย ใส่ความยาวเหล็กที่มีไว้ในกลุ่มเดียวกัน ถ้าไม่ใส่ ระบบถือว่าซื้อใหม่ตามความยาวที่ตั้งไว้ด้านบน
+        </p>
+        <div className="space-y-4">
+          {groups.map((g) => (
+            <div key={profileKey(g.profile)} className="rounded border border-gray-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
+                <h3 className="text-sm font-semibold text-gray-900">{profileLabel(g.profile)}</h3>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                  {g.stock.length === 0 ? (
+                    <span className="text-gray-400">ไม่มีเหล็กในสต็อก (ซื้อใหม่)</span>
+                  ) : (
+                    g.stock.map((st) => (
+                      <span key={st.id} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 ring-1 ring-gray-300">
+                        มี {fmt(st.length)} มม. × {st.quantity} เส้น
+                        {canEdit && (
+                          <button
+                            type="button"
+                            title="ลบ"
+                            onClick={async () => {
+                              await deleteSteelStock(st.id);
+                              refresh();
+                            }}
+                            className="text-gray-400 hover:text-red-600"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              {g.parts.length > 0 && (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500">
+                      <th className="px-3 py-1 text-right font-medium">z ยาว (มม.)</th>
+                      <th className="px-3 py-1 text-right font-medium">QTY (จำนวน)</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.parts.map((p) => (
+                      <tr key={p.id} className="border-t border-gray-100">
+                        <td className="px-3 py-1 text-right">{fmt(p.cutLength)}</td>
+                        <td className="px-3 py-1 text-right">{p.quantity}</td>
+                        <td className="px-3 py-1 text-right">
+                          {canEdit && (
+                            <button
+                              type="button"
+                              title="ลบ"
+                              onClick={async () => {
+                                await deleteSteelPart(p.id);
+                                refresh();
+                              }}
+                              className="text-gray-400 hover:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {canEdit && (
+                <div className="border-t border-gray-100 px-3 py-2">
+                  <StockInline planId={plan.id} profile={g.profile} onDone={refresh} />
+                </div>
+              )}
+            </div>
+          ))}
+          {groups.length === 0 && <p className="text-sm text-gray-400">ยังไม่มีรายการ เพิ่มชิ้นงานหรือนำเข้าจากไฟล์ด้านล่าง</p>}
+        </div>
         {canEdit && (
-          <div className="space-y-3">
+          <div className="mt-4 space-y-3">
             <PartForm planId={plan.id} onDone={refresh} />
             <ImportPanel planId={plan.id} onDone={refresh} />
+            <details className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+              <summary className="cursor-pointer font-medium text-gray-700">เพิ่มเหล็กที่มีของชนิดที่ยังไม่มีชิ้นงาน</summary>
+              <div className="mt-2">
+                <StockForm planId={plan.id} onDone={refresh} />
+              </div>
+            </details>
           </div>
         )}
-      </section>
-
-      <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">เหล็กที่มีอยู่ ({stock.length})</h2>
-        {stock.length > 0 && (
-          <table className="mb-3 w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500">
-                <th className="py-1 font-medium">ประเภท / หน้าตัด</th>
-                <th className="py-1 text-right font-medium">ยาว (มม.)</th>
-                <th className="py-1 text-right font-medium">จำนวน (เส้น)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedStock.map((s) => (
-                <tr key={s.id} className="border-t border-gray-100">
-                  <td className="py-1">{profileLabel(s)}</td>
-                  <td className="py-1 text-right">{fmt(s.length)}</td>
-                  <td className="py-1 text-right">{s.quantity}</td>
-                  <td className="py-1 text-right">
-                    {canEdit && (
-                      <button
-                        type="button"
-                        title="ลบ"
-                        onClick={async () => {
-                          await deleteSteelStock(s.id);
-                          refresh();
-                        }}
-                        className="text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {canEdit && <StockForm planId={plan.id} onDone={refresh} />}
-        {stock.length === 0 && !canEdit && <p className="text-sm text-gray-400">ยังไม่ได้ใส่เหล็กที่มี</p>}
       </section>
 
       <section className="rounded-lg border border-gray-100 bg-white p-4 shadow">
