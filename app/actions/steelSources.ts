@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { canEditPlan } from "@/lib/steelAccess";
 import { askGroqAboutImage } from "@/lib/groqVision";
-import { BOM_IMAGE_PROMPT, angleFromRow, classifyBomRow, parseBomJson, type BomRow } from "@/lib/bomImage";
+import { BOM_CHUNK_ROWS, angleFromRow, bomChunkPrompt, classifyBomRow, parseBomPipeLines, type BomRow } from "@/lib/bomImage";
 import { analyzeDxf, readDxfFileName, type DxfAnalysis } from "@/lib/dxf";
 import { addSteelParts } from "./steel";
 
@@ -21,9 +21,14 @@ function revalidatePlan(planId: string) {
   revalidatePath(`/steel-cutting/${planId}`);
 }
 
-/** Reads a picture of a parts list. Nothing is saved: the rows go back to the
- *  page to be checked and then saved with saveHardware. */
-export async function readBomImage(formData: FormData): Promise<{ success: true; rows: BomRow[] } | Fail> {
+/** Reads the next rows of a picture of a parts list (the ones after item `after`).
+ *  The vision model may only write about 1,000 tokens a minute, so the page asks
+ *  chunk by chunk and waits (`retryAfter` seconds) when the quota is used up.
+ *  Nothing is saved: the page collects the rows, lets the user check them, and
+ *  then calls saveHardware. */
+export async function readBomImageChunk(
+  formData: FormData
+): Promise<{ success: true; rows: BomRow[]; done: boolean } | (Fail & { retryAfter?: number })> {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
@@ -31,17 +36,24 @@ export async function readBomImage(formData: FormData): Promise<{ success: true;
     if (!(file instanceof File)) return { success: false, error: "ไม่พบไฟล์" };
     if (!IMAGE_TYPES.includes(file.type)) return { success: false, error: "รองรับเฉพาะรูป PNG, JPG, WEBP" };
     if (file.size > MAX_IMAGE_BYTES) return { success: false, error: "รูปใหญ่เกิน 4 MB ลองย่อรูปหรือครอปเฉพาะตาราง" };
+    const after = Math.max(0, Math.floor(Number(formData.get("after")) || 0));
 
-    const limit = await checkRateLimit(`readBomImage:${session.user.id}`, { maxAttempts: 12, windowMs: 60_000 });
-    if (!limit.allowed) return { success: false, error: `อ่านรูปถี่เกินไป ลองใหม่ใน ${limit.retryAfterSeconds} วินาที` };
+    const limit = await checkRateLimit(`readBomImage:${session.user.id}`, { maxAttempts: 30, windowMs: 60_000 });
+    if (!limit.allowed) return { success: false, error: "อ่านรูปถี่เกินไป", retryAfter: limit.retryAfterSeconds };
 
     const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const reply = await askGroqAboutImage(BOM_IMAGE_PROMPT, `data:${file.type};base64,${base64}`);
-    if (!reply.ok) return { success: false, error: reply.error };
+    const reply = await askGroqAboutImage(bomChunkPrompt(after), `data:${file.type};base64,${base64}`);
+    if (!reply.ok) return { success: false, error: reply.error, retryAfter: reply.retryAfter };
 
-    const rows = parseBomJson(reply.text);
-    if (rows.length === 0) return { success: false, error: "อ่านตารางจากรูปไม่ได้ ลองรูปที่ชัดขึ้นหรือครอปเฉพาะตาราง" };
-    return { success: true, rows };
+    const parsed = parseBomPipeLines(reply.text);
+    const ended = parsed.ended;
+    // A reply cut off by the token limit: its last line may be incomplete, so read it again in the next chunk.
+    const rows = reply.truncated ? parsed.rows.slice(0, -1) : parsed.rows;
+    const fresh = rows.filter((r) => r.item !== null && r.item > after);
+    // Finished when the model said END, or gave fewer rows than it was allowed to.
+    const done = ended || (!reply.truncated && fresh.length < Math.min(BOM_CHUNK_ROWS, 5));
+    if (fresh.length === 0 && after === 0) return { success: false, error: "อ่านตารางจากรูปไม่ได้ ลองรูปที่ชัดขึ้นหรือครอปเฉพาะตาราง" };
+    return { success: true, rows: fresh, done };
   } catch (error) {
     logError("Error reading BOM image:", error);
     return { success: false, error: "อ่านรูปไม่สำเร็จ" };
@@ -83,6 +95,20 @@ export async function saveHardware(planId: string, rows: BomRow[], sendSteel: bo
   } catch (error) {
     logError("Error saving hardware list:", error);
     return { success: false as const, error: "บันทึกรายการไม่สำเร็จ" };
+  }
+}
+
+/** Removes the whole picture-list from a plan (the rows were added by mistake or are outdated). */
+export async function deleteAllHardware(planId: string) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanHardware.deleteMany({ where: { planId } });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting all hardware rows:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }
 

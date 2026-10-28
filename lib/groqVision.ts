@@ -9,8 +9,8 @@ const DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b";
 export async function askGroqAboutImage(
   prompt: string,
   imageDataUrl: string,
-  maxTokens = 8000
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  maxTokens = 950
+): Promise<{ ok: true; text: string; truncated: boolean } | { ok: false; error: string; retryAfter?: number }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return { ok: false, error: "ยังไม่ได้ตั้งค่า GROQ_API_KEY ในเซิร์ฟเวอร์" };
   try {
@@ -35,13 +35,21 @@ export async function askGroqAboutImage(
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      if (res.status === 429) {
+        // "Please try again in 31.2s" (or the Retry-After header): how long to wait for the quota.
+        const header = Number(res.headers.get("retry-after"));
+        const fromBody = /try again in\s+(?:(\d+)m)?\s*([\d.]+)s/i.exec(body);
+        const retryAfter = Number.isFinite(header) && header > 0 ? header : fromBody ? Number(fromBody[1] ?? 0) * 60 + Number(fromBody[2]) : 30;
+        return { ok: false, error: "Groq ใช้โควตาต่อนาทีเต็ม รอสักครู่", retryAfter: Math.ceil(Math.min(retryAfter, 120)) };
+      }
       logError("Groq vision call failed", new Error(`HTTP ${res.status}`), { body: body.slice(0, 500) });
-      return { ok: false, error: res.status === 429 ? "Groq ใช้เกินโควตาชั่วคราว ลองใหม่อีกครู่" : "อ่านรูปไม่สำเร็จ ลองใหม่อีกครั้ง" };
+      return { ok: false, error: "อ่านรูปไม่สำเร็จ ลองใหม่อีกครั้ง" };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content;
     if (typeof text !== "string" || !text.trim()) return { ok: false, error: "โมเดลไม่ตอบกลับ ลองใหม่อีกครั้ง" };
-    return { ok: true, text };
+    // finish_reason "length" = the model ran out of room, so its last line may be cut off.
+    return { ok: true, text, truncated: data?.choices?.[0]?.finish_reason === "length" };
   } catch (error) {
     logError("Groq vision call error", error);
     return { ok: false, error: "อ่านรูปไม่สำเร็จ (หมดเวลาหรือเครือข่ายมีปัญหา)" };

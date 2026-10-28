@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
+import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
 import {
   parseSteelPdf,
   addSteelParts,
@@ -469,6 +470,7 @@ function CutResults({
     URL.revokeObjectURL(url);
   };
 
+  const print = usePrintSection("bars");
   // Running item number across all kinds of steel (no restart per group).
   const firstNumber: number[] = [];
   result.profiles.reduce((total, p) => {
@@ -476,7 +478,7 @@ function CutResults({
     return total + p.bars.length;
   }, 0);
   return (
-    <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none">
+    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">ผลการวางแผนตัด</h2>
         <div className="flex flex-wrap items-center gap-2">
@@ -668,7 +670,8 @@ export default function SteelPlanEditor({
   };
 
   return (
-    <div className="space-y-6">
+    <PrintLayoutProvider planId={plan.id}>
+    <div className="flex flex-col gap-6">
       {showSkipped && (
         <p className="flex items-center justify-between rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 print:hidden">
           <span>นำเข้าจากไฟล์แล้ว ข้าม {skippedCount} แถวที่ข้อมูล x, y, z หรือ QTY ไม่ครบ</span>
@@ -807,9 +810,12 @@ export default function SteelPlanEditor({
         )}
       </section>
 
+      <PrintSetupPanel />
+
       {children}
 
       <CutResults planName={plan.name} result={result} kerf={kerfValue} standard={standard} />
     </div>
+    </PrintLayoutProvider>
   );
 }

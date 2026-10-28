@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileUp, Trash2 } from "lucide-react";
 import { addDxfPart, deleteSheetPart, updateSheetPart } from "@/app/actions/steelSources";
 import type { CutStep, Pt } from "@/lib/dxf";
+import { usePrintSection } from "./PrintLayout";
 
 export interface SheetPartRow {
   id: string;
@@ -146,6 +147,7 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState("");
   const [problems, setProblems] = useState<string[]>([]);
+  const print = usePrintSection("dxfParts");
 
   const handleFiles = async (files: FileList | null | undefined) => {
     const list = Array.from(files ?? []);
@@ -166,7 +168,7 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
   };
 
   return (
-    <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none">
+    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500 print:hidden">ชิ้นแผ่นเหล็กจากไฟล์ DXF ({parts.length})</h2>
       <p className="mb-3 text-xs text-gray-400 print:hidden">
         โยนไฟล์ .dxf ของรูปคลี่แผ่น (หลายไฟล์พร้อมกันได้) ระบบอ่านขนาด ช่อง/รู เส้นพับ และเสนอลำดับการตัด ชื่อชิ้นและจำนวนอ่านจากชื่อไฟล์ (เช่น _4PCS) ความหนากรอกเอง

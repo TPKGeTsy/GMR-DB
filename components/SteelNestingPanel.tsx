@@ -5,6 +5,7 @@ import { Minus, Plus, Printer } from "lucide-react";
 import { setNestDone } from "@/app/actions/steelSources";
 import { SHEET_PRESETS, groupIdenticalSheets, loopArea, nest, shapesOnSheet, type NestResultGroup, type Placed } from "@/lib/nesting";
 import type { SheetPartRow } from "./SteelSheetPanel";
+import { usePrintSection } from "./PrintLayout";
 
 const inputClass =
   "rounded border border-gray-300 px-2 py-1 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
@@ -91,6 +92,7 @@ export default function SteelNestingPanel({
   const [allowRotate, setAllowRotate] = useState(true);
   const [selected, setSelected] = useState<Record<string, string>>({}); // thickness key -> signature
   const [done, setDone] = useState<Record<string, number>>(doneBySignature);
+  const print = usePrintSection("nesting");
 
   const sheetWidth = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].width : Number(customW);
   const sheetHeight = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].height : Number(customH);
@@ -142,7 +144,7 @@ export default function SteelNestingPanel({
   };
 
   return (
-    <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none">
+    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">วางชิ้นแผ่นลงแผ่นเหล็ก</h2>
         <button
