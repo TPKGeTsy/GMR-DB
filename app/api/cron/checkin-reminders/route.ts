@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 import { pushLineMessage } from "@/lib/line";
 import { notifyOtManagers } from "@/lib/lineApprovals";
 import { realizeOutsideTripOtGrant } from "@/lib/otGrant";
-import { bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
+import { bangkokDateAt, bangkokDateKey, bangkokDayRange } from "@/lib/datetime";
 import { buildDailySummary } from "@/lib/attendance";
 
 const WORK_MS = 8 * 60 * 60 * 1000;
@@ -27,6 +27,12 @@ const OT_NUDGE_INTERVAL_MS = 60 * 60 * 1000;
 // 00:00 (the end of the day they checked in), rather than the elapsed-time math
 // giving everyone a different personal cutoff.
 const OFFICE_CUTOFF_LABEL = "00:00";
+// The normal end of the working day: a LINE reminder goes out 15 minutes before
+// (extended by any granted OT), asking people to check out.
+const END_OF_WORK_HOUR = 18;
+const END_OF_WORK_MINUTE = 30;
+const END_OF_WORK_MESSAGE = `ใกล้เลิกงานแล้วนะคะ อีกประมาณ 15 นาที ⏰ เสร็จงานแล้วอย่าลืมสแกนหน้าเช็คเอาท์ด้วยนะคะ (ถ้าอยู่ทำงานต่อ ระบบนับชั่วโมงตามจริง และถ้าลืมเช็คเอาท์ ระบบจะตัดให้ตอน ${OFFICE_CUTOFF_LABEL} น.)`;
+const CUTOFF_MESSAGE = `ระบบจะเช็คเอาท์ให้อัตโนมัติตอน ${OFFICE_CUTOFF_LABEL} น. (อีกประมาณ 15 นาที) ⏰ ถ้าเลิกงานแล้ว รบกวนเช็คเอาท์เองด้วยนะคะ`;
 
 async function autoCheckOut(userId: string, location: string, detail: string, createdAt?: Date) {
   await prisma.checkIn.create({
@@ -127,12 +133,22 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          const warningThreshold = new Date(deadline.getTime() - WARNING_BEFORE_MS);
-          if (lineUserId && now >= warningThreshold && !checkIn.reminderSentAt) {
-            await pushLineMessage(
-              lineUserId,
-              `ใกล้ถึงเวลาเลิกงานแล้วนะคะ อีกประมาณ 15 นาทีค่ะ ถ้าหัวหน้าไม่เปิด OT ให้ ระบบจะเช็คเอาท์ให้อัตโนมัติค่ะ ⏰`
-            );
+          // Two nudges, one `reminderSentAt` column: a heads-up before the normal
+          // end of the working day (so people check out), and a last one before the
+          // 00:00 auto-checkout. Only the latest threshold already passed counts, and
+          // it is sent once (reminderSentAt older than it).
+          const endOfWork = new Date(
+            bangkokDateAt(checkIn.createdAt, END_OF_WORK_HOUR, END_OF_WORK_MINUTE).getTime() + (checkIn.otGrantedHours ?? 0) * 3_600_000
+          );
+          const reminders = [
+            { at: new Date(endOfWork.getTime() - WARNING_BEFORE_MS), text: END_OF_WORK_MESSAGE },
+            { at: new Date(deadline.getTime() - WARNING_BEFORE_MS), text: CUTOFF_MESSAGE },
+          ]
+            // Not for someone who only just clocked in after that time.
+            .filter((r) => r.at > checkIn.createdAt && now >= r.at);
+          const due = reminders[reminders.length - 1];
+          if (lineUserId && due && (!checkIn.reminderSentAt || checkIn.reminderSentAt < due.at)) {
+            await pushLineMessage(lineUserId, due.text);
             await prisma.checkIn.update({ where: { id: checkIn.id }, data: { reminderSentAt: now } });
             warned++;
           }
