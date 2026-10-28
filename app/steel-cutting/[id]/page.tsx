@@ -17,6 +17,7 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
       include: {
         parts: { orderBy: { createdAt: "asc" } },
         stock: { orderBy: { createdAt: "asc" } },
+        bars: true,
         project: { select: { createdById: true, members: { select: { userId: true } } } },
       },
     }),
@@ -62,6 +63,13 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
           thickness: s.thickness,
           length: s.length,
           quantity: s.quantity,
+        }))}
+        bars={plan.bars.map((b) => ({
+          steelType: b.steelType,
+          sectionX: b.sectionX,
+          sectionY: b.sectionY,
+          thickness: b.thickness,
+          length: b.length,
         }))}
         projects={projects}
         canEdit={canEdit}

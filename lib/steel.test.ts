@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBomLines, parsePartsCsv, planCuts, profileLabel } from "./steel";
+import { parseBomLines, parsePartsCsv, planCuts, profileKey, profileLabel } from "./steel";
 
 const box = { steelType: "BOX", sectionX: 50, sectionY: 25 };
 const opts = { kerf: 0, newBarLength: 6000 };
@@ -68,6 +68,15 @@ describe("planCuts", () => {
     expect(plan.profiles[0].stockUnused).toBe(1);
   });
 
+  it("uses a own bar length for a kind of steel when given", () => {
+    const parts = [{ ...box, cutLength: 2500, quantity: 4 }];
+    const standard = planCuts(parts, [], { kerf: 0, newBarLength: 6000 });
+    const own = planCuts(parts, [], { kerf: 0, newBarLength: 6000, barLengths: { [profileKey(box)]: 10000 } });
+    expect(standard.profiles[0].toBuy).toBe(2);
+    expect(own.profiles[0].toBuy).toBe(1);
+    expect(own.profiles[0].newBarLength).toBe(10000);
+  });
+
   it("labels round bars without a y", () => {
     expect(profileLabel({ steelType: "ROUND", sectionX: 20, sectionY: null })).toBe("เหล็กกลม Ø20");
   });
@@ -75,9 +84,9 @@ describe("planCuts", () => {
 
 describe("parsePartsCsv", () => {
   it("reads rows, skips header and blanks, reports bad rows", () => {
-    const { parts, errors } = parsePartsCsv("type,x,y,z,qty\nBOX,50,25,1200,4\n\nเหล็กแบน;50;6;800;2\nBOX,50,,1000,1\nXYZ,1,1,1,1");
+    const { parts, errors } = parsePartsCsv("type,x,y,z,qty\nST,50,25,1200,4\n\nเหล็กแบน;50;6;800;2\nST,50,,1000,1\nXYZ,1,1,1,1");
     expect(parts).toHaveLength(2);
-    expect(parts[0]).toMatchObject({ steelType: "BOX", sectionX: 50, sectionY: 25, cutLength: 1200, quantity: 4 });
+    expect(parts[0]).toMatchObject({ steelType: "ST", sectionX: 50, sectionY: 25, cutLength: 1200, quantity: 4 });
     expect(parts[1].steelType).toBe("FLAT");
     expect(errors).toHaveLength(2);
   });
@@ -105,7 +114,7 @@ describe("parseBomLines (drawing bill of materials)", () => {
   it("keeps complete steel rows, skips the rest", () => {
     const { parts, skipped } = parseBomLines(rb);
     expect(parts).toHaveLength(7);
-    expect(parts[0]).toMatchObject({ steelType: "BOX", sectionX: 50, sectionY: 50, thickness: 2.3, cutLength: 1742, quantity: 8 });
+    expect(parts[0]).toMatchObject({ steelType: "ST", sectionX: 50, sectionY: 50, thickness: 2.3, cutLength: 1742, quantity: 8 });
     expect(skipped.map((s) => s.line)).toEqual(["13 16", "24 1 Sheet"]);
   });
 
@@ -116,9 +125,9 @@ describe("parseBomLines (drawing bill of materials)", () => {
       "50x50:1325",
       "50x50:875",
       "50x50:238",
+      "75x75:1742",
       "75x38:5121",
       "75x38:3571",
-      "75x75:1742",
     ]);
   });
 
@@ -129,8 +138,13 @@ describe("parseBomLines (drawing bill of materials)", () => {
       "5 2",
       "SCALE:1:20 SHEET 1 OF 1",
     ]);
-    expect(parts).toEqual([{ steelType: "BOX", sectionX: 49, sectionY: 49, thickness: 2.3, cutLength: 1710, quantity: 2 }]);
+    expect(parts).toEqual([{ steelType: "ST", sectionX: 49, sectionY: 49, thickness: 2.3, cutLength: 1710, quantity: 2 }]);
     expect(skipped).toHaveLength(2);
+  });
+
+  it("keeps ST and RT apart", () => {
+    const { parts } = parseBomLines(["1 1 ST 50 x 50 x 2.3 100", "2 1 RT 75 x 38 x 2.3 100", "3 1 TUBE 40 x 20 x 1.6 100"]);
+    expect(parts.map((p) => p.steelType).sort()).toEqual(["RT", "RT", "ST"]);
   });
 
   it("adds up identical rows", () => {

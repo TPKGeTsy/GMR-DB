@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { CircleHelp, X } from "lucide-react";
 import { PAGE_HELP, type PageHelpId } from "@/lib/pageHelp";
+import SteelHelpVisuals from "./SteelHelpVisuals";
 
 /**
  * A round "?" button that opens a dialog explaining the page: what it is for,
@@ -71,6 +72,7 @@ export default function PageHelp({ id }: { id: PageHelpId }) {
             </header>
 
             <div className="space-y-5 overflow-y-auto px-5 py-4 text-sm text-gray-700">
+              {help.visual === "steelCutting" && <SteelHelpVisuals />}
               <section>
                 <h3 className="mb-1 font-semibold text-gray-900">หน้านี้ใช้ทำอะไร</h3>
                 <p>{help.purpose}</p>

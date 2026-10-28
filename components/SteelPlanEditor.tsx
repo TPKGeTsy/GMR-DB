@@ -10,6 +10,7 @@ import {
   deleteSteelPart,
   deleteSteelPlan,
   deleteSteelStock,
+  setSteelBarLength,
   updateSteelPlanSettings,
 } from "@/app/actions/steel";
 import {
@@ -86,11 +87,11 @@ function ProfileFields({
         </select>
       </label>
       <label className="block text-xs text-gray-500">
-        x (มม.)
+        x กว้าง (มม.)
         <input type="number" min={0} step="any" value={x} onChange={(e) => onX(e.target.value)} className={inputClass} />
       </label>
       <label className="block text-xs text-gray-500">
-        y (มม.)
+        y ยาว (มม.)
         <input
           type="number"
           min={0}
@@ -102,7 +103,7 @@ function ProfileFields({
         />
       </label>
       <label className="block text-xs text-gray-500">
-        t ความหนา (มม.)
+        t หนา (มม.)
         <input type="number" min={0} step="any" value={t} onChange={(e) => onT(e.target.value)} className={inputClass} />
       </label>
     </>
@@ -110,7 +111,7 @@ function ProfileFields({
 }
 
 function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
-  const [type, setType] = useState<SteelType>("BOX");
+  const [type, setType] = useState<SteelType>("ST");
   const [x, setX] = useState("");
   const [y, setY] = useState("");
   const [t, setT] = useState("");
@@ -147,7 +148,7 @@ function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
         <ProfileFields type={type} x={x} y={y} t={t} onType={setType} onX={setX} onY={setY} onT={setT} />
         <label className="block text-xs text-gray-500">
-          z ความยาวตัด (มม.)
+          z LENGTH ความยาวที่ใช้ (มม.)
           <input type="number" min={0} step="any" value={z} onChange={(e) => setZ(e.target.value)} className={inputClass} />
         </label>
       </div>
@@ -167,7 +168,7 @@ function PartForm({ planId, onDone }: { planId: string; onDone: () => void }) {
 }
 
 function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
-  const [type, setType] = useState<SteelType>("BOX");
+  const [type, setType] = useState<SteelType>("ST");
   const [x, setX] = useState("");
   const [y, setY] = useState("");
   const [t, setT] = useState("");
@@ -217,6 +218,74 @@ function StockForm({ planId, onDone }: { planId: string; onDone: () => void }) {
         {error && <span className="text-xs text-red-600">{error}</span>}
       </div>
     </form>
+  );
+}
+
+/** "Standard bar" tick for one kind of steel: ticked = the plan's standard
+ *  length (6,000 mm); unticked = type your own length. */
+function BarLengthControl({
+  planId,
+  profile,
+  current,
+  standard,
+  canEdit,
+  onDone,
+}: {
+  planId: string;
+  profile: { steelType: string; sectionX: number; sectionY: number | null; thickness: number | null };
+  current: number | null;
+  standard: number;
+  canEdit: boolean;
+  onDone: () => void;
+}) {
+  const [custom, setCustom] = useState(current !== null);
+  const [value, setValue] = useState(current !== null ? String(current) : "");
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (length: number | null) => {
+    setError(null);
+    const result = await setSteelBarLength(planId, profile, length);
+    if (!result.success) {
+      setError(result.error ?? "บันทึกไม่สำเร็จ");
+      return;
+    }
+    onDone();
+  };
+
+  const toggle = async (standardChecked: boolean) => {
+    setCustom(!standardChecked);
+    if (standardChecked) {
+      setValue("");
+      await save(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+      <label className="inline-flex items-center gap-1">
+        <input type="checkbox" checked={!custom} disabled={!canEdit} onChange={(e) => toggle(e.target.checked)} />
+        เหล็กยาวมาตรฐาน {fmt(standard)} มม.
+      </label>
+      {custom && (
+        <span className="inline-flex items-center gap-1">
+          ยาว
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={value}
+            disabled={!canEdit}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={() => value.trim() && Number(value) !== current && save(Number(value))}
+            onKeyDown={(e) => e.key === "Enter" && value.trim() && save(Number(value))}
+            placeholder="มม."
+            className={`${inputClass} !w-24`}
+          />
+          มม.
+        </span>
+      )}
+      {error && <span className="text-red-600">{error}</span>}
+    </div>
   );
 }
 
@@ -448,12 +517,14 @@ export default function SteelPlanEditor({
   plan,
   parts,
   stock,
+  bars,
   projects,
   canEdit,
 }: {
   plan: { id: string; name: string; kerf: number; newBarLength: number; projectId: string | null };
   parts: EditorPart[];
   stock: EditorStock[];
+  bars: { steelType: string; sectionX: number; sectionY: number | null; thickness: number | null; length: number }[];
   projects: { id: string; name: string }[];
   canEdit: boolean;
 }) {
@@ -489,10 +560,11 @@ export default function SteelPlanEditor({
   const result = useMemo(
     () =>
       planCuts(parts, stock, {
+        barLengths: Object.fromEntries(bars.map((b) => [profileKey(b), b.length])),
         kerf: Number.isFinite(kerfValue) ? kerfValue : plan.kerf,
         newBarLength: Number.isFinite(newBarValue) ? newBarValue : plan.newBarLength,
       }),
-    [parts, stock, kerfValue, newBarValue, plan.kerf, plan.newBarLength]
+    [parts, stock, bars, kerfValue, newBarValue, plan.kerf, plan.newBarLength]
   );
 
   const saveSettings = async () => {
@@ -543,7 +615,7 @@ export default function SteelPlanEditor({
             <input type="number" min={0} step="any" value={kerf} onChange={(e) => setKerf(e.target.value)} disabled={!canEdit} className={inputClass} />
           </label>
           <label className="block text-xs text-gray-500">
-            ความยาวเหล็กที่ซื้อใหม่ (มม.)
+            ความยาวเหล็กมาตรฐาน (มม.)
             <input type="number" min={0} step="any" value={newBar} onChange={(e) => setNewBar(e.target.value)} disabled={!canEdit} className={inputClass} />
           </label>
           <label className="block text-xs text-gray-500 sm:col-span-2">
@@ -584,6 +656,14 @@ export default function SteelPlanEditor({
             <div key={profileKey(g.profile)} className="rounded border border-gray-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
                 <h3 className="text-sm font-semibold text-gray-900">{profileLabel(g.profile)}</h3>
+                <BarLengthControl
+                  planId={plan.id}
+                  profile={g.profile}
+                  current={bars.find((b) => profileKey(b) === profileKey(g.profile))?.length ?? null}
+                  standard={Number.isFinite(newBarValue) && newBarValue > 0 ? newBarValue : plan.newBarLength}
+                  canEdit={canEdit}
+                  onDone={refresh}
+                />
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
                   {g.stock.length === 0 ? (
                     <span className="text-gray-400">ไม่มีเหล็กในสต็อก (ซื้อใหม่)</span>
@@ -681,7 +761,7 @@ export default function SteelPlanEditor({
           </div>
         </div>
         <p className="mb-3 hidden text-sm print:block">
-          {plan.name} — ใบเลื่อย {fmt(kerfValue || 0)} มม. — ซื้อเหล็กใหม่ {fmt(newBarValue || 0)} มม./เส้น
+          {plan.name} — ใบเลื่อย {fmt(kerfValue || 0)} มม. — เหล็กมาตรฐาน {fmt(newBarValue || 0)} มม./เส้น
         </p>
 
         {result.profiles.length === 0 ? (

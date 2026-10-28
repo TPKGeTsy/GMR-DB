@@ -189,6 +189,37 @@ export async function addSteelStock(
   }
 }
 
+/** Sets the bar length used for one kind of steel, or (length null) goes back
+ *  to the plan's standard length. */
+export async function setSteelBarLength(
+  planId: string,
+  profile: { steelType: string; sectionX: number; sectionY: number | null; thickness: number | null },
+  length: number | null
+) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (!isSteelType(profile.steelType)) return { success: false, error: "ประเภทเหล็กไม่ถูกต้อง" };
+    if (length !== null && !(length > 0 && length <= MAX_MM)) return { success: false, error: "ความยาวเหล็กไม่ถูกต้อง" };
+    const where = {
+      planId,
+      steelType: profile.steelType,
+      sectionX: profile.sectionX,
+      sectionY: profile.sectionY,
+      thickness: profile.thickness,
+    };
+    await prisma.$transaction([
+      prisma.steelPlanBar.deleteMany({ where }),
+      ...(length === null ? [] : [prisma.steelPlanBar.create({ data: { ...where, length } })]),
+    ]);
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting steel bar length:", error);
+    return { success: false, error: "บันทึกความยาวเหล็กไม่สำเร็จ" };
+  }
+}
+
 export async function deleteSteelStock(stockId: string) {
   try {
     const row = await prisma.steelPlanStock.findUnique({ where: { id: stockId }, select: { planId: true } });

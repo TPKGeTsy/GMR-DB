@@ -795,6 +795,7 @@ model SteelPlan {
   updatedAt    DateTime         @updatedAt @map("updated_at")
   parts        SteelPlanPart[]
   stock        SteelPlanStock[]
+  bars         SteelPlanBar[]
 
   @@map("steel_plans")
 }
@@ -828,4 +829,20 @@ model SteelPlanStock {
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@map("steel_plan_stock")
+}
+
+// Own bar length for one kind of steel in a plan. No row = the plan's standard
+// bar length (6,000 mm by default) is used for that kind.
+model SteelPlanBar {
+  id        String    @id @default(cuid())
+  planId    String    @map("plan_id")
+  plan      SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  steelType String    @map("steel_type")
+  sectionX  Float     @map("section_x")
+  sectionY  Float?    @map("section_y")
+  thickness Float?
+  length    Float // mm
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("steel_plan_bars")
 }

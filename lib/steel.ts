@@ -1,11 +1,14 @@
 // Steel cutting plan: which stock bars to cut for a list of required pieces.
 
 export const STEEL_TYPES = {
-  BOX: { label: "เหล็กกล่อง", needsY: true },
-  FLAT: { label: "เหล็กแบน", needsY: true },
-  ANGLE: { label: "เหล็กฉาก", needsY: true },
+  ST: { label: "ST เหล็กกล่องจัตุรัส", needsY: true },
+  RT: { label: "RT เหล็กกล่องสี่เหลี่ยมผืนผ้า", needsY: true },
+  FLAT: { label: "FB เหล็กแบน", needsY: true },
+  ANGLE: { label: "L เหล็กฉาก", needsY: true },
   ROUND: { label: "เหล็กกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
   PIPE: { label: "ท่อกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
+  // Older plans / CSV rows that only said "box" (square or rectangular not known).
+  BOX: { label: "เหล็กกล่อง (ไม่ระบุ)", needsY: true },
 } as const;
 
 export type SteelType = keyof typeof STEEL_TYPES;
@@ -109,8 +112,10 @@ export interface CuttingPlan {
 export interface PlanOptions {
   /** Material lost to the saw blade at each cut (mm). */
   kerf: number;
-  /** Length of a bar bought new when the stock runs out (mm). */
+  /** Standard length of a bar bought new when the stock runs out (mm). */
   newBarLength: number;
+  /** Own bar length for a kind of steel (key = profileKey) instead of the standard. */
+  barLengths?: Record<string, number>;
 }
 
 /** Best-fit decreasing, per profile. Stock bars on hand are used first (the
@@ -147,7 +152,8 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
     const wanted = [...(pieces.get(key) ?? [])].sort((a, b) => b - a);
     const available = [...(stockBars.get(key) ?? [])].sort((a, b) => a - b);
     const longestStock = available.length > 0 ? available[available.length - 1] : 0;
-    const maxBar = Math.max(newBarLength, longestStock);
+    const buyLength = Math.max(0, options.barLengths?.[key] ?? newBarLength);
+    const maxBar = Math.max(buyLength, longestStock);
 
     interface OpenBar {
       source: "stock" | "new";
@@ -184,8 +190,8 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
         place(bar, cut);
         continue;
       }
-      if (newBarLength >= cut) {
-        const bar: OpenBar = { source: "new", length: newBarLength, remaining: newBarLength, cuts: [] };
+      if (buyLength >= cut) {
+        const bar: OpenBar = { source: "new", length: buyLength, remaining: buyLength, cuts: [] };
         open.push(bar);
         place(bar, cut);
       } else {
@@ -213,7 +219,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
       stockUsed: bars.filter((b) => b.source === "stock").length,
       stockUnused: available.length,
       toBuy: bars.filter((b) => b.source === "new").length,
-      newBarLength,
+      newBarLength: buyLength,
       piecesTotal: wanted.length,
       tooLong,
       usedLength,
@@ -242,9 +248,13 @@ export function parsePartsCsv(text: string): { parts: SteelPartInput[]; errors: 
     if (!line) return;
     const cells = line.split(/[,\t;]/).map((c) => c.trim());
     const [typeCell, xCell, yCell, zCell, qtyCell, tCell] = cells;
-    const type = STEEL_TYPE_KEYS.find(
-      (k) => k === typeCell.toUpperCase() || STEEL_TYPES[k].label.startsWith(typeCell) || typeCell.startsWith(steelTypeLabel(k))
-    );
+    // Accepts the key (ST), the code (FB, L) or the Thai name (เหล็กแบน).
+    const upper = typeCell.toUpperCase();
+    const type = STEEL_TYPE_KEYS.find((k) => {
+      const code = STEEL_TYPES[k].label.match(/^([A-Z]{1,3})\s/)?.[1];
+      const thai = STEEL_TYPES[k].label.replace(/^[A-Z]{1,3}\s+/, "");
+      return k === upper || code === upper || (typeCell !== "" && thai.startsWith(typeCell));
+    });
     const x = Number(xCell);
     const z = Number(zCell);
     const qty = qtyCell === undefined || qtyCell === "" ? 1 : Number(qtyCell);
@@ -287,8 +297,11 @@ export interface SkippedRow {
 const SIZE_RE = /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)(?:\s*[xX×]\s*(\d+(?:\.\d+)?))?/;
 const BOM_ROW_RE = /^(\d+)\s+(\d+)\s*(.*?)\s*(\d+(?:\.\d+)?)?$/;
 
-function bomType(description: string): SteelType | null {
-  if (/\b(ST|RT|SHS|RHS|BOX)\b|TUBE|SQUARE|RECT/i.test(description)) return "BOX";
+function bomType(description: string, x: number, y: number): SteelType | null {
+  if (/\b(ST|SHS)\b|SQUARE/i.test(description)) return "ST";
+  if (/\b(RT|RHS)\b|RECT/i.test(description)) return "RT";
+  // A plain "TUBE" / "BOX": square when both sides are equal, otherwise rectangular.
+  if (/\bBOX\b|TUBE/i.test(description)) return x === y ? "ST" : "RT";
   if (/\bFB\b|FLAT/i.test(description)) return "FLAT";
   if (/ANGLE|^L\s/i.test(description)) return "ANGLE";
   return null;
@@ -318,24 +331,20 @@ export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipp
       if (Number(match[1]) > 8 || quantity !== Number(match[1])) skipped.push({ line, reason: "ไม่มีรายละเอียดและความยาว" });
       continue;
     }
-    const type = bomType(description);
     const size = SIZE_RE.exec(description);
     const length = lengthText === undefined ? NaN : Number(lengthText);
+    const x = size ? Number(size[1]) : NaN;
+    const y = size ? Number(size[2]) : NaN;
+    const type = bomType(description, x, y);
     if (!type) {
       skipped.push({ line, reason: "ไม่ใช่เหล็กที่รู้จัก (ไม่มี x, y, z)" });
       continue;
     }
-    if (!size || !(length > 0)) {
+    if (!size || !(length > 0) || !(x > 0) || !(y > 0)) {
       skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
       continue;
     }
-    const x = Number(size[1]);
-    const y = Number(size[2]);
     const t = size[3] === undefined ? null : Number(size[3]);
-    if (!(x > 0) || !(y > 0)) {
-      skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
-      continue;
-    }
     parts.push({ steelType: type, sectionX: x, sectionY: y, thickness: t, cutLength: length, quantity });
   }
   return { parts: mergeParts(parts), skipped };
