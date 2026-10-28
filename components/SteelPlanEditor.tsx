@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
+import BarLengthSelect from "./BarLengthSelect";
 import {
   parseSteelPdf,
   addSteelParts,
@@ -37,6 +38,7 @@ export interface EditorPart {
   thickness: number | null;
   cutLength: number;
   quantity: number;
+  note: string | null;
 }
 const inputClass =
   "w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
@@ -198,11 +200,11 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
           problems.push(`${file.name}: ${result.error}`);
           continue;
         }
-        parts.push(...result.parts);
+        parts.push(...result.parts.map((p) => ({ ...p, sources: [file.name.replace(/\.[^.]+$/, "")] })));
         skipped.push(...result.skipped);
       } else {
         const read = parseText(await file.text());
-        parts.push(...read.parts);
+        parts.push(...read.parts.map((p) => ({ ...p, sources: [file.name.replace(/\.[^.]+$/, "")] })));
         skipped.push(...read.skipped);
       }
     }
@@ -338,35 +340,6 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
 }
 
 type BarProfile = { steelType: string; sectionX: number; sectionY: number | null; thickness: number | null };
-
-/** Bar length choices: 1,000 - 20,000 mm in steps of 1,000. */
-function BarLengthSelect({
-  value,
-  onChange,
-  disabled,
-  className = "",
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-  className?: string;
-}) {
-  const options = BAR_LENGTH_OPTIONS.includes(value) ? BAR_LENGTH_OPTIONS : [...BAR_LENGTH_OPTIONS, value].sort((a, b) => a - b);
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className={`rounded border border-gray-300 px-2 py-1 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 ${className}`}
-    >
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o.toLocaleString("th-TH")} มม.
-        </option>
-      ))}
-    </select>
-  );
-}
 
 /** Bar length for one kind of steel: pick from the list (default = the plan's
  *  standard), or tick "custom" and type a length (e.g. an offcut to use up). */
@@ -770,7 +743,12 @@ export default function SteelPlanEditor({
           {groups.map((g) => (
             <div key={profileKey(g.profile)} className="rounded border border-gray-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
-                <h3 className="text-sm font-semibold text-gray-900">{profileLabel(g.profile)}</h3>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  {profileLabel(g.profile)}
+                  <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-800">
+                    รวม {g.parts.reduce((n, p) => n + p.quantity, 0)} ชิ้น
+                  </span>
+                </h3>
                 <BarLengthControl
                   planId={plan.id}
                   profile={g.profile}
@@ -785,6 +763,7 @@ export default function SteelPlanEditor({
                   <tr className="text-left text-xs text-gray-500">
                     <th className="px-3 py-1 text-right font-medium">z ยาว (มม.)</th>
                     <th className="px-3 py-1 text-right font-medium">QTY (จำนวน)</th>
+                    <th className="px-3 py-1 text-left font-medium">จากไฟล์</th>
                     <th />
                   </tr>
                 </thead>
@@ -793,6 +772,7 @@ export default function SteelPlanEditor({
                     <tr key={p.id} className="border-t border-gray-100">
                       <td className="px-3 py-1 text-right">{fmt(p.cutLength)}</td>
                       <td className="px-3 py-1 text-right">{p.quantity}</td>
+                      <td className="px-3 py-1 text-left text-xs text-gray-500">{p.note}</td>
                       <td className="px-3 py-1 text-right">
                         {canEdit && (
                           <button

@@ -31,6 +31,8 @@ export interface SteelPartInput extends SteelProfile {
   id?: string;
   cutLength: number;
   quantity: number;
+  /** Names of the files this row came from (saved as the row's note). */
+  sources?: string[];
 }
 
 export interface SteelStockInput extends SteelProfile {
@@ -76,10 +78,31 @@ export function mergeParts(parts: SteelPartInput[]): SteelPartInput[] {
   for (const part of parts) {
     const key = `${profileKey(part)}|${part.cutLength}`;
     const existing = merged.get(key);
-    if (existing) existing.quantity += part.quantity;
-    else merged.set(key, { ...part });
+    if (existing) {
+      existing.quantity += part.quantity;
+      existing.sources = [...new Set([...(existing.sources ?? []), ...(part.sources ?? [])])];
+    } else merged.set(key, { ...part });
   }
   return [...merged.values()].sort(comparePieces);
+}
+
+/** "75x75x2.3, 50*50" -> [[75,75,2.3],[50,50]]. Empty text = no filter. */
+export function parseSizeFilter(text: string): number[][] {
+  return text
+    .split(/[,;\n]+/)
+    .map((token) => (token.match(/\d+(?:\.\d+)?/g) ?? []).map(Number))
+    .filter((nums) => nums.length >= 1);
+}
+
+/** True when there is no filter, or the piece's x, y (either way round) and,
+ *  if the filter gives one, thickness match one of the sizes. */
+export function matchesSizeFilter(part: SteelProfile, filter: number[][]): boolean {
+  if (filter.length === 0) return true;
+  return filter.some(([a, b, t]) => {
+    if (part.sectionY === null) return a === part.sectionX && (b === undefined || b === part.thickness);
+    const sameSides = (a === part.sectionX && b === part.sectionY) || (a === part.sectionY && b === part.sectionX);
+    return sameSides && (t === undefined || t === part.thickness);
+  });
 }
 
 export interface PlannedBar {

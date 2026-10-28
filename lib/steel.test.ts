@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBomLines, parsePartsCsv, planCuts, profileKey, profileLabel } from "./steel";
+import { matchesSizeFilter, mergeParts, parseBomLines, parsePartsCsv, parseSizeFilter, planCuts, profileKey, profileLabel } from "./steel";
 
 const box = { steelType: "BOX", sectionX: 50, sectionY: 25 };
 const opts = { kerf: 0, newBarLength: 6000 };
@@ -151,5 +151,45 @@ describe("parseBomLines (drawing bill of materials)", () => {
     const { parts } = parseBomLines(["1 2 ST 50 x 50 x 2.3 1000", "2 3 ST 50 x 50 x 2.3 1000"]);
     expect(parts).toHaveLength(1);
     expect(parts[0].quantity).toBe(5);
+  });
+});
+
+describe("several files added up", () => {
+  const row = (file: string, qty: number, z = 1742) => ({
+    steelType: "ST",
+    sectionX: 75,
+    sectionY: 75,
+    thickness: 2.3,
+    cutLength: z,
+    quantity: qty,
+    sources: [file],
+  });
+
+  it("adds the same steel and length across files and remembers the files", () => {
+    const merged = mergeParts([row("1", 2), row("4", 2), row("6", 2)]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].quantity).toBe(6);
+    expect(merged[0].sources).toEqual(["1", "4", "6"]);
+  });
+
+  it("keeps different lengths as separate rows", () => {
+    expect(mergeParts([row("1", 2), row("4", 2, 900)])).toHaveLength(2);
+  });
+});
+
+describe("size filter", () => {
+  const st = { steelType: "ST", sectionX: 75, sectionY: 75, thickness: 2.3 };
+  const rt = { steelType: "RT", sectionX: 75, sectionY: 38, thickness: 2.3 };
+
+  it("no filter keeps everything", () => {
+    expect(matchesSizeFilter(st, parseSizeFilter(""))).toBe(true);
+  });
+
+  it("matches x, y (either way round) and thickness when given", () => {
+    const f = parseSizeFilter("75x75x2.3, 38*75");
+    expect(matchesSizeFilter(st, f)).toBe(true);
+    expect(matchesSizeFilter(rt, f)).toBe(true);
+    expect(matchesSizeFilter({ ...st, thickness: 3 }, parseSizeFilter("75x75x2.3"))).toBe(false);
+    expect(matchesSizeFilter({ ...st, sectionX: 50, sectionY: 50 }, parseSizeFilter("75x75"))).toBe(false);
   });
 });

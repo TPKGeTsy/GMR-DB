@@ -60,6 +60,7 @@ export default async function SteelPlanPage({
           thickness: p.thickness,
           cutLength: p.cutLength,
           quantity: p.quantity,
+          note: p.note,
         }))}
         bars={plan.bars.map((b) => ({
           steelType: b.steelType,

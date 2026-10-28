@@ -4,28 +4,56 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileUp, Plus } from "lucide-react";
 import { createSteelPlan, createSteelPlanWithParts, parseSteelPdf } from "@/app/actions/steel";
-import { parseBomLines, parsePartsCsv, type SteelPartInput } from "@/lib/steel";
+import {
+  DEFAULT_KERF_MM,
+  DEFAULT_NEW_BAR_LENGTH_MM,
+  STEEL_TYPES,
+  STEEL_TYPE_KEYS,
+  matchesSizeFilter,
+  mergeParts,
+  parseBomLines,
+  parsePartsCsv,
+  parseSizeFilter,
+  type SteelPartInput,
+  type SteelType,
+} from "@/lib/steel";
+import BarLengthSelect from "./BarLengthSelect";
 
 const fieldClass =
   "w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
 
-/** Start a plan: drop a drawing PDF / CSV straight onto the box (no name needed,
- *  the plan is called "Untitled (n)"), or make an empty plan. */
+// BOX is only the "not specified" type kept for older plans.
+const PICKABLE_TYPES = STEEL_TYPE_KEYS.filter((k) => k !== "BOX");
+
+const baseName = (fileName: string) => fileName.replace(/\.[^.]+$/, "");
+
+/** Start a plan: set the options first (saw kerf, bar length, which steel to
+ *  take), then drop one or many drawing PDFs / CSVs on the box. Several files
+ *  are added up into one plan (same steel + length -> quantities summed) or
+ *  made into one plan per file. No name needed ("Untitled (n)"). */
 export default function SteelPlanCreateForm({ projects }: { projects: { id: string; name: string }[] }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [kerf, setKerf] = useState(String(DEFAULT_KERF_MM));
+  const [barLength, setBarLength] = useState(DEFAULT_NEW_BAR_LENGTH_MM);
+  const [types, setTypes] = useState<Set<SteelType>>(new Set(PICKABLE_TYPES));
+  const [sizes, setSizes] = useState("");
+  const [mergeAll, setMergeAll] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
 
+  const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : DEFAULT_KERF_MM;
+  const options = { kerf: kerfValue, newBarLength: barLength };
+
   const createEmpty = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const result = await createSteelPlan(name, projectId || null);
+    const result = await createSteelPlan(name, projectId || null, options);
     if (!result.success) {
       setError(result.error);
       setBusy(false);
@@ -34,30 +62,45 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     router.push(`/steel-cutting/${result.id}`);
   };
 
-  /** Reads one file into pieces to cut; null + message when it cannot be used. */
+  /** Reads one file into pieces to cut; a string is the reason it could not be read. */
   const readFile = async (file: File): Promise<{ parts: SteelPartInput[]; skipped: number } | string> => {
+    let parts: SteelPartInput[];
+    let skipped: number;
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       const form = new FormData();
       form.set("file", file);
       const read = await parseSteelPdf(form);
-      return read.success ? { parts: read.parts, skipped: read.skipped.length } : read.error;
+      if (!read.success) return read.error;
+      parts = read.parts;
+      skipped = read.skipped.length;
+    } else {
+      const text = await file.text();
+      const bom = parseBomLines(text.split(/\r?\n/));
+      if (bom.parts.length > 0) {
+        parts = bom.parts;
+        skipped = bom.skipped.length;
+      } else {
+        const csv = parsePartsCsv(text);
+        parts = csv.parts;
+        skipped = csv.errors.length;
+      }
     }
-    const text = await file.text();
-    const bom = parseBomLines(text.split(/\r?\n/));
-    if (bom.parts.length > 0) return { parts: bom.parts, skipped: bom.skipped.length };
-    const csv = parsePartsCsv(text);
-    return { parts: csv.parts, skipped: csv.errors.length };
+    // Remember which file each row came from.
+    return { parts: parts.map((p) => ({ ...p, sources: [baseName(file.name)] })), skipped };
   };
 
-  // Each dropped file becomes its own plan (one drawing = one plan).
   const handleFiles = async (files: FileList | null | undefined) => {
     const list = Array.from(files ?? []);
     if (list.length === 0) return;
     setBusy(true);
     setError(null);
     setNote(null);
-    const created: { id: string; skipped: number }[] = [];
+    const sizeFilter = parseSizeFilter(sizes);
+    const wanted = (p: SteelPartInput) => types.has(p.steelType as SteelType) && matchesSizeFilter(p, sizeFilter);
+
+    const perFile: { name: string; parts: SteelPartInput[]; skipped: number }[] = [];
     const problems: string[] = [];
+    let leftOut = 0;
     for (const [index, file] of list.entries()) {
       setProgress(list.length > 1 ? ` ${index + 1}/${list.length}` : "");
       const read = await readFile(file);
@@ -65,30 +108,96 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         problems.push(`${file.name}: ${read}`);
         continue;
       }
-      if (read.parts.length === 0) {
-        problems.push(`${file.name}: ไม่พบรายการที่ใช้ได้ (ต้องมี x, y, z และ QTY)`);
+      const kept = read.parts.filter(wanted);
+      leftOut += read.parts.length - kept.length;
+      if (kept.length === 0) {
+        problems.push(`${file.name}: ไม่พบรายการที่ใช้ได้ (ต้องมี x, y, z, QTY และตรงกับตัวเลือกเหล็กที่เลือก)`);
         continue;
       }
-      // A typed name only makes sense for a single file.
-      const result = await createSteelPlanWithParts(list.length === 1 ? name : "", projectId || null, read.parts);
-      if (!result.success) {
-        problems.push(`${file.name}: ${result.error}`);
-        continue;
-      }
-      created.push({ id: result.id, skipped: read.skipped });
+      perFile.push({ name: file.name, parts: kept, skipped: read.skipped });
     }
+
+    // One plan for everything (quantities of the same steel added up), or one per file.
+    const groups =
+      mergeAll || perFile.length === 1
+        ? perFile.length > 0
+          ? [
+              {
+                name: perFile.length === 1 ? name : "",
+                parts: mergeParts(perFile.flatMap((f) => f.parts)),
+                skipped: perFile.reduce((n, f) => n + f.skipped, 0),
+              },
+            ]
+          : []
+        : perFile.map((f) => ({ name: "", parts: mergeParts(f.parts), skipped: f.skipped }));
+
+    const created: { id: string; skipped: number }[] = [];
+    for (const g of groups) {
+      const result = await createSteelPlanWithParts(g.name, projectId || null, g.parts, options);
+      if (!result.success) {
+        problems.push(result.error);
+        continue;
+      }
+      created.push({ id: result.id, skipped: g.skipped });
+    }
+
     if (problems.length > 0) setError(problems.join("\n"));
     if (created.length === 1 && problems.length === 0) {
       router.push(`/steel-cutting/${created[0].id}${created[0].skipped > 0 ? `?skipped=${created[0].skipped}` : ""}`);
       return;
     }
-    if (created.length > 0) setNote(`สร้าง ${created.length} แผนแล้ว (ดูในรายการด้านล่าง)`);
+    if (created.length > 0) {
+      setNote(
+        `สร้าง ${created.length} แผนแล้ว${leftOut > 0 ? ` · ไม่เอา ${leftOut} รายการตามตัวเลือกเหล็กที่เลือก` : ""} (ดูในรายการด้านล่าง)`
+      );
+    }
     setBusy(false);
     router.refresh();
   };
 
+  const toggleType = (t: SteelType) =>
+    setTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-gray-100 bg-white p-4 shadow">
+        <p className="mb-2 text-sm font-semibold text-gray-800">ตั้งค่าก่อนโยนไฟล์</p>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-xs text-gray-600">
+            ระยะตัด / ใบเลื่อย (มม.)
+            <input type="number" min={0} step="any" value={kerf} onChange={(e) => setKerf(e.target.value)} className={`${fieldClass} !w-28`} />
+          </label>
+          <label className="block text-xs text-gray-600">
+            ความยาวเหล็กมาตรฐาน
+            <div>
+              <BarLengthSelect value={barLength} onChange={setBarLength} />
+            </div>
+          </label>
+          <label className="block min-w-[14rem] flex-1 text-xs text-gray-600">
+            เอาเฉพาะเหล็กขนาด (เว้นว่าง = ทุกขนาด)
+            <input value={sizes} onChange={(e) => setSizes(e.target.value)} placeholder="เช่น 75x75x2.3, 50x50x2.3" className={fieldClass} />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-700">
+          <span className="text-gray-500">ชนิดเหล็ก:</span>
+          {PICKABLE_TYPES.map((t) => (
+            <label key={t} className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={types.has(t)} onChange={() => toggleType(t)} />
+              {STEEL_TYPES[t].label.replace(/ \(.*\)$/, "")}
+            </label>
+          ))}
+        </div>
+        <label className="mt-3 inline-flex items-center gap-1.5 text-xs text-gray-700">
+          <input type="checkbox" checked={mergeAll} onChange={(e) => setMergeAll(e.target.checked)} />
+          โยนหลายไฟล์ รวมเป็นแผนเดียว (เหล็กชนิดเดียวกันและยาวเท่ากันรวม QTY ให้) · ไม่ติ๊ก = 1 ไฟล์ 1 แผน
+        </label>
+      </div>
+
       <label
         onDragOver={(e) => {
           e.preventDefault();
@@ -105,8 +214,10 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         } ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
         <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-        <span className="text-base font-semibold text-gray-800">{busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}</span>
-        <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · 1 ไฟล์ = 1 แผน ไม่ต้องตั้งชื่อ ระบบสร้างให้ทันที</span>
+        <span className="text-base font-semibold text-gray-800">
+          {busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}
+        </span>
+        <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · ไม่ต้องตั้งชื่อ ระบบสร้างให้ทันที</span>
         <input
           type="file"
           multiple

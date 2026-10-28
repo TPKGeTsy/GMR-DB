@@ -71,6 +71,20 @@ function revalidatePlan(planId: string) {
   revalidatePath(`/steel-cutting/${planId}`);
 }
 
+/** Saw kerf and bar length for a new plan: what the user chose (if sane) or the defaults. */
+function cutDefaults(options?: { kerf: number; newBarLength: number }) {
+  const kerf = options && options.kerf >= 0 && options.kerf <= 100 ? options.kerf : DEFAULT_KERF_MM;
+  const newBarLength =
+    options && options.newBarLength > 0 && options.newBarLength <= MAX_MM ? options.newBarLength : DEFAULT_NEW_BAR_LENGTH_MM;
+  return { kerf, newBarLength };
+}
+
+/** The files a row came from, kept as its note (e.g. "Door, RB1"). */
+function noteFor(raw: SteelPartInput, typed?: string | null): string | null {
+  if (typed) return typed;
+  return raw.sources && raw.sources.length > 0 ? raw.sources.join(", ").slice(0, 200) : null;
+}
+
 /** "Untitled (1)", "Untitled (2)", ... - the next free number. */
 async function nextUntitledName(): Promise<string> {
   const rows = await prisma.steelPlan.findMany({ where: { name: { startsWith: "Untitled (" } }, select: { name: true } });
@@ -83,7 +97,11 @@ async function nextUntitledName(): Promise<string> {
 }
 
 /** The name is optional; without one the plan is called "Untitled (n)". */
-export async function createSteelPlan(name: string, projectId: string | null) {
+export async function createSteelPlan(
+  name: string,
+  projectId: string | null,
+  options?: { kerf: number; newBarLength: number }
+) {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
@@ -93,8 +111,7 @@ export async function createSteelPlan(name: string, projectId: string | null) {
         name: trimmed ? trimmed.slice(0, 120) : await nextUntitledName(),
         projectId: projectId || null,
         createdById: session.user.id,
-        kerf: DEFAULT_KERF_MM,
-        newBarLength: DEFAULT_NEW_BAR_LENGTH_MM,
+        ...cutDefaults(options),
       },
     });
     revalidatePath("/steel-cutting");
@@ -107,7 +124,12 @@ export async function createSteelPlan(name: string, projectId: string | null) {
 }
 
 /** A plan made straight from a dropped file: the pieces are saved with it. */
-export async function createSteelPlanWithParts(name: string, projectId: string | null, parts: SteelPartInput[]) {
+export async function createSteelPlanWithParts(
+  name: string,
+  projectId: string | null,
+  parts: SteelPartInput[],
+  options?: { kerf: number; newBarLength: number }
+) {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
@@ -124,7 +146,7 @@ export async function createSteelPlanWithParts(name: string, projectId: string |
         ...parsed.data,
         sectionY: needsY ? parsed.data.sectionY : null,
         thickness: parsed.data.thickness ?? null,
-        note: parsed.data.note || null,
+        note: noteFor(raw, parsed.data.note),
       });
     }
     const trimmed = name.trim();
@@ -133,8 +155,7 @@ export async function createSteelPlanWithParts(name: string, projectId: string |
         name: trimmed ? trimmed.slice(0, 120) : await nextUntitledName(),
         projectId: projectId || null,
         createdById: session.user.id,
-        kerf: DEFAULT_KERF_MM,
-        newBarLength: DEFAULT_NEW_BAR_LENGTH_MM,
+        ...cutDefaults(options),
         parts: { create: rows },
       },
     });
@@ -216,7 +237,7 @@ export async function addSteelParts(planId: string, parts: SteelPartInput[]) {
         ...parsed.data,
         sectionY: needsY ? parsed.data.sectionY : null,
         thickness: parsed.data.thickness ?? null,
-        note: parsed.data.note || null,
+        note: noteFor(raw, parsed.data.note),
       });
     }
     await prisma.steelPlanPart.createMany({ data: rows });
