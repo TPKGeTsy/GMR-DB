@@ -4,9 +4,9 @@ import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
+import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
 import {
-  parseSteelPdf,
   addSteelParts,
   deleteSteelPart,
   deleteSteelPlan,
@@ -181,37 +181,21 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
     setPreview(parseText(source));
   };
 
-  // Several files at once: every PDF is read on the server, any other file as
-  // text/CSV, and everything lands in one preview (same steel + length adds up).
-  const handleFiles = async (files: FileList | File[] | null | undefined) => {
-    const list = Array.from(files ?? []);
-    if (list.length === 0) return;
-    setBusy(true);
+  // The dropped files were already read (see useStagedFiles); here their rounds / chosen rows
+  // are applied and everything lands in one preview (same steel + length adds up).
+  const staged = useStagedFiles();
+  const previewFromFiles = () => {
+    const ready = staged.items.filter((i) => i.status === "ready");
+    if (ready.length === 0) return;
     setMessage(null);
-    setPreview(null);
-    const parts: SteelPartInput[] = [];
-    const skipped: SkippedRow[] = [];
-    const problems: string[] = [];
-    for (const file of list) {
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        const form = new FormData();
-        form.set("file", file);
-        const result = await parseSteelPdf(form);
-        if (!result.success) {
-          problems.push(`${file.name}: ${result.error}`);
-          continue;
-        }
-        parts.push(...result.parts.map((p) => ({ ...p, sources: [file.name.replace(/\.[^.]+$/, "")] })));
-        skipped.push(...result.skipped);
-      } else {
-        const read = parseText(await file.text());
-        parts.push(...read.parts.map((p) => ({ ...p, sources: [file.name.replace(/\.[^.]+$/, "")] })));
-        skipped.push(...read.skipped);
-      }
+    const parts = mergeParts(ready.flatMap((i) => finalParts(i, staged.state)));
+    const skipped: SkippedRow[] = ready.filter((i) => i.skipped > 0).map((i) => ({ line: `${i.file.name}: ข้าม ${i.skipped} แถว`, reason: "ข้อมูลไม่ครบ" }));
+    if (parts.length === 0) {
+      setMessage("ไม่มีรายการให้นำเข้า (ตรวจจำนวนรอบรายแถว)");
+      return;
     }
-    setBusy(false);
-    if (problems.length > 0) setMessage(problems.join(" · "));
-    if (parts.length > 0 || skipped.length > 0) setPreview({ parts: mergeParts(parts), skipped });
+    setPreview({ parts, skipped });
+    staged.clear();
   };
 
   const [dragging, setDragging] = useState(false);
@@ -238,38 +222,50 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
         นำเข้ารายการชิ้นงานจาก PDF (ตาราง BOM) / CSV
       </summary>
       <div className="mt-2 space-y-3">
-        <label
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-3 py-5 text-center text-xs ${
-            dragging ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-300 bg-white text-gray-500"
-          }`}
-        >
-          <span className="font-medium text-gray-700">ลากไฟล์ PDF / CSV มาวางที่นี่ (หลายไฟล์พร้อมกันได้) หรือคลิกเพื่อเลือกไฟล์</span>
-          <span className="mt-1">
-            PDF ต้องเป็นแบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) และมีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y, z
-            และ QTY ครบ เรียงเหล็กชนิดเดียวกันไว้ด้วยกัน ตามด้วยความยาวจากมากไปน้อย
-          </span>
-          <input
-            type="file"
-            multiple
-            accept="application/pdf,.pdf,.csv,.txt,.tsv"
-            disabled={busy}
-            onChange={(e) => {
-              handleFiles(e.target.files);
-              e.target.value = "";
+        <div className="grid gap-3 md:grid-cols-2">
+          <label
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
             }}
-            className="sr-only"
-          />
-        </label>
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              staged.add(e.dataTransfer.files);
+            }}
+            className={`flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-3 py-8 text-center text-xs ${
+              dragging ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-300 bg-white text-gray-500"
+            }`}
+          >
+            <span className="font-medium text-gray-700">ลากไฟล์ PDF / CSV มาวางที่นี่ (หลายไฟล์พร้อมกันได้) หรือคลิกเพื่อเลือกไฟล์</span>
+            <span className="mt-1">PDF ต้องเป็นแบบมีตัวหนังสือ (ไม่ใช่ภาพสแกน) และมีตาราง ITEM / QTY / DESCRIPTION / LENGTH ระบบเอาเฉพาะแถวที่มี x, y, z และ QTY ครบ</span>
+            <input
+              type="file"
+              multiple
+              accept="application/pdf,.pdf,.csv,.txt,.tsv"
+              disabled={busy}
+              onChange={(e) => {
+                staged.add(e.target.files);
+                e.target.value = "";
+              }}
+              className="sr-only"
+            />
+          </label>
+          <div className="space-y-2">
+            <SteelStagedFiles staged={staged} disabled={busy} />
+            {staged.items.length > 0 && (
+              <button
+                type="button"
+                onClick={previewFromFiles}
+                disabled={busy || staged.reading || !staged.items.some((i) => i.status === "ready")}
+                className={`${buttonClass} w-full justify-center`}
+              >
+                {staged.reading ? "กำลังอ่านไฟล์…" : "ดูตัวอย่างก่อนนำเข้า"}
+              </button>
+            )}
+          </div>
+        </div>
         <div>
           <p className="mb-1 text-xs text-gray-500">
             หรือวางข้อความที่ก๊อปจากตารางในแบบ / Excel / CSV เช่น <code>1 16 ST 75 x 75 x 2.3 1742</code> หรือ{" "}

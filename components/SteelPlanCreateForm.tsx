@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileUp, Plus } from "lucide-react";
-import { createSteelPlan, createSteelPlanWithParts, parseSteelPdf } from "@/app/actions/steel";
+import { createSteelPlan, createSteelPlanWithParts } from "@/app/actions/steel";
 import {
   DEFAULT_KERF_MM,
   DEFAULT_NEW_BAR_LENGTH_MM,
@@ -11,21 +11,18 @@ import {
   STEEL_TYPE_KEYS,
   matchesSizeFilter,
   mergeParts,
-  parseBomLines,
-  parsePartsCsv,
   parseSizeFilter,
   type SteelPartInput,
   type SteelType,
 } from "@/lib/steel";
 import BarLengthSelect from "./BarLengthSelect";
+import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 
 const fieldClass =
   "w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
 
 // BOX is only the "not specified" type kept for older plans.
 const PICKABLE_TYPES = STEEL_TYPE_KEYS.filter((k) => k !== "BOX");
-
-const baseName = (fileName: string) => fileName.replace(/\.[^.]+$/, "");
 
 /** Start a plan: set the options first (saw kerf, bar length, which steel to
  *  take), then drop one or many drawing PDFs / CSVs on the box. Several files
@@ -44,7 +41,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
+  const staged = useStagedFiles();
 
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : DEFAULT_KERF_MM;
   const options = { kerf: kerfValue, newBarLength: barLength };
@@ -62,35 +59,10 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     router.push(`/steel-cutting/${result.id}`);
   };
 
-  /** Reads one file into pieces to cut; a string is the reason it could not be read. */
-  const readFile = async (file: File): Promise<{ parts: SteelPartInput[]; skipped: number } | string> => {
-    let parts: SteelPartInput[];
-    let skipped: number;
-    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      const form = new FormData();
-      form.set("file", file);
-      const read = await parseSteelPdf(form);
-      if (!read.success) return read.error;
-      parts = read.parts;
-      skipped = read.skipped.length;
-    } else {
-      const text = await file.text();
-      const bom = parseBomLines(text.split(/\r?\n/));
-      if (bom.parts.length > 0) {
-        parts = bom.parts;
-        skipped = bom.skipped.length;
-      } else {
-        const csv = parsePartsCsv(text);
-        parts = csv.parts;
-        skipped = csv.errors.length;
-      }
-    }
-    // Remember which file each row came from.
-    return { parts: parts.map((p) => ({ ...p, sources: [baseName(file.name)] })), skipped };
-  };
-
-  const handleFiles = async (files: FileList | null | undefined) => {
-    const list = Array.from(files ?? []);
+  // The files were read when they were dropped; here the rounds / chosen rows are applied,
+  // the steel filter is applied, and the plan(s) are created.
+  const createFromFiles = async () => {
+    const list = staged.items.filter((i) => i.status === "ready");
     if (list.length === 0) return;
     setBusy(true);
     setError(null);
@@ -101,20 +73,15 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     const perFile: { name: string; parts: SteelPartInput[]; skipped: number }[] = [];
     const problems: string[] = [];
     let leftOut = 0;
-    for (const [index, file] of list.entries()) {
-      setProgress(list.length > 1 ? ` ${index + 1}/${list.length}` : "");
-      const read = await readFile(file);
-      if (typeof read === "string") {
-        problems.push(`${file.name}: ${read}`);
-        continue;
-      }
-      const kept = read.parts.filter(wanted);
-      leftOut += read.parts.length - kept.length;
+    for (const item of list) {
+      const all = finalParts(item, staged.state);
+      const kept = all.filter(wanted);
+      leftOut += all.length - kept.length;
       if (kept.length === 0) {
-        problems.push(`${file.name}: ไม่พบรายการที่ใช้ได้ (ต้องมี x, y, z, QTY และตรงกับตัวเลือกเหล็กที่เลือก)`);
+        problems.push(`${item.file.name}: ไม่มีรายการที่ใช้ได้ (ตรวจรอบรายแถว และตัวเลือกชนิด/ขนาดเหล็กด้านบน)`);
         continue;
       }
-      perFile.push({ name: file.name, parts: kept, skipped: read.skipped });
+      perFile.push({ name: item.file.name, parts: kept, skipped: item.skipped });
     }
 
     // One plan for everything (quantities of the same steel added up), or one per file.
@@ -141,6 +108,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
       created.push({ id: result.id, skipped: g.skipped });
     }
 
+    if (problems.length === 0) staged.clear();
     if (problems.length > 0) setError(problems.join("\n"));
     if (created.length === 1 && problems.length === 0) {
       router.push(`/steel-cutting/${created[0].id}${created[0].skipped > 0 ? `?skipped=${created[0].skipped}` : ""}`);
@@ -194,42 +162,56 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         </div>
         <label className="mt-3 inline-flex items-center gap-1.5 text-xs text-gray-700">
           <input type="checkbox" checked={mergeAll} onChange={(e) => setMergeAll(e.target.checked)} />
-          โยนหลายไฟล์ รวมเป็นแผนเดียว (เหล็กชนิดเดียวกันและยาวเท่ากันรวม QTY ให้) · ไม่ติ๊ก = 1 ไฟล์ 1 แผน
+          หลายไฟล์ รวมเป็นแผนเดียว (เหล็กชนิดเดียวกันและยาวเท่ากันรวม QTY ให้) · ไม่ติ๊ก = 1 ไฟล์ 1 แผน
         </label>
       </div>
 
-      <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          handleFiles(e.dataTransfer.files);
-        }}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center ${
-          dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
-        } ${busy ? "pointer-events-none opacity-60" : ""}`}
-      >
-        <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-        <span className="text-base font-semibold text-gray-800">
-          {busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)"}
-        </span>
-        <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · ไม่ต้องตั้งชื่อ ระบบสร้างให้ทันที</span>
-        <input
-          type="file"
-          multiple
-          accept="application/pdf,.pdf,.csv,.txt,.tsv"
-          className="sr-only"
-          disabled={busy}
-          onChange={(e) => {
-            handleFiles(e.target.files);
-            e.target.value = "";
+      <div className="grid gap-3 md:grid-cols-2">
+        <label
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
           }}
-        />
-      </label>
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            staged.add(e.dataTransfer.files);
+          }}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center ${
+            dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
+          } ${busy ? "pointer-events-none opacity-60" : ""}`}
+        >
+          <FileUp className="mb-2 h-8 w-8 text-orange-500" />
+          <span className="text-base font-semibold text-gray-800">ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)</span>
+          <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · วางเพิ่มทีหลังได้ · ไม่ต้องตั้งชื่อ</span>
+          <input
+            type="file"
+            multiple
+            accept="application/pdf,.pdf,.csv,.txt,.tsv"
+            className="sr-only"
+            disabled={busy}
+            onChange={(e) => {
+              staged.add(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+
+        <div className="space-y-2">
+          <SteelStagedFiles staged={staged} disabled={busy} />
+          {staged.items.length > 0 && (
+            <button
+              type="button"
+              onClick={createFromFiles}
+              disabled={busy || staged.reading || !staged.items.some((i) => i.status === "ready")}
+              className="inline-flex w-full items-center justify-center gap-1 rounded bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+            >
+              {busy ? "กำลังสร้างแผน…" : staged.reading ? "กำลังอ่านไฟล์…" : `สร้างแผนจาก ${staged.items.filter((i) => i.status === "ready").length} ไฟล์`}
+            </button>
+          )}
+        </div>
+      </div>
 
       <form onSubmit={createEmpty} className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-100 bg-white p-4 shadow">
         <label className="block min-w-[12rem] flex-1 text-xs text-gray-500">
