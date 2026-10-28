@@ -8,15 +8,21 @@ import PageHelp from "@/components/PageHelp";
 
 export const dynamic = "force-dynamic";
 
-export default async function SteelPlanPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SteelPlanPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ skipped?: string }>;
+}) {
   const { id } = await params;
+  const skippedCount = Math.max(0, Number((await searchParams).skipped) || 0);
   const [session, plan, projects] = await Promise.all([
     auth(),
     prisma.steelPlan.findUnique({
       where: { id },
       include: {
         parts: { orderBy: { createdAt: "asc" } },
-        stock: { orderBy: { createdAt: "asc" } },
         bars: true,
         project: { select: { createdById: true, members: { select: { userId: true } } } },
       },
@@ -55,15 +61,6 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
           cutLength: p.cutLength,
           quantity: p.quantity,
         }))}
-        stock={plan.stock.map((s) => ({
-          id: s.id,
-          steelType: s.steelType,
-          sectionX: s.sectionX,
-          sectionY: s.sectionY,
-          thickness: s.thickness,
-          length: s.length,
-          quantity: s.quantity,
-        }))}
         bars={plan.bars.map((b) => ({
           steelType: b.steelType,
           sectionX: b.sectionX,
@@ -73,6 +70,7 @@ export default async function SteelPlanPage({ params }: { params: Promise<{ id: 
         }))}
         projects={projects}
         canEdit={canEdit}
+        skippedCount={skippedCount}
       />
     </div>
   );

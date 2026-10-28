@@ -6,7 +6,15 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDocumentProxy } from "unpdf";
-import { STEEL_TYPES, isSteelType, parseBomLines, type SkippedRow, type SteelPartInput } from "@/lib/steel";
+import {
+  DEFAULT_KERF_MM,
+  DEFAULT_NEW_BAR_LENGTH_MM,
+  STEEL_TYPES,
+  isSteelType,
+  parseBomLines,
+  type SkippedRow,
+  type SteelPartInput,
+} from "@/lib/steel";
 
 const MAX_MM = 100000;
 const MAX_QTY = 10000;
@@ -63,14 +71,31 @@ function revalidatePlan(planId: string) {
   revalidatePath(`/steel-cutting/${planId}`);
 }
 
+/** "Untitled (1)", "Untitled (2)", ... - the next free number. */
+async function nextUntitledName(): Promise<string> {
+  const rows = await prisma.steelPlan.findMany({ where: { name: { startsWith: "Untitled (" } }, select: { name: true } });
+  let max = 0;
+  for (const { name } of rows) {
+    const m = /^Untitled \((\d+)\)$/.exec(name);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `Untitled (${max + 1})`;
+}
+
+/** The name is optional; without one the plan is called "Untitled (n)". */
 export async function createSteelPlan(name: string, projectId: string | null) {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
     const trimmed = name.trim();
-    if (!trimmed) return { success: false as const, error: "กรุณาใส่ชื่อแผน" };
     const plan = await prisma.steelPlan.create({
-      data: { name: trimmed.slice(0, 120), projectId: projectId || null, createdById: session.user.id },
+      data: {
+        name: trimmed ? trimmed.slice(0, 120) : await nextUntitledName(),
+        projectId: projectId || null,
+        createdById: session.user.id,
+        kerf: DEFAULT_KERF_MM,
+        newBarLength: DEFAULT_NEW_BAR_LENGTH_MM,
+      },
     });
     revalidatePath("/steel-cutting");
     if (projectId) revalidatePath(`/projects/${projectId}`);
@@ -81,28 +106,80 @@ export async function createSteelPlan(name: string, projectId: string | null) {
   }
 }
 
-export async function updateSteelPlanSettings(
-  planId: string,
-  data: { name: string; kerf: number; newBarLength: number; projectId: string | null }
-) {
+/** A plan made straight from a dropped file: the pieces are saved with it. */
+export async function createSteelPlanWithParts(name: string, projectId: string | null, parts: SteelPartInput[]) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+    if (parts.length === 0) return { success: false as const, error: "ไม่มีรายการที่ใช้ได้ในไฟล์" };
+    if (parts.length > 500) return { success: false as const, error: "ไฟล์มีรายการมากเกิน 500 รายการ" };
+    const rows = [];
+    for (const raw of parts) {
+      const parsed = partSchema.safeParse(raw);
+      if (!parsed.success) return { success: false as const, error: parsed.error.issues[0]?.message ?? "ข้อมูลไม่ถูกต้อง" };
+      const bad = checkSection(parsed.data.steelType, parsed.data.sectionY);
+      if (bad) return { success: false as const, error: bad };
+      const needsY = STEEL_TYPES[parsed.data.steelType as keyof typeof STEEL_TYPES].needsY;
+      rows.push({
+        ...parsed.data,
+        sectionY: needsY ? parsed.data.sectionY : null,
+        thickness: parsed.data.thickness ?? null,
+        note: parsed.data.note || null,
+      });
+    }
+    const trimmed = name.trim();
+    const plan = await prisma.steelPlan.create({
+      data: {
+        name: trimmed ? trimmed.slice(0, 120) : await nextUntitledName(),
+        projectId: projectId || null,
+        createdById: session.user.id,
+        kerf: DEFAULT_KERF_MM,
+        newBarLength: DEFAULT_NEW_BAR_LENGTH_MM,
+        parts: { create: rows },
+      },
+    });
+    revalidatePath("/steel-cutting");
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    return { success: true as const, id: plan.id };
+  } catch (error) {
+    logError("Error creating steel plan from file:", error);
+    return { success: false as const, error: "สร้างแผนไม่สำเร็จ" };
+  }
+}
+
+/** Plan name (blank keeps the current one) and project. */
+export async function updateSteelPlanSettings(planId: string, data: { name: string; projectId: string | null }) {
   try {
     const check = await canEditPlan(planId);
     if (!("ok" in check)) return check;
-    const name = data.name.trim();
-    if (!name) return { success: false, error: "กรุณาใส่ชื่อแผน" };
-    if (!(data.kerf >= 0 && data.kerf <= 100)) return { success: false, error: "ความหนาใบเลื่อยไม่ถูกต้อง" };
-    if (!(data.newBarLength > 0 && data.newBarLength <= MAX_MM)) return { success: false, error: "ความยาวเหล็กที่ซื้อไม่ถูกต้อง" };
     const before = await prisma.steelPlan.findUnique({ where: { id: planId }, select: { projectId: true } });
+    const name = data.name.trim();
     await prisma.steelPlan.update({
       where: { id: planId },
-      data: { name: name.slice(0, 120), kerf: data.kerf, newBarLength: data.newBarLength, projectId: data.projectId || null },
+      data: { ...(name ? { name: name.slice(0, 120) } : {}), projectId: data.projectId || null },
     });
     revalidatePlan(planId);
     for (const id of [before?.projectId, data.projectId]) if (id) revalidatePath(`/projects/${id}`);
     return { success: true };
   } catch (error) {
     logError("Error updating steel plan:", error);
-    return { success: false, error: "บันทึกการตั้งค่าไม่สำเร็จ" };
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+/** Saw-blade kerf and the plan's standard bar length. */
+export async function updateSteelPlanCutSettings(planId: string, data: { kerf: number; newBarLength: number }) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (!(data.kerf >= 0 && data.kerf <= 100)) return { success: false, error: "ระยะตัดไม่ถูกต้อง" };
+    if (!(data.newBarLength > 0 && data.newBarLength <= MAX_MM)) return { success: false, error: "ความยาวเหล็กไม่ถูกต้อง" };
+    await prisma.steelPlan.update({ where: { id: planId }, data: { kerf: data.kerf, newBarLength: data.newBarLength } });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error updating steel cut settings:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
   }
 }
 

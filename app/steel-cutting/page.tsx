@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Ruler, Briefcase } from "lucide-react";
 import SteelPlanCreateForm from "@/components/SteelPlanCreateForm";
 import PageHelp from "@/components/PageHelp";
-import { formatThaiDate } from "@/lib/datetime";
+import { formatThaiDateTime } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export default async function SteelCuttingPage() {
       include: {
         project: { select: { id: true, name: true } },
         createdBy: { select: { username: true, fullName: true, nickname: true } },
-        _count: { select: { parts: true, stock: true } },
+        _count: { select: { parts: true } },
       },
     }),
     prisma.project.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -41,8 +41,8 @@ export default async function SteelCuttingPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-900">{p.name}</p>
                     <p className="text-xs text-gray-500">
-                      {p._count.parts} รายการตัด · {p._count.stock} รายการเหล็กที่มี · โดย{" "}
-                      {p.createdBy.nickname || p.createdBy.fullName || p.createdBy.username} · แก้ไขล่าสุด {formatThaiDate(p.updatedAt)}
+                      {p._count.parts} รายการตัด · โดย {p.createdBy.nickname || p.createdBy.fullName || p.createdBy.username} · บันทึกเมื่อ{" "}
+                      {formatThaiDateTime(p.updatedAt)}
                     </p>
                   </div>
                   {p.project && (

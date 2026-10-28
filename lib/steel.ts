@@ -14,8 +14,10 @@ export const STEEL_TYPES = {
 export type SteelType = keyof typeof STEEL_TYPES;
 export const STEEL_TYPE_KEYS = Object.keys(STEEL_TYPES) as SteelType[];
 
-export const DEFAULT_KERF_MM = 3;
+export const DEFAULT_KERF_MM = 5;
 export const DEFAULT_NEW_BAR_LENGTH_MM = 6000;
+/** Bar lengths offered in the list: 1,000 - 20,000 mm in steps of 1,000. */
+export const BAR_LENGTH_OPTIONS = Array.from({ length: 20 }, (_, i) => (i + 1) * 1000);
 
 export interface SteelProfile {
   steelType: string;
