@@ -5,8 +5,12 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Ruler } from "lucide-react";
 import SteelPlanEditor from "@/components/SteelPlanEditor";
 import PageHelp from "@/components/PageHelp";
+import SteelHardwarePanel from "@/components/SteelHardwarePanel";
+import SteelSheetPanel, { type SheetPartRow } from "@/components/SteelSheetPanel";
 
 export const dynamic = "force-dynamic";
+// Reading a picture with the vision model can take a while.
+export const maxDuration = 60;
 
 export default async function SteelPlanPage({
   params,
@@ -24,6 +28,8 @@ export default async function SteelPlanPage({
       include: {
         parts: { orderBy: { createdAt: "asc" } },
         bars: true,
+        hardware: { orderBy: { createdAt: "asc" } },
+        sheetParts: { orderBy: { createdAt: "asc" } },
         project: { select: { createdById: true, members: { select: { userId: true } } } },
       },
     }),
@@ -72,7 +78,21 @@ export default async function SteelPlanPage({
         projects={projects}
         canEdit={canEdit}
         skippedCount={skippedCount}
-      />
+      >
+        <SteelHardwarePanel
+          planId={plan.id}
+          canEdit={canEdit}
+          rows={plan.hardware.map((h) => ({
+            id: h.id,
+            itemNo: h.itemNo,
+            partNumber: h.partNumber,
+            description: h.description,
+            quantity: h.quantity,
+            category: h.category,
+          }))}
+        />
+        <SteelSheetPanel planId={plan.id} canEdit={canEdit} parts={plan.sheetParts.map((p) => ({ ...p, features: p.features, steps: p.steps, geometry: p.geometry }) as unknown as SheetPartRow)} />
+      </SteelPlanEditor>
     </div>
   );
 }

@@ -603,6 +603,7 @@ export default function SteelPlanEditor({
   projects,
   canEdit,
   skippedCount,
+  children,
 }: {
   plan: { id: string; name: string; kerf: number; newBarLength: number; projectId: string | null };
   parts: EditorPart[];
@@ -610,6 +611,8 @@ export default function SteelPlanEditor({
   projects: { id: string; name: string }[];
   canEdit: boolean;
   skippedCount: number;
+  /** Extra sections (parts list picture, DXF parts) shown above the results. */
+  children?: React.ReactNode;
 }) {
   const router = useRouter();
   const refresh = () => router.refresh();
@@ -803,6 +806,8 @@ export default function SteelPlanEditor({
           </div>
         )}
       </section>
+
+      {children}
 
       <CutResults planName={plan.name} result={result} kerf={kerfValue} standard={standard} />
     </div>

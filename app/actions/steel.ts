@@ -5,6 +5,7 @@ import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { canEditPlan } from "@/lib/steelAccess";
 import { getDocumentProxy } from "unpdf";
 import {
   DEFAULT_KERF_MM,
@@ -46,24 +47,6 @@ function checkSection(steelType: string, sectionY: number | null): string | null
   if (!isSteelType(steelType)) return "ประเภทเหล็กไม่ถูกต้อง";
   if (STEEL_TYPES[steelType].needsY && sectionY === null) return "เหล็กประเภทนี้ต้องใส่ค่า y";
   return null;
-}
-
-/** The creator, an admin, or a member of the plan's project can change a plan. */
-async function canEditPlan(planId: string): Promise<{ ok: true; userId: string } | Fail> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { success: false, error: "Unauthorized" };
-  const plan = await prisma.steelPlan.findUnique({
-    where: { id: planId },
-    select: { createdById: true, project: { select: { createdById: true, members: { select: { userId: true } } } } },
-  });
-  if (!plan) return { success: false, error: "ไม่พบแผนนี้" };
-  const isOwner = plan.createdById === userId;
-  const isAdmin = session.user.role === "ADMIN";
-  const inProject =
-    !!plan.project && (plan.project.createdById === userId || plan.project.members.some((m) => m.userId === userId));
-  if (!isOwner && !isAdmin && !inProject) return { success: false, error: "ไม่มีสิทธิ์แก้ไขแผนนี้" };
-  return { ok: true, userId };
 }
 
 function revalidatePlan(planId: string) {

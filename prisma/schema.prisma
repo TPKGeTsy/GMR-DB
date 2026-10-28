@@ -782,20 +782,22 @@ model ModbusWebActivity {
 // on hand. The bar layout itself is computed on the fly (lib/steel.ts), not
 // stored. A plan can be attached to a project.
 model SteelPlan {
-  id           String           @id @default(cuid())
+  id           String               @id @default(cuid())
   name         String
-  projectId    String?          @map("project_id")
-  project      Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdById  String           @map("created_by_id")
-  createdBy    User             @relation(fields: [createdById], references: [id])
-  kerf         Float            @default(3) // mm lost to the saw blade per cut
-  newBarLength Float            @default(6000) @map("new_bar_length") // mm, bars bought when stock runs out
+  projectId    String?              @map("project_id")
+  project      Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdById  String               @map("created_by_id")
+  createdBy    User                 @relation(fields: [createdById], references: [id])
+  kerf         Float                @default(3) // mm lost to the saw blade per cut
+  newBarLength Float                @default(6000) @map("new_bar_length") // mm, bars bought when stock runs out
   note         String?
-  createdAt    DateTime         @default(now()) @map("created_at")
-  updatedAt    DateTime         @updatedAt @map("updated_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
   parts        SteelPlanPart[]
   stock        SteelPlanStock[]
   bars         SteelPlanBar[]
+  hardware     SteelPlanHardware[]
+  sheetParts   SteelPlanSheetPart[]
 
   @@map("steel_plans")
 }
@@ -845,4 +847,38 @@ model SteelPlanBar {
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@map("steel_plan_bars")
+}
+
+// Screws / nuts / washers and other rows read from a picture of a parts list.
+model SteelPlanHardware {
+  id          String    @id @default(cuid())
+  planId      String    @map("plan_id")
+  plan        SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  itemNo      Int?      @map("item_no")
+  partNumber  String    @map("part_number")
+  description String    @default("")
+  quantity    Int
+  category    String // screw | nut | washer | steel | plate | other
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("steel_plan_hardware")
+}
+
+// A flat pattern read from a DXF file: size, features, suggested cutting order.
+model SteelPlanSheetPart {
+  id         String    @id @default(cuid())
+  planId     String    @map("plan_id")
+  plan       SteelPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name       String
+  sourceFile String    @map("source_file")
+  width      Float // mm
+  height     Float // mm
+  thickness  Float? // mm, typed by the user (not in the file)
+  quantity   Int
+  features   Json // [{ kind, size, center }]
+  steps      Json // [{ step, kind, label }]
+  geometry   Json // { loops: [[x, y]...][], bends: [[a, b]...] }
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@map("steel_plan_sheet_parts")
 }
