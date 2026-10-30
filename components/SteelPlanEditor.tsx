@@ -597,6 +597,35 @@ function CutResults({
                   <p className="mb-3 text-gray-600" style={{ fontSize: font - 1 }}>
                     {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {formatLengthWithUnit(p.wasteLength, unit)}
                   </p>
+                  <table className="mb-3 border border-black text-left" style={{ fontSize: font - 1 }}>
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-black px-2 py-0.5">ความยาว</th>
+                        <th className="border border-black px-2 py-0.5 text-right">จำนวน (ชิ้น)</th>
+                        <th className="border border-black px-2 py-0.5 text-right">ยาวรวม</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lengths.map((len) => {
+                        const count = p.bars.reduce((n, b) => n + b.cuts.filter((c) => c === len).length, 0);
+                        return (
+                          <tr key={len}>
+                            <td className="border border-black px-2 py-0.5 font-semibold">
+                              <span className="mr-1.5 inline-block h-3 w-3 border border-black align-middle" style={{ background: PIECE_COLORS[lengths.indexOf(len) % PIECE_COLORS.length] }} />
+                              {formatLengthWithUnit(len, unit)}
+                            </td>
+                            <td className="border border-black px-2 py-0.5 text-right">{count}</td>
+                            <td className="border border-black px-2 py-0.5 text-right">{formatLengthWithUnit(len * count, unit)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="bg-gray-50 font-bold">
+                        <td className="border border-black px-2 py-0.5">รวม</td>
+                        <td className="border border-black px-2 py-0.5 text-right">{p.piecesTotal}</td>
+                        <td className="border border-black px-2 py-0.5 text-right">{formatLengthWithUnit(p.usedLength, unit)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                   {p.tooLong.length > 0 && (
                     <p className="mb-2 text-red-600" style={{ fontSize: font - 1 }}>
                       ยาวเกินเหล็ก: {p.tooLong.map((n) => formatLengthWithUnit(n, unit)).join(", ")}
