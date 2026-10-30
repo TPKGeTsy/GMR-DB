@@ -4,6 +4,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
+import { filesFromDrop, isDataFile } from "@/lib/dropFiles";
 import { useDisplayUnit } from "./useDisplayUnit";
 import { UNITS, UNIT_KEYS, formatLength, formatLengthWithUnit, type Unit } from "@/lib/units";
 import { ImportedFiles, PartRow, applyPartPatch, type PartPatch } from "./SteelPartRows";
@@ -242,7 +243,7 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
             onDrop={(e) => {
               e.preventDefault();
               setDragging(false);
-              staged.add(e.dataTransfer.files);
+              filesFromDrop(e.dataTransfer, isDataFile).then(staged.add);
             }}
             className={`flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-3 py-8 text-center text-xs ${
               dragging ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-300 bg-white text-gray-500"

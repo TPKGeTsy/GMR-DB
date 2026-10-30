@@ -16,6 +16,7 @@ import {
   type SteelType,
 } from "@/lib/steel";
 import BarLengthSelect from "./BarLengthSelect";
+import { filesFromDrop, isDataFile } from "@/lib/dropFiles";
 import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 
 const fieldClass =
@@ -176,14 +177,14 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            staged.add(e.dataTransfer.files);
+            filesFromDrop(e.dataTransfer, isDataFile).then(staged.add);
           }}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center ${
             dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
           } ${busy ? "pointer-events-none opacity-60" : ""}`}
         >
           <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-          <span className="text-base font-semibold text-gray-800">ลากไฟล์ PDF / CSV มาวางตรงนี้ (หลายไฟล์พร้อมกันได้)</span>
+          <span className="text-base font-semibold text-gray-800">ลากไฟล์ PDF / CSV หรือทั้งโฟลเดอร์มาวางตรงนี้</span>
           <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · วางเพิ่มทีหลังได้ · ไม่ต้องตั้งชื่อ</span>
           <input
             type="file"

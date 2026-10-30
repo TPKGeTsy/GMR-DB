@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Minus, Plus, Printer } from "lucide-react";
+import Link from "next/link";
+import { ListOrdered, Minus, Plus, Printer } from "lucide-react";
 import { setNestDone } from "@/app/actions/steelSources";
 import { SHEET_PRESETS, groupIdenticalSheets, loopArea, nest, shapesOnSheet, type NestResultGroup, type Placed } from "@/lib/nesting";
 import type { SheetPartRow } from "./SteelSheetPanel";
@@ -147,6 +148,13 @@ export default function SteelNestingPanel({
     <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">วางชิ้นแผ่นลงแผ่นเหล็ก</h2>
+        <Link
+          href={`/steel-cutting/${planId}/cut?w=${sheetWidth}&h=${sheetHeight}&gap=${gapValue}&rot=${allowRotate ? 1 : 0}`}
+          className="inline-flex items-center gap-1 rounded border border-orange-600 px-3 py-1.5 text-sm font-semibold text-orange-700 hover:bg-orange-50 print:hidden"
+        >
+          <ListOrdered className="h-4 w-4" />
+          เปิดใบสั่งตัด (ขั้นตอน 1, 2, 3 …)
+        </Link>
         <button
           type="button"
           onClick={() => window.print()}

@@ -6,6 +6,7 @@ import { FileUp, Trash2 } from "lucide-react";
 import { addDxfPart, deleteSheetPart, updateSheetPart } from "@/app/actions/steelSources";
 import type { CutStep, Pt } from "@/lib/dxf";
 import { usePrintSection } from "./PrintLayout";
+import { filesFromDrop, isDxf } from "@/lib/dropFiles";
 
 export interface SheetPartRow {
   id: string;
@@ -149,8 +150,8 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
   const [problems, setProblems] = useState<string[]>([]);
   const print = usePrintSection("dxfParts");
 
-  const handleFiles = async (files: FileList | null | undefined) => {
-    const list = Array.from(files ?? []);
+  const handleFiles = async (files: FileList | File[] | null | undefined) => {
+    const list = Array.from(files ?? []).filter(isDxf);
     if (list.length === 0) return;
     setBusy(true);
     setProblems([]);
@@ -184,20 +185,38 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            handleFiles(e.dataTransfer.files);
+            filesFromDrop(e.dataTransfer, isDxf).then(handleFiles);
           }}
           className={`mb-3 flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed px-4 py-6 text-center print:hidden ${
             dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
           } ${busy ? "pointer-events-none opacity-60" : ""}`}
         >
           <FileUp className="mb-1 h-6 w-6 text-orange-500" />
-          <span className="text-sm font-semibold text-gray-800">{busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ DXF มาวาง (หลายไฟล์ได้) หรือคลิกเพื่อเลือก"}</span>
+          <span className="text-sm font-semibold text-gray-800">{busy ? `กำลังอ่านไฟล์${progress}…` : "ลากไฟล์ DXF หรือทั้งโฟลเดอร์มาวาง · หรือคลิกเพื่อเลือกไฟล์"}</span>
+          <span className="mt-1 text-xs text-gray-500">โฟลเดอร์ที่วางจะเปิดอ่านทุกไฟล์ .dxf ข้างใน (รวมโฟลเดอร์ย่อย)</span>
           <input
             type="file"
             multiple
             accept=".dxf"
             className="sr-only"
             disabled={busy}
+            onChange={(e) => {
+              handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      )}
+
+      {canEdit && (
+        <label className="mb-3 inline-flex cursor-pointer items-center gap-1 text-xs text-orange-700 hover:underline print:hidden">
+          <FileUp className="h-3.5 w-3.5" />
+          เลือกทั้งโฟลเดอร์
+          <input
+            type="file"
+            className="sr-only"
+            disabled={busy}
+            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
             onChange={(e) => {
               handleFiles(e.target.files);
               e.target.value = "";
