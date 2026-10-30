@@ -63,6 +63,7 @@ export default async function CarBookingPage() {
     isApprover ? getPendingBookings() : Promise.resolve({ success: false as const, data: undefined }),
     isLoggedIn ? getUpcomingBookings() : Promise.resolve({ success: false as const, data: undefined }),
   ]);
+  
 
   const vehicles: Vehicle[] = vehiclesResult.success && vehiclesResult.data ? vehiclesResult.data : [];
   const myBookings: MyBooking[] = myBookingsResult.success && myBookingsResult.data ? myBookingsResult.data : [];
