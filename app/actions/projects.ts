@@ -9,6 +9,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { validateProjectFile } from "@/lib/uploads";
 import { saveUploadedFile, deleteUploadedFile } from "@/lib/storage";
 import { z } from "zod";
+import { isDateKey } from "@/lib/projectTasks";
 
 const createProjectSchema = z
   .object({
@@ -309,5 +310,67 @@ export async function deleteProjectFile(fileId: string) {
   } catch (error) {
     logError("Error deleting project file:", error);
     return { success: false, error: "ลบไฟล์ไม่สำเร็จ" };
+  }
+}
+
+const taskSchema = z
+  .object({
+    projectId: z.string().min(1),
+    userId: z.string().min(1),
+    duty: z.string().trim().min(1, "กรุณาเลือกหรือพิมพ์หน้าที่").max(80),
+    note: z.string().trim().max(200).optional(),
+    startKey: z.string().refine(isDateKey, "วันเริ่มไม่ถูกต้อง"),
+    endKey: z.string().refine(isDateKey, "วันสิ้นสุดไม่ถูกต้อง"),
+  })
+  .refine((d) => d.endKey >= d.startKey, { message: "วันสิ้นสุดต้องไม่ก่อนวันเริ่ม", path: ["endKey"] });
+
+async function requireManager(projectId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+  return (await canManageProject(projectId, session.user.id, session.user.role)) ? session.user : null;
+}
+
+export async function addProjectTask(input: z.input<typeof taskSchema>) {
+  try {
+    const parsed = taskSchema.safeParse(input);
+    if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
+    const d = parsed.data;
+    if (!(await requireManager(d.projectId))) return { success: false, error: "Unauthorized" };
+    if (!(await isProjectMember(d.projectId, d.userId))) return { success: false, error: "คนนี้ไม่ได้อยู่ในทีม" };
+    await prisma.projectTask.create({
+      data: { projectId: d.projectId, userId: d.userId, duty: d.duty, note: d.note || null, startKey: d.startKey, endKey: d.endKey },
+    });
+    revalidatePath(`/projects/${d.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error adding project task:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+export async function deleteProjectTask(taskId: string) {
+  try {
+    const task = await prisma.projectTask.findUnique({ where: { id: taskId }, select: { projectId: true } });
+    if (!task) return { success: false, error: "ไม่พบงานนี้" };
+    if (!(await requireManager(task.projectId))) return { success: false, error: "Unauthorized" };
+    await prisma.projectTask.delete({ where: { id: taskId } });
+    revalidatePath(`/projects/${task.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting project task:", error);
+    return { success: false, error: "ลบไม่สำเร็จ" };
+  }
+}
+
+export async function setMemberCapacity(projectId: string, userId: string, capacity: number) {
+  try {
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return { success: false, error: "ต้องเป็นเลข 1–20" };
+    if (!(await requireManager(projectId))) return { success: false, error: "Unauthorized" };
+    await prisma.projectMember.update({ where: { projectId_userId: { projectId, userId } }, data: { dailyCapacity: capacity } });
+    revalidatePath(`/projects/${projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting capacity:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
   }
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { dailyTaskMessage } from "@/lib/projectTasks";
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { auth } from "@/auth";
@@ -513,6 +514,8 @@ export async function recordCheckIn(
         );
       }
     }
+
+    if (type === "IN" && user.lineUserId) await sendTodayTasks(userId, user.lineUserId, checkIn.createdAt);
 
     revalidatePath(`/users/${userId}`);
     revalidatePath("/attendance");
@@ -1260,5 +1263,25 @@ export async function setMealCounted(checkInId: string, mealCounted: boolean) {
   } catch (error) {
     logError("Error setting meal counted:", error);
     return { success: false, error: "แก้ไขไม่สำเร็จ" };
+  }
+}
+
+/** After a check-in: LINE the person what they are planned to do today, per project (nothing if no tasks). */
+async function sendTodayTasks(userId: string, lineUserId: string, at: Date) {
+  try {
+    const today = bangkokDateKey(at);
+    const rows = await prisma.projectTask.findMany({
+      where: { userId, startKey: { lte: today }, endKey: { gte: today } },
+      orderBy: { startKey: "asc" },
+      select: { duty: true, note: true, endKey: true, project: { select: { name: true, status: true } } },
+    });
+    const text = dailyTaskMessage(
+      rows
+        .filter((r) => r.project.status === "ACTIVE")
+        .map((r) => ({ projectName: r.project.name, duty: r.duty, note: r.note, endKey: r.endKey }))
+    );
+    if (text) await pushLineMessage(lineUserId, text);
+  } catch (error) {
+    logError("Error sending today's tasks:", error, { userId });
   }
 }

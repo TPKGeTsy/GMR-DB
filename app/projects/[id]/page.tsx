@@ -4,13 +4,14 @@ import { auth } from "@/auth";
 import ProjectMemberManager from "@/components/ProjectMemberManager";
 import ProjectStatusSelect from "@/components/ProjectStatusSelect";
 import ProjectCircuitManager from "@/components/ProjectCircuitManager";
+import ProjectGantt from "@/components/ProjectGantt";
 import ProjectFileManager from "@/components/ProjectFileManager";
 import DeadlineBadge from "@/components/DeadlineBadge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Users, Calendar, Briefcase, Cpu, Paperclip, Ruler } from "lucide-react";
+import { CalendarRange, ArrowLeft, Users, Calendar, Briefcase, Cpu, Paperclip, Ruler } from "lucide-react";
 import prisma from "@/lib/prisma";
-import { formatThaiDate } from "@/lib/datetime";
+import { bangkokDateKey, formatThaiDate } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,19 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     orderBy: { updatedAt: "desc" },
     select: { id: true, name: true, _count: { select: { parts: true } } },
   });
+
+  const projectTasks = await prisma.projectTask.findMany({
+    where: { projectId: id },
+    orderBy: [{ startKey: "asc" }, { createdAt: "asc" }],
+    select: { id: true, userId: true, duty: true, note: true, startKey: true, endKey: true },
+  });
+  const ganttMembers = project.members.map(
+    (m: { userId: string; dailyCapacity: number; user: { fullName?: string | null; nickname?: string | null; username: string } }) => ({
+      userId: m.userId,
+      name: m.user.nickname || m.user.fullName || m.user.username,
+      dailyCapacity: m.dailyCapacity,
+    })
+  );
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -96,6 +110,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             members={project.members}
             allUsers={allUsers}
             ownerId={project.createdById}
+            canManage={canManage}
+          />
+        </div>
+
+        <div className="bg-white p-6 shadow rounded-lg border border-gray-100 md:col-span-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+            <CalendarRange className="w-4 h-4 mr-1.5" />
+            แผนงาน / หน้าที่ (Gantt) ({projectTasks.length})
+          </h2>
+          <ProjectGantt
+            projectId={project.id}
+            members={ganttMembers}
+            tasks={projectTasks}
+            todayKey={bangkokDateKey(new Date())}
             canManage={canManage}
           />
         </div>

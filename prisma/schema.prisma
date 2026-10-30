@@ -85,6 +85,7 @@ model User {
   approvedBookings           Booking[]               @relation("BookingApprover")
   createdProjects            Project[]               @relation("ProjectCreator")
   projectMemberships         ProjectMember[]
+  projectTasks               ProjectTask[]           @relation("UserProjectTasks")
   workSchedules              WorkSchedule[]
   leaveRequests              LeaveRequest[]          @relation("LeaveRequester")
   approvedLeaveRequests      LeaveRequest[]          @relation("LeaveApprover")
@@ -124,6 +125,7 @@ model Project {
   files       ProjectFile[]
   laborHires  OutsideLaborHire[]
   steelPlans  SteelPlan[]
+  tasks       ProjectTask[]
 
   @@map("projects")
 }
@@ -153,9 +155,29 @@ model ProjectMember {
   userId    String   @map("user_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   addedAt   DateTime @default(now()) @map("added_at")
+  // How many tasks this person can run side by side in one day (planning note; the Gantt warns above it).
+  dailyCapacity Int    @default(1) @map("daily_capacity")
 
   @@unique([projectId, userId])
   @@map("project_members")
+}
+
+// One planned duty of a person on a project, over a range of days (Bangkok date keys, inclusive).
+model ProjectTask {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation("UserProjectTasks", fields: [userId], references: [id], onDelete: Cascade)
+  duty      String
+  note      String?
+  startKey  String   @map("start_key")
+  endKey    String   @map("end_key")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@index([userId, startKey, endKey])
+  @@map("project_tasks")
 }
 
 model WorkSchedule {
