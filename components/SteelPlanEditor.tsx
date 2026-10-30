@@ -597,21 +597,6 @@ function CutResults({
                   <p className="mb-3 text-gray-600" style={{ fontSize: font - 1 }}>
                     {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {formatLengthWithUnit(p.wasteLength, unit)}
                   </p>
-                  <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-900" style={{ fontSize: font - 1 }}>
-                    {lengths.map((len) => {
-                      const count = p.bars.reduce((n, b) => n + b.cuts.filter((c) => c === len).length, 0);
-                      return (
-                        <span key={len} className="whitespace-nowrap">
-                          <span className="mr-1 inline-block h-3 w-3 border border-black align-middle" style={{ background: PIECE_COLORS[lengths.indexOf(len) % PIECE_COLORS.length] }} />
-                          {formatLengthWithUnit(len, unit)} × {count}
-                          <span className="text-gray-500"> = {formatLengthWithUnit(len * count, unit)}</span>
-                        </span>
-                      );
-                    })}
-                    <span className="whitespace-nowrap font-bold">
-                      รวม {p.piecesTotal} ชิ้น = {formatLengthWithUnit(p.usedLength, unit)}
-                    </span>
-                  </p>
                   {p.tooLong.length > 0 && (
                     <p className="mb-2 text-red-600" style={{ fontSize: font - 1 }}>
                       ยาวเกินเหล็ก: {p.tooLong.map((n) => formatLengthWithUnit(n, unit)).join(", ")}
@@ -653,6 +638,20 @@ function CutResults({
                             </>
                           )}
                         </div>
+                        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-gray-800" style={{ fontSize: font - 1 }}>
+                          {[...new Set(b.cuts)].map((len) => {
+                            const n = b.cuts.filter((c) => c === len).length;
+                            return (
+                              <span key={len} className="whitespace-nowrap">
+                                {formatLengthWithUnit(len, unit)} × {n}
+                                <span className="text-gray-500"> = {formatLengthWithUnit(len * n, unit)}</span>
+                              </span>
+                            );
+                          })}
+                          <span className="whitespace-nowrap font-bold">
+                            รวม {b.cuts.length} ชิ้น = {formatLengthWithUnit(b.cuts.reduce((sum, c) => sum + c, 0), unit)}
+                          </span>
+                        </p>
                       </li>
                     ))}
                   </ul>
