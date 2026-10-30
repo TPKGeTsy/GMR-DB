@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, MouseEvent, ReactNode } from 'react';
+import { useState, useCallback, useEffect, useMemo, MouseEvent, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ReactFlow,
@@ -26,8 +26,9 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-  Puzzle, Palette, Cpu, Thermometer, MemoryStick, Type as TypeIcon,
-  Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Grid3x3, Trash2, Save, Check, Loader2
+  Puzzle, Palette, Cpu, MemoryStick, Type as TypeIcon,
+  Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Grid3x3, Trash2, Save, Check, Loader2,
+  Search, ShieldCheck, TriangleAlert, CircleAlert
 } from 'lucide-react';
 
 import ESP32Node from '@/components/ESP32Node';
@@ -35,6 +36,10 @@ import SensorANode from '@/components/SenserANode';
 import ConfigurableNode from '@/components/ConfigurableNode';
 import TextNode from '@/components/TextNode';
 import EditableEdge from '@/components/EditableEdge';
+import BoardNode, { symbolSize } from '@/components/circuit/BoardNode';
+import { CATEGORIES, KIND_COLORS, KIND_LABELS, type ComponentDef } from '@/lib/circuit/types';
+import { COMPONENTS, getComponent, searchComponents } from '@/lib/circuit/library';
+import { checkWiring } from '@/lib/circuit/check';
 import { createSandboxDiagram, updateSandboxDiagram } from '@/app/actions/wiring';
 
 const nodeTypes: NodeTypes = {
@@ -42,26 +47,12 @@ const nodeTypes: NodeTypes = {
   sensorA: SensorANode,
   userBoard: ConfigurableNode,
   text: TextNode,
+  board: BoardNode,
 };
 
 const defaultNodes: Node[] = [
-  { id: 'my_esp32_board', type: 'esp32', position: { x: 100, y: 100 }, data: { label: 'ESP32 DevKit V1' } },
-  { id: 'my_sensor_a', type: 'sensorA', position: { x: 450, y: 100 }, data: { label: 'Sensor A (DHT11)' } },
-  {
-    id: 'my_custom_chip',
-    type: 'userBoard',
-    position: { x: 600, y: 100 },
-    data: {
-      label: 'IC-74HC595',
-      width: 220,
-      height: 180,
-      pins: [
-        { id: 'p_vcc', name: 'VCC', position: 'Left', top: 50, color: '#ef4444' },
-        { id: 'p_gnd', name: 'GND', position: 'Left', top: 90, color: '#94a3b8' },
-        { id: 'p_out', name: 'QA', position: 'Right', top: 50, color: '#34d399' }
-      ]
-    }
-  }
+  { id: 'board_esp32_start', type: 'board', position: { x: 80, y: 60 }, data: { libraryId: 'esp32-devkit-v1' } },
+  { id: 'board_dht22_start', type: 'board', position: { x: 520, y: 140 }, data: { libraryId: 'dht22' } },
 ];
 
 const defaultEdges: Edge[] = [];
@@ -78,8 +69,6 @@ const wireColors = [
 ];
 
 const componentDefs = [
-  { type: 'esp32' as const, label: 'ESP32 DevKit V1', icon: Cpu, iconBg: 'bg-slate-700' },
-  { type: 'sensorA' as const, label: 'Sensor A (DHT11)', icon: Thermometer, iconBg: 'bg-sky-700' },
   { type: 'userBoard' as const, label: 'Custom IC', icon: MemoryStick, iconBg: 'bg-amber-600' },
   { type: 'text' as const, label: 'Text / Note', icon: TypeIcon, iconBg: 'bg-gray-500' },
 ];
@@ -138,6 +127,46 @@ function tabClass(active: boolean) {
   }`;
 }
 
+function CheckPanel({
+  issues,
+  onFocus,
+}: {
+  issues: ReturnType<typeof checkWiring>;
+  onFocus: (edgeId: string) => void;
+}) {
+  const ordered = [...issues].sort((a, b) => Number(b.severity === 'error') - Number(a.severity === 'error'));
+  return (
+    <div className="space-y-3">
+      {ordered.length === 0 ? (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+          <ShieldCheck className="h-4 w-4 shrink-0" />
+          ไม่พบปัญหาในสายที่ต่อระหว่างอุปกรณ์จากไลบรารี
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {ordered.map((i, idx) => (
+            <li key={idx}>
+              <button
+                onClick={() => i.edgeId && onFocus(i.edgeId)}
+                className={`w-full rounded-lg border p-2 text-left text-[11px] leading-snug ${
+                  i.severity === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+                }`}
+              >
+                <span className="mb-0.5 flex items-center gap-1 font-semibold">
+                  {i.severity === 'error' ? <CircleAlert className="h-3.5 w-3.5" /> : <TriangleAlert className="h-3.5 w-3.5" />}
+                  {i.severity === 'error' ? 'ผิดพลาด' : 'ควรตรวจ'}
+                </span>
+                {i.message}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[10px] text-gray-400">ตรวจแรงดัน / ลัดวงจร / ระดับลอจิก 3.3 V กับ 5 V / พินที่ควรหลีกเลี่ยง เฉพาะอุปกรณ์จากไลบรารี สายที่มีปัญหาแสดงเป็นเส้นประสีแดง/ส้ม ไม่ใช่การรับรองความปลอดภัย โปรดตรวจกับคู่มือก่อนต่อจริง</p>
+    </div>
+  );
+}
+
 function CircuitCanvas({
   diagramId,
   initialName = '',
@@ -152,7 +181,8 @@ function CircuitCanvas({
   const [nodes, setNodes] = useState<Node[]>(initialNodes && initialNodes.length > 0 ? initialNodes : defaultNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges ?? defaultEdges);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [leftTab, setLeftTab] = useState<'components' | 'wires'>('components');
+  const [leftTab, setLeftTab] = useState<'components' | 'wires' | 'check'>('components');
+  const [search, setSearch] = useState('');
   const [gridIndex, setGridIndex] = useState(0);
 
   const [name, setName] = useState(initialName);
@@ -305,6 +335,18 @@ function CircuitCanvas({
     );
   };
 
+  // A part from the library goes to the right of everything already on the sheet.
+  const addBoard = (def: ComponentDef) => {
+    pushHistory();
+    const right = nodes.reduce((max, n) => {
+      const w = n.measured?.width ?? (n.type === 'board' ? symbolSize(getComponent(n.data.libraryId) ?? def).width : 200);
+      return Math.max(max, n.position.x + w);
+    }, 0);
+    const position = { x: nodes.length === 0 ? 80 : right + 80, y: 60 };
+    const id = `board_${def.id}_${crypto.randomUUID().slice(0, 8)}`;
+    setNodes((nds) => [...nds, { id, type: 'board', position, data: { libraryId: def.id } }]);
+  };
+
   const addComponent = (type: 'esp32' | 'sensorA' | 'userBoard' | 'text') => {
     pushHistory();
     const idx = nodes.length;
@@ -321,6 +363,25 @@ function CircuitCanvas({
       newNode = { id, type, position, data: { text: 'Double-click to edit' } };
     }
     setNodes((nds) => [...nds, newNode]);
+  };
+
+  const issues = useMemo(() => checkWiring(nodes, edges), [nodes, edges]);
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  // Wires with a problem are drawn dashed: red for an error, amber for a warning.
+  const displayEdges = useMemo(() => {
+    const worst = new Map<string, 'error' | 'warning'>();
+    for (const i of issues) {
+      if (!i.edgeId) continue;
+      if (i.severity === 'error' || !worst.has(i.edgeId)) worst.set(i.edgeId, i.severity);
+    }
+    return edges.map((e) => {
+      const sev = worst.get(e.id);
+      return sev ? { ...e, style: { ...e.style, stroke: sev === 'error' ? '#dc2626' : '#d97706', strokeDasharray: '8 5' } } : e;
+    });
+  }, [edges, issues]);
+  const focusEdge = (edgeId: string) => {
+    setSelectedEdgeId(edgeId);
+    setEdges((eds) => eds.map((e) => ({ ...e, selected: e.id === edgeId })));
   };
 
   const hasSelection = nodes.some((n) => n.selected) || edges.some((e) => e.selected);
@@ -377,28 +438,91 @@ function CircuitCanvas({
               <Palette className="w-3.5 h-3.5" />
               Wires
             </button>
+            <button onClick={() => setLeftTab('check')} className={tabClass(leftTab === 'check')}>
+              {errorCount > 0 ? <CircleAlert className="w-3.5 h-3.5 text-red-600" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              ตรวจ
+              {issues.length > 0 && (
+                <span className={`rounded-full px-1.5 text-[10px] font-bold ${errorCount > 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {issues.length}
+                </span>
+              )}
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-3">
             {leftTab === 'components' ? (
-              <div className="space-y-3">
-                <p className="text-[11px] text-gray-400">คลิกเพื่อเพิ่มอุปกรณ์ลง Canvas</p>
-                <div className={`grid grid-cols-2 gap-2 ${isOwner ? '' : 'opacity-40 pointer-events-none'}`}>
-                  {componentDefs.map((c) => (
-                    <button
-                      key={c.type}
-                      onClick={() => addComponent(c.type)}
-                      className="flex flex-col items-center gap-1.5 p-3 bg-white border border-gray-200 rounded-lg hover:border-orange-400 hover:shadow-sm transition-all"
-                    >
-                      <div className={`w-9 h-9 rounded-md flex items-center justify-center ${c.iconBg}`}>
-                        <c.icon className="w-4 h-4 text-white" />
+              <div className={`space-y-3 ${isOwner ? '' : 'opacity-40 pointer-events-none'}`}>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="ค้นหาบอร์ด / พิน เช่น esp32, I2C"
+                    className="w-full rounded-md border border-gray-300 py-1.5 pl-7 pr-2 text-xs outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {CATEGORIES.map((cat) => {
+                  const list = searchComponents(search).filter((c) => c.category === cat.id);
+                  const cards = cat.id === 'general' ? componentDefs : [];
+                  if (list.length === 0 && (cards.length === 0 || search.trim())) return null;
+                  return (
+                    <div key={cat.id}>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{cat.label}</p>
+                      <div className="space-y-1">
+                        {list.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => addBoard(c)}
+                            title={c.description}
+                            className="flex w-full items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-left transition-colors hover:border-orange-400 hover:bg-orange-50"
+                          >
+                            <Cpu className="h-4 w-4 shrink-0 text-slate-500" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-medium text-gray-800">{c.name}</span>
+                              <span className="block truncate text-[10px] text-gray-400">
+                                {c.pins.length} ขา{c.maker ? ` · ${c.maker}` : ''}
+                              </span>
+                            </span>
+                            {!c.verified && <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-bold text-amber-700">แม่แบบ</span>}
+                          </button>
+                        ))}
+                        {cards.length > 0 && !search.trim() && (
+                          <div className="grid grid-cols-2 gap-2">
+                            {cards.map((c) => (
+                              <button
+                                key={c.type}
+                                onClick={() => addComponent(c.type)}
+                                className="flex flex-col items-center gap-1.5 rounded-lg border border-gray-200 bg-white p-2.5 transition-all hover:border-orange-400 hover:shadow-sm"
+                              >
+                                <div className={`flex h-8 w-8 items-center justify-center rounded-md ${c.iconBg}`}>
+                                  <c.icon className="h-4 w-4 text-white" />
+                                </div>
+                                <span className="text-center text-[11px] font-medium leading-tight text-gray-700">{c.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-[11px] font-medium text-gray-700 text-center leading-tight">{c.label}</span>
-                    </button>
-                  ))}
+                    </div>
+                  );
+                })}
+                {search.trim() && searchComponents(search).length === 0 && <p className="text-[11px] text-gray-400">ไม่พบอุปกรณ์ที่ตรงกับ &quot;{search}&quot;</p>}
+
+                <div className="border-t border-gray-200 pt-2">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">สีของขา</p>
+                  <ul className="space-y-0.5">
+                    {(Object.keys(KIND_COLORS) as (keyof typeof KIND_COLORS)[]).map((k) => (
+                      <li key={k} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                        <span className="h-2 w-2 rounded-full" style={{ background: KIND_COLORS[k] }} />
+                        {KIND_LABELS[k]}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-[10px] text-gray-400">{COMPONENTS.length} อุปกรณ์ในไลบรารี · วางเมาส์บนขาเพื่อดูหน้าที่</p>
                 </div>
               </div>
-            ) : (
+            ) : leftTab === 'wires' ? (
               <>
                 <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs mb-4">
                   {selectedEdgeId ? (
@@ -428,6 +552,8 @@ function CircuitCanvas({
                   ))}
                 </div>
               </>
+            ) : (
+              <CheckPanel issues={issues} onFocus={focusEdge} />
             )}
           </div>
         </div>
@@ -435,7 +561,7 @@ function CircuitCanvas({
         <div className="flex-1 h-full relative">
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={displayEdges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
