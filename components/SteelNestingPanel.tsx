@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ListOrdered, Minus, Plus, Printer } from "lucide-react";
-import { setNestDone } from "@/app/actions/steelSources";
+import { bulkUpdateSheetParts, setNestDone } from "@/app/actions/steelSources";
 import { SHEET_PRESETS, groupIdenticalSheets, loopArea, nest, shapesOnSheet, type NestResultGroup, type Placed } from "@/lib/nesting";
 import type { SheetPartRow } from "./SteelSheetPanel";
 import { usePrintSection } from "./PrintLayout";
@@ -94,6 +95,21 @@ export default function SteelNestingPanel({
   const [selected, setSelected] = useState<Record<string, string>>({}); // thickness key -> signature
   const [done, setDone] = useState<Record<string, number>>(doneBySignature);
   const print = usePrintSection("nesting");
+  const router = useRouter();
+  const [times, setTimes] = useState("");
+  const [timesMessage, setTimesMessage] = useState<string | null>(null);
+
+  const multiplyAll = async () => {
+    setTimesMessage(null);
+    const res = await bulkUpdateSheetParts(planId, { multiplyBy: Math.floor(Number(times)) });
+    if (!res.success) {
+      setTimesMessage(res.error ?? "บันทึกไม่สำเร็จ");
+      return;
+    }
+    setTimesMessage(`คูณ ${res.count} ชิ้นแล้ว`);
+    setTimes("");
+    router.refresh();
+  };
 
   const sheetWidth = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].width : Number(customW);
   const sheetHeight = presetIndex >= 0 ? SHEET_PRESETS[presetIndex].height : Number(customH);
@@ -191,6 +207,18 @@ export default function SteelNestingPanel({
           <input type="checkbox" className="h-5 w-5 cursor-pointer accent-orange-600" checked={allowRotate} onChange={(e) => setAllowRotate(e.target.checked)} />
           หมุนชิ้นงาน 90° ได้
         </label>
+        {canEdit && (
+          <label className="block text-xs text-gray-600">
+            คูณจำนวนทุกชิ้น ×
+            <span className="mt-0.5 flex gap-1">
+              <input type="number" min={1} step={1} value={times} onChange={(e) => setTimes(e.target.value)} placeholder="เช่น 2" className={`${inputClass} w-20`} />
+              <button type="button" disabled={!(Number(times) >= 1)} onClick={multiplyAll} className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50">
+                คูณทุกชิ้น
+              </button>
+            </span>
+            {timesMessage && <span className="text-gray-700">{timesMessage}</span>}
+          </label>
+        )}
         <p className="text-xs text-gray-500">วางตามกรอบสี่เหลี่ยมของแต่ละชิ้น ความหนาต่างกันแยกแผ่น แผ่นที่วางเหมือนกันรวมเป็น Result เดียว (Done = ตัดไปแล้วกี่แผ่น)</p>
       </div>
 
