@@ -443,7 +443,6 @@ function BarLengthControl({
 // Same cut length = same colour. The numbers and the striped kerf / offcut parts
 // still read in a black-and-white print.
 const PIECE_COLORS = ["#fdba74", "#93c5fd", "#86efac", "#fde047", "#c4b5fd", "#f9a8d4"];
-const KERF_STYLE = { background: "repeating-linear-gradient(45deg, #b91c1c 0 3px, #ffffff 3px 6px)" };
 const SCRAP_STYLE = { background: "repeating-linear-gradient(135deg, #d1d5db 0 5px, #ffffff 5px 10px)" };
 
 const SIZE_STEPS = [
@@ -579,9 +578,6 @@ function CutResults({
                 <span className="inline-block h-4 w-6 border border-black" style={{ background: PIECE_COLORS[0] }} /> ชิ้นที่ตัด
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-4 w-6 border border-black" style={KERF_STYLE} /> ระยะตัด
-              </span>
-              <span className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-4 w-6 border border-dashed border-black" style={SCRAP_STYLE} /> เศษ
               </span>
               {result.hasProblem && <span className="text-red-600">มีชิ้นงานยาวเกินความยาวเหล็ก</span>}
@@ -617,7 +613,7 @@ function CutResults({
                         <div className="flex flex-wrap items-stretch gap-y-1" style={{ fontSize: font + 2 }}>
                           {b.cuts.map((c, j) => (
                             <Fragment key={j}>
-                              {j > 0 && <span className="mx-0.5 inline-block w-1.5 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} title={`ระยะตัด ${formatLengthWithUnit(kerf, unit)}`} aria-hidden />}
+                              {j > 0 && <span className="inline-block w-1 shrink-0" aria-hidden />}
                               <span
                                 className="inline-flex items-center whitespace-nowrap border-2 border-black px-1 py-0.5 font-bold text-black"
                                 style={{ background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length] }}
@@ -631,7 +627,7 @@ function CutResults({
                           ))}
                           {b.leftover > 0 && (
                             <>
-                              <span className="mx-0.5 inline-block w-1.5 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} aria-hidden />
+                              <span className="inline-block w-1 shrink-0" aria-hidden />
                               <span className="inline-flex items-center whitespace-nowrap border-2 border-dashed border-black px-1 py-0.5 font-semibold text-gray-700" style={SCRAP_STYLE}>
                                 เศษ {formatLengthWithUnit(b.leftover, unit)}
                               </span>
