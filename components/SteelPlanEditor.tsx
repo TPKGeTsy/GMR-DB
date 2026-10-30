@@ -26,7 +26,6 @@ import {
   STEEL_TYPES,
   STEEL_TYPE_KEYS,
   comparePieces,
-  nameRows,
   parseBomLines,
   parsePartsCsv,
   planCuts,
@@ -38,6 +37,17 @@ import {
   type SteelPartInput,
   type SteelType,
 } from "@/lib/steel";
+
+/** Inside one kind of steel: by the name of the file first (rows typed by hand last), then the longest cut first.
+ *  Equal lengths from different files stay separate rows. */
+function byFileThenLength(a: EditorPart, b: EditorPart): number {
+  if (a.sourceFile !== b.sourceFile) {
+    if (a.sourceFile === null) return 1;
+    if (b.sourceFile === null) return -1;
+    return a.sourceFile.localeCompare(b.sourceFile, "th", { numeric: true });
+  }
+  return b.cutLength - a.cutLength;
+}
 
 export interface EditorPart {
   id: string;
@@ -485,10 +495,9 @@ function CutResults({
 
   const exportCsv = () => {
     const rows: string[][] = [["รายการที่", "ชนิดเหล็ก", "ความยาวเหล็ก(มม.)", "ชิ้นที่ตัด(มม.)", "ระยะตัด(มม.)", "เศษเหลือ(มม.)"]];
-    let n = 0;
     for (const p of result.profiles) {
-      for (const b of p.bars) {
-        n += 1;
+      for (const [n0, b] of p.bars.entries()) {
+        const n = n0 + 1;
         rows.push([String(n), p.label, String(b.length), b.cuts.join(" + "), String(kerf), String(b.leftover)]);
       }
     }
@@ -502,12 +511,6 @@ function CutResults({
   };
 
   const print = usePrintSection("bars");
-  // Running item number across all kinds of steel (no restart per group).
-  const firstNumber: number[] = [];
-  result.profiles.reduce((total, p) => {
-    firstNumber.push(total + 1);
-    return total + p.bars.length;
-  }, 0);
   return (
     <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
@@ -604,7 +607,7 @@ function CutResults({
                       <li key={i} className="break-inside-avoid rounded border-2 border-black bg-white" style={{ padding: Math.round(10 * scale) }}>
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-gray-900" style={{ fontSize: font }}>
                           <span className="flex items-center gap-2 font-bold">
-                            <span className="rounded bg-black px-2 py-0.5 text-white">รายการที่ {firstNumber[pi] + i}</span>
+                            <span className="rounded bg-black px-2 py-0.5 text-white">รายการที่ {i + 1}</span>
                             เหล็กยาว {formatLengthWithUnit(b.length, unit)}
                           </span>
                           <span>เศษ {formatLengthWithUnit(b.leftover, unit)}</span>
@@ -619,11 +622,6 @@ function CutResults({
                                 className="inline-flex items-center whitespace-nowrap border-2 border-black px-3 py-1.5 font-bold text-black"
                                 style={{ background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length] }}
                               >
-                                {b.labels[j] && (
-                                  <span className="mr-2 rounded bg-black px-1.5 text-white" style={{ fontSize: "0.7em" }}>
-                                    {b.labels[j]}
-                                  </span>
-                                )}
                                 {formatLength(c, unit)}
                                 <span className="ml-1 font-semibold" style={{ fontSize: "0.7em" }}>
                                   {UNITS[unit].label}
@@ -744,9 +742,8 @@ export default function SteelPlanEditor({
     }
   };
 
-  // ST1, ST2, ST3 ... and L1, L2 ... : a name per row, counted per kind of steel over the whole plan.
-  // Rows are listed by name, so a row does not jump away while its length is being typed.
-  const names = useMemo(() => nameRows(localParts), [localParts]);
+  // Rows keep the order the server gave them while being edited (a row must not jump away while its length is typed).
+  const order = useMemo(() => new Map([...serverParts].sort(byFileThenLength).map((p, i) => [p.id, i])), [serverParts]);
 
   // One group per kind of steel, rows by file name first and then the longest cut.
   const groups = useMemo(() => {
@@ -758,9 +755,9 @@ export default function SteelPlanEditor({
       map.set(key, g);
     }
     return [...map.values()]
-      .map((g) => ({ ...g, parts: [...g.parts].sort((a, b) => (names.get(a.id) ?? "").localeCompare(names.get(b.id) ?? "", "en", { numeric: true }) || b.cutLength - a.cutLength) }))
+      .map((g) => ({ ...g, parts: [...g.parts].sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity) || byFileThenLength(a, b)) }))
       .sort((a, b) => comparePieces({ ...a.profile, cutLength: 0 }, { ...b.profile, cutLength: 0 }));
-  }, [localParts, names]);
+  }, [localParts, order]);
 
   const [name, setName] = useState(plan.name);
   const [kerf, setKerf] = useState(String(plan.kerf));
@@ -775,12 +772,12 @@ export default function SteelPlanEditor({
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : plan.kerf;
   const result = useMemo(
     () =>
-      planCuts(localParts.map((p) => ({ ...p, label: names.get(p.id) ?? null })), [], {
+      planCuts(localParts, [], {
         barLengths: Object.fromEntries(bars.map((b) => [profileKey(b), b.length])),
         kerf: kerfValue,
         newBarLength: standard,
       }),
-    [localParts, names, bars, kerfValue, standard]
+    [localParts, bars, kerfValue, standard]
   );
 
   const saveCutSettings = async (next: { kerf: number; newBarLength: number }) => {
@@ -915,7 +912,6 @@ export default function SteelPlanEditor({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500">
-                    <th className="px-3 py-1 text-left font-medium">ชื่อ</th>
                     <th className="px-3 py-1 text-right font-medium">z ยาว ({UNITS[unit].label})</th>
                     <th className="px-3 py-1 text-right font-medium">QTY ในไฟล์</th>
                     <th className="px-3 py-1 text-right font-medium">× รอบ</th>
@@ -926,7 +922,7 @@ export default function SteelPlanEditor({
                 </thead>
                 <tbody>
                   {g.parts.map((p) => (
-                    <PartRow key={`${p.id}-${unit}`} part={p} name={names.get(p.id) ?? ""} unit={unit} canEdit={canEdit} onEdit={(patch) => editPart(p.id, patch)} onDelete={() => removePart(p.id)} />
+                    <PartRow key={`${p.id}-${unit}`} part={p} unit={unit} canEdit={canEdit} onEdit={(patch) => editPart(p.id, patch)} onDelete={() => removePart(p.id)} />
                   ))}
                 </tbody>
               </table>

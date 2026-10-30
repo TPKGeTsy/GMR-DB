@@ -55,7 +55,6 @@ function wholeOrNull(text: string): number | null {
  *  Every valid keystroke goes up at once, so the totals and the cut plan change as you type. */
 export function PartRow({
   part,
-  name,
   unit,
   canEdit,
   onEdit,
@@ -63,8 +62,6 @@ export function PartRow({
   error,
 }: {
   part: PartRowData;
-  /** The row's name: ST1, ST2 ... L1 ... */
-  name: string;
   /** The length is shown and typed in this unit (stored in mm). */
   unit: Unit;
   canEdit: boolean;
@@ -79,7 +76,6 @@ export function PartRow({
 
   return (
     <tr className={`border-t border-gray-100 ${part.quantity === 0 ? "text-gray-300" : ""}`}>
-      <td className="px-3 py-1 text-left font-bold text-gray-900">{name}</td>
       <td className="px-3 py-1 text-right">
         <input
           type="number"

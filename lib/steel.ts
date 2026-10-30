@@ -39,8 +39,6 @@ export interface SteelPartInput extends SteelProfile {
   sourceFile?: string | null;
   baseQuantity?: number | null;
   rounds?: number;
-  /** The row's name (ST3, L1 ...), carried onto every piece cut from it. */
-  label?: string | null;
 }
 
 export interface SteelStockInput extends SteelProfile {
@@ -70,23 +68,6 @@ export function profileLabel(p: SteelProfile): string {
 /** "L เหล็กฉาก 50 มม. × 50 มม. × 4 มม." - the kind of steel and its size with a unit on every number. */
 export function profileLabelUnits(p: SteelProfile, unit: Unit): string {
   return `${steelTypeLabel(p.steelType)} ${formatSection(p, unit)}`;
-}
-
-/** Short code in a row's name: ST, RT, FB, L, RB, PIPE (BOX for the old "box"). */
-const NAME_CODES: Record<string, string> = { ST: "ST", RT: "RT", FLAT: "FB", ANGLE: "L", ROUND: "RB", PIPE: "PIPE", BOX: "BOX" };
-
-/** Names for the rows, in the order given: ST1, ST2, ST3 ... and L1, L2 ... - counted per kind of
- *  steel across the whole plan (all sizes together). Returns the name of each row by its id. */
-export function nameRows(rows: { id: string; steelType: string }[]): Map<string, string> {
-  const counts = new Map<string, number>();
-  const names = new Map<string, string>();
-  for (const row of rows) {
-    const code = NAME_CODES[row.steelType] ?? row.steelType;
-    const n = (counts.get(code) ?? 0) + 1;
-    counts.set(code, n);
-    names.set(row.id, `${code}${n}`);
-  }
-  return names;
 }
 
 /** Same kind of steel together first (type, then x, y, thickness), and within
@@ -139,8 +120,6 @@ export interface PlannedBar {
   source: "stock" | "new";
   length: number;
   cuts: number[];
-  /** The name of each cut (same order as `cuts`), null for a row without one. */
-  labels: (string | null)[];
   leftover: number;
 }
 
@@ -185,7 +164,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
   const newBarLength = Math.max(0, options.newBarLength);
 
   const profiles = new Map<string, SteelProfile>();
-  const pieces = new Map<string, { cut: number; label: string | null }[]>();
+  const pieces = new Map<string, number[]>();
   const stockBars = new Map<string, number[]>();
 
   for (const part of parts) {
@@ -193,7 +172,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
     const key = profileKey(part);
     profiles.set(key, part);
     const list = pieces.get(key) ?? [];
-    for (let i = 0; i < part.quantity; i++) list.push({ cut: part.cutLength, label: part.label ?? null });
+    for (let i = 0; i < part.quantity; i++) list.push(part.cutLength);
     pieces.set(key, list);
   }
   for (const s of stock) {
@@ -206,7 +185,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
 
   const result: ProfilePlan[] = [];
   for (const [key, profile] of profiles) {
-    const wanted = [...(pieces.get(key) ?? [])].sort((a, b) => b.cut - a.cut);
+    const wanted = [...(pieces.get(key) ?? [])].sort((a, b) => b - a);
     const available = [...(stockBars.get(key) ?? [])].sort((a, b) => a - b);
     const longestStock = available.length > 0 ? available[available.length - 1] : 0;
     const buyLength = Math.max(0, options.barLengths?.[key] ?? newBarLength);
@@ -217,18 +196,16 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
       length: number;
       remaining: number;
       cuts: number[];
-      labels: (string | null)[];
     }
     const open: OpenBar[] = [];
     const tooLong: number[] = [];
 
-    const place = (bar: OpenBar, cut: number, label: string | null) => {
+    const place = (bar: OpenBar, cut: number) => {
       bar.cuts.push(cut);
-      bar.labels.push(label);
       bar.remaining = Math.max(0, bar.remaining - cut - kerf);
     };
 
-    for (const { cut, label } of wanted) {
+    for (const cut of wanted) {
       if (cut > maxBar) {
         tooLong.push(cut);
         continue;
@@ -238,21 +215,21 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
         if (bar.remaining >= cut && (!best || bar.remaining < best.remaining)) best = bar;
       }
       if (best) {
-        place(best, cut, label);
+        place(best, cut);
         continue;
       }
       const stockIndex = available.findIndex((len) => len >= cut);
       if (stockIndex >= 0) {
         const [length] = available.splice(stockIndex, 1);
-        const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [], labels: [] };
+        const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [] };
         open.push(bar);
-        place(bar, cut, label);
+        place(bar, cut);
         continue;
       }
       if (buyLength >= cut) {
-        const bar: OpenBar = { source: "new", length: buyLength, remaining: buyLength, cuts: [], labels: [] };
+        const bar: OpenBar = { source: "new", length: buyLength, remaining: buyLength, cuts: [] };
         open.push(bar);
-        place(bar, cut, label);
+        place(bar, cut);
       } else {
         tooLong.push(cut);
       }
@@ -265,7 +242,6 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
         source: b.source,
         length: b.length,
         cuts: b.cuts,
-        labels: b.labels,
         leftover: Math.max(0, b.length - used - kerfLost),
       };
     });
