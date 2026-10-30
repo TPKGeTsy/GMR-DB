@@ -355,11 +355,20 @@ export function analyzeDxf(text: string): DxfAnalysis | null {
   };
 }
 
-/** "ANTBOT-A01-PRT-125-DOOR_LOCK_KEEPER_BRACKET_1_1PCS.DXF" -> name + pieces. */
+/** The name of the part and how many to make, from the file name. The name ends with "...PCS" where
+ *  ... is the number of pieces: "TP-A_1_4PCS.DXF" = 4 of "TP-A". Also read: "4 PCS", "4pcs", "x4PCS", "(4PCS)".
+ *  CAD exports write an index before the count ("_1_4PCS"): that index is dropped from the name.
+ *  No "PCS" at the end = 1 piece. */
 export function readDxfFileName(fileName: string): { name: string; quantity: number } {
-  const base = fileName.replace(/\.[^.]+$/, "");
-  const pcs = /(?:^|[_\-\s])(\d+)\s*PCS$/i.exec(base);
-  const quantity = pcs ? Math.max(1, Number(pcs[1])) : 1;
-  const name = base.replace(/[_\-\s]*\d*\s*PCS$/i, "").replace(/_/g, " ").trim();
+  const base = fileName.replace(/\.[^.]+$/, "").trim();
+  const match = /^(.*?)[\s_\-(×x]*(\d+)\s*PCS?\)?\s*$/i.exec(base);
+  if (!match) return { name: base.replace(/_/g, " ").replace(/\s+/g, " ").trim() || base, quantity: 1 };
+  const quantity = Math.min(10000, Math.max(1, Number(match[2])));
+  // "..._1" before the count is the exporter's index (name_index_countPCS), not part of the name.
+  const name = match[1]
+    .replace(/_\d+$/, "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return { name: name || base, quantity };
 }

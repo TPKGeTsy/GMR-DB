@@ -127,19 +127,23 @@ export async function addDxfPart(planId: string, formData: FormData): Promise<{ 
     if (!analysis) return { success: false, error: `${file.name}: ไม่พบเส้นรอบนอกที่ปิดครบ (ไม่ใช่รูปคลี่แผ่น)` };
     const { name, quantity } = readDxfFileName(file.name);
 
-    await prisma.steelPlanSheetPart.create({
-      data: {
-        planId,
-        name: name.slice(0, 200),
-        sourceFile: file.name.slice(0, 200),
-        width: analysis.width,
-        height: analysis.height,
-        quantity,
-        features: JSON.parse(JSON.stringify(analysis.features.map((f) => ({ kind: f.kind, size: f.size, center: f.center })))),
-        steps: JSON.parse(JSON.stringify(analysis.steps)),
-        geometry: JSON.parse(JSON.stringify(analysis.geometry)),
-      },
-    });
+    const sourceFile = file.name.slice(0, 200);
+    const shape = {
+      name: name.slice(0, 200),
+      width: analysis.width,
+      height: analysis.height,
+      features: JSON.parse(JSON.stringify(analysis.features.map((f) => ({ kind: f.kind, size: f.size, center: f.center })))),
+      steps: JSON.parse(JSON.stringify(analysis.steps)),
+      geometry: JSON.parse(JSON.stringify(analysis.geometry)),
+    };
+    // The same file dropped again (or a folder dropped twice) updates its part instead of adding a copy;
+    // the thickness and the number of pieces typed since are kept.
+    const existing = await prisma.steelPlanSheetPart.findFirst({ where: { planId, sourceFile } });
+    if (existing) {
+      await prisma.steelPlanSheetPart.update({ where: { id: existing.id }, data: shape });
+    } else {
+      await prisma.steelPlanSheetPart.create({ data: { planId, sourceFile, quantity, ...shape } });
+    }
     revalidatePlan(planId);
     return { success: true, name };
   } catch (error) {

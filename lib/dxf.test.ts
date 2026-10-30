@@ -61,12 +61,34 @@ describe("analyzeDxf", () => {
 });
 
 describe("readDxfFileName", () => {
-  it("reads the part name and the piece count", () => {
+  it("reads the count in front of PCS and drops the exporter's index", () => {
     expect(readDxfFileName("ANTBOT-A01-PRT-125-DOOR_LOCK_KEEPER_BRACKET_1_1PCS.DXF")).toEqual({
-      name: "ANTBOT-A01-PRT-125-DOOR LOCK KEEPER BRACKET 1",
+      name: "ANTBOT-A01-PRT-125-DOOR LOCK KEEPER BRACKET",
       quantity: 1,
     });
-    expect(readDxfFileName("PLATE_A_4PCS.dxf").quantity).toBe(4);
+    expect(readDxfFileName("Add Support_1_4PCS.DXF")).toEqual({ name: "Add Support", quantity: 4 });
+    expect(readDxfFileName("Steel plate 235x75x10mm With 3xM16_1_85PCS.DXF")).toEqual({ name: "Steel plate 235x75x10mm With 3xM16", quantity: 85 });
+    expect(readDxfFileName("Steel plate 235x75x10mm With 3xM16- Corner_1_24PCS.DXF")).toEqual({ name: "Steel plate 235x75x10mm With 3xM16- Corner", quantity: 24 });
+    expect(readDxfFileName("Stiffener 10 mm_1_62PCS.DXF")).toEqual({ name: "Stiffener 10 mm", quantity: 62 });
+    expect(readDxfFileName("support Steel 10 mmAluminum Stair_1_1PCS.DXF")).toEqual({ name: "support Steel 10 mmAluminum Stair", quantity: 1 });
+    expect(readDxfFileName("TP-CA_1_10PCS.DXF")).toEqual({ name: "TP-CA", quantity: 10 });
+    expect(readDxfFileName("TP-DA_1_3PCS.DXF")).toEqual({ name: "TP-DA", quantity: 3 });
+  });
+
+  it("also reads other ways of writing the count", () => {
+    expect(readDxfFileName("PLATE_A_4PCS.dxf")).toEqual({ name: "PLATE A", quantity: 4 });
+    expect(readDxfFileName("Plate 12 4 PCS.dxf")).toEqual({ name: "Plate 12", quantity: 4 });
+    expect(readDxfFileName("Plate (6pcs).dxf")).toEqual({ name: "Plate", quantity: 6 });
+    expect(readDxfFileName("Plate x8PCS.dxf")).toEqual({ name: "Plate", quantity: 8 });
+  });
+
+  it("keeps a number that is part of the name, and defaults to 1 piece without PCS", () => {
+    expect(readDxfFileName("Plate 12_4PCS.dxf")).toEqual({ name: "Plate 12", quantity: 4 });
     expect(readDxfFileName("plain.dxf")).toEqual({ name: "plain", quantity: 1 });
+    expect(readDxfFileName("Bracket_final.dxf")).toEqual({ name: "Bracket final", quantity: 1 });
+  });
+
+  it("never gives less than 1 piece", () => {
+    expect(readDxfFileName("Plate_0PCS.dxf").quantity).toBe(1);
   });
 });
