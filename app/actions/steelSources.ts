@@ -203,3 +203,31 @@ export async function setNestDone(planId: string, signature: string, done: numbe
     return { success: false, error: "บันทึกไม่สำเร็จ" };
   }
 }
+
+/** One go for every DXF part of the plan: set the same thickness, and / or multiply every piece count
+ *  (x2 = twice as many of each). Leave a field out to leave it as it is. */
+export async function bulkUpdateSheetParts(planId: string, data: { thickness?: number | null; multiplyBy?: number }) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (data.thickness !== undefined && data.thickness !== null && !(data.thickness > 0 && data.thickness <= 500)) return { success: false, error: "ความหนาไม่ถูกต้อง" };
+    if (data.multiplyBy !== undefined && !(Number.isInteger(data.multiplyBy) && data.multiplyBy >= 1 && data.multiplyBy <= 1000)) return { success: false, error: "ตัวคูณต้องเป็นจำนวนเต็ม 1–1000" };
+    const rows = await prisma.steelPlanSheetPart.findMany({ where: { planId }, select: { id: true, quantity: true } });
+    await prisma.$transaction(
+      rows.map((r) =>
+        prisma.steelPlanSheetPart.update({
+          where: { id: r.id },
+          data: {
+            ...(data.thickness !== undefined ? { thickness: data.thickness } : {}),
+            ...(data.multiplyBy !== undefined ? { quantity: Math.min(10000, r.quantity * data.multiplyBy) } : {}),
+          },
+        })
+      )
+    );
+    revalidatePlan(planId);
+    return { success: true as const, count: rows.length };
+  } catch (error) {
+    logError("Error bulk-updating sheet parts:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}

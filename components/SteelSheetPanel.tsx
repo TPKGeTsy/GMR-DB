@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileUp, Trash2 } from "lucide-react";
-import { addDxfPart, deleteSheetPart, updateSheetPart } from "@/app/actions/steelSources";
+import { addDxfPart, bulkUpdateSheetParts, deleteSheetPart, updateSheetPart } from "@/app/actions/steelSources";
 import type { CutStep, Pt } from "@/lib/dxf";
 import { usePrintSection } from "./PrintLayout";
 import { filesFromDrop, isDxf } from "@/lib/dropFiles";
@@ -149,6 +149,22 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
   const [progress, setProgress] = useState("");
   const [problems, setProblems] = useState<string[]>([]);
   const print = usePrintSection("dxfParts");
+  const [bulkThickness, setBulkThickness] = useState("");
+  const [bulkTimes, setBulkTimes] = useState("");
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+
+  const applyBulk = async (data: { thickness?: number | null; multiplyBy?: number }) => {
+    setBulkMessage(null);
+    const res = await bulkUpdateSheetParts(planId, data);
+    if (!res.success) {
+      setBulkMessage(res.error ?? "บันทึกไม่สำเร็จ");
+      return;
+    }
+    setBulkMessage(`ปรับ ${res.count} ชิ้นแล้ว`);
+    setBulkThickness("");
+    setBulkTimes("");
+    router.refresh();
+  };
 
   const handleFiles = async (files: FileList | File[] | null | undefined) => {
     const list = Array.from(files ?? []).filter(isDxf);
@@ -223,6 +239,31 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
             }}
           />
         </label>
+      )}
+
+      {canEdit && parts.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-end gap-4 rounded border border-orange-200 bg-orange-50 p-3 text-xs text-gray-600 print:hidden">
+          <span className="font-semibold text-gray-800">ปรับทุกชิ้นพร้อมกัน ({parts.length} ชิ้น)</span>
+          <label>
+            ความหนา (มม.)
+            <span className="mt-0.5 flex gap-1">
+              <input type="number" min={0} step="any" value={bulkThickness} onChange={(e) => setBulkThickness(e.target.value)} placeholder="เช่น 10" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm" />
+              <button type="button" disabled={!(Number(bulkThickness) > 0)} onClick={() => applyBulk({ thickness: Number(bulkThickness) })} className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50">
+                ใช้กับทุกชิ้น
+              </button>
+            </span>
+          </label>
+          <label>
+            คูณจำนวนทุกชิ้น ×
+            <span className="mt-0.5 flex gap-1">
+              <input type="number" min={1} step={1} value={bulkTimes} onChange={(e) => setBulkTimes(e.target.value)} placeholder="เช่น 2" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm" />
+              <button type="button" disabled={!(Number(bulkTimes) >= 1)} onClick={() => applyBulk({ multiplyBy: Math.floor(Number(bulkTimes)) })} className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50">
+                คูณทุกชิ้น
+              </button>
+            </span>
+          </label>
+          {bulkMessage && <span className="text-gray-700">{bulkMessage}</span>}
+        </div>
       )}
 
       {problems.length > 0 && <p className="mb-3 whitespace-pre-line text-sm text-red-600">{problems.join("\n")}</p>}
