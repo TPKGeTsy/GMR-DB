@@ -440,7 +440,6 @@ function BarLengthControl({
 // still read in a black-and-white print.
 const PIECE_COLORS = ["#fdba74", "#93c5fd", "#86efac", "#fde047", "#c4b5fd", "#f9a8d4"];
 const KERF_STYLE = { background: "repeating-linear-gradient(45deg, #b91c1c 0 3px, #ffffff 3px 6px)" };
-const SCRAP_STYLE = { background: "repeating-linear-gradient(135deg, #d1d5db 0 5px, #ffffff 5px 10px)" };
 
 const SIZE_STEPS = [
   { label: "ปกติ", scale: 1 },
@@ -590,9 +589,6 @@ function CutResults({
               <span className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-4 w-6 border border-black" style={KERF_STYLE} /> ระยะตัด
               </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-4 w-6 border border-dashed border-black" style={SCRAP_STYLE} /> เศษ
-              </span>
               {result.hasProblem && <span className="text-red-600">มีชิ้นงานยาวเกินความยาวเหล็ก</span>}
             </div>
 
@@ -621,7 +617,8 @@ function CutResults({
                           </span>
                           <span>เศษ {fmt(b.leftover)} มม.</span>
                         </div>
-                        {/* To scale. A piece too short to hold its number is left blank here and shown in the chips below. */}
+                        {/* Only the part that is cut, to scale (the offcut is not drawn - it is in the top right). A piece too
+                            short to hold its number is left blank here and shown in the chips below. */}
                         <div className="flex w-full overflow-hidden border-2 border-black bg-white" style={{ height: barHeight }}>
                           {b.cuts.map((c, j) => (
                             <Fragment key={j}>
@@ -631,17 +628,10 @@ function CutResults({
                                 className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap border-x border-black font-bold text-black"
                                 title={`${fmt(c)} มม.`}
                               >
-                                {c / b.length >= 0.07 ? fmt(c) : ""}
+                                {c / (b.cuts.reduce((n, x) => n + x, 0) + kerf * (b.cuts.length - 1)) >= 0.04 ? fmt(c) : ""}
                               </div>
                             </Fragment>
                           ))}
-                          {b.leftover > 0 && (
-                            <div
-                              style={{ flex: `${b.leftover} 1 0`, ...SCRAP_STYLE }}
-                              className="min-w-0 border-l-2 border-dashed border-black"
-                              title={`เศษ ${fmt(b.leftover)} มม.`}
-                            />
-                          )}
                         </div>
                         {/* Every cut written out large, wrapping onto new lines - short pieces are as easy to read as long ones. */}
                         <div className="mt-3 flex flex-wrap items-center gap-y-2" style={{ fontSize: font + 1 }}>
