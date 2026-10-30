@@ -1,15 +1,19 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
-import { ImportedFiles, PartRow } from "./SteelPartRows";
+import { ImportedFiles, PartRow, applyPartPatch, type PartPatch } from "./SteelPartRows";
 import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
 import {
   addSteelParts,
+  deleteFileParts,
+  deleteSteelPart,
   deleteSteelPlan,
+  setFileRounds,
+  updateSteelPart,
   setSteelBarLength,
   updateSteelPlanCutSettings,
   updateSteelPlanSettings,
@@ -633,12 +637,10 @@ function CutResults({
                           ))}
                           {b.leftover > 0 && (
                             <div
-                              style={{ flex: `${b.leftover} 1 0`, ...SCRAP_STYLE, fontSize: font - 2 }}
-                              className="flex min-w-0 items-center justify-center overflow-hidden border-l-2 border-dashed border-black whitespace-nowrap text-gray-700"
+                              style={{ flex: `${b.leftover} 1 0`, ...SCRAP_STYLE }}
+                              className="min-w-0 border-l-2 border-dashed border-black"
                               title={`เศษ ${fmt(b.leftover)} มม.`}
-                            >
-                              {b.leftover / b.length > 0.1 ? `เศษ ${fmt(b.leftover)}` : ""}
-                            </div>
+                            />
                           )}
                         </div>
                         {/* Every cut written out large, wrapping onto new lines - short pieces are as easy to read as long ones. */}
@@ -655,14 +657,6 @@ function CutResults({
                               </span>
                             </Fragment>
                           ))}
-                          {b.leftover > 0 && (
-                            <>
-                              <span className="mx-1 inline-block h-5 w-2 shrink-0 border-x border-black" style={KERF_STYLE} aria-hidden />
-                              <span className="whitespace-nowrap rounded border-2 border-dashed border-black px-2 py-0.5 text-gray-700" style={SCRAP_STYLE}>
-                                เศษ {fmt(b.leftover)}
-                              </span>
-                            </>
-                          )}
                         </div>
                       </li>
                     ))}
@@ -696,20 +690,93 @@ export default function SteelPlanEditor({
   children?: React.ReactNode;
 }) {
   const router = useRouter();
-  const refresh = () => router.refresh();
-  // One group per kind of steel, longest cut first within it.
+
+  // The parts are edited right here: a change shows (totals, cut plan) the moment it is typed and is
+  // saved a moment later. The server copy only replaces this one when the page's data is reloaded.
+  const [localParts, setLocalParts] = useState<EditorPart[]>(parts);
+  const [serverParts, setServerParts] = useState(parts);
+  if (parts !== serverParts) {
+    setServerParts(parts);
+    setLocalParts(parts);
+  }
+  const [editError, setEditError] = useState<string | null>(null);
+  const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const partPatches = useRef(new Map<string, PartPatch>());
+  const refreshWanted = useRef(false);
+
+  // A reload while saves are waiting would show old numbers, so it waits for them.
+  const refresh = () => {
+    if (pending.current.size > 0) refreshWanted.current = true;
+    else router.refresh();
+  };
+
+  const saveLater = (key: string, run: () => Promise<{ success: boolean; error?: string }>) => {
+    const earlier = pending.current.get(key);
+    if (earlier) clearTimeout(earlier);
+    pending.current.set(
+      key,
+      setTimeout(async () => {
+        pending.current.delete(key);
+        const res = await run();
+        setEditError(res.success ? null : (res.error ?? "บันทึกไม่สำเร็จ"));
+        if (!res.success) router.refresh(); // show what is really saved
+        else if (pending.current.size === 0 && refreshWanted.current) {
+          refreshWanted.current = false;
+          router.refresh();
+        }
+      }, 500)
+    );
+  };
+
+  const editPart = (id: string, patch: PartPatch) => {
+    setLocalParts((prev) => prev.map((p) => (p.id === id ? applyPartPatch(p, patch) : p)));
+    partPatches.current.set(id, { ...(partPatches.current.get(id) ?? {}), ...patch });
+    saveLater(`part:${id}`, async () => {
+      const merged = partPatches.current.get(id) ?? patch;
+      partPatches.current.delete(id);
+      return updateSteelPart(id, merged);
+    });
+  };
+
+  const editFileRounds = (file: string, rounds: number) => {
+    setLocalParts((prev) => prev.map((p) => (p.sourceFile === file ? applyPartPatch(p, { rounds }) : p)));
+    saveLater(`file:${file}`, () => setFileRounds(plan.id, file, rounds));
+  };
+
+  const removePart = async (id: string) => {
+    setLocalParts((prev) => prev.filter((p) => p.id !== id));
+    const res = await deleteSteelPart(id);
+    if (!res.success) {
+      setEditError(res.error ?? "ลบไม่สำเร็จ");
+      router.refresh();
+    }
+  };
+
+  const removeFile = async (file: string) => {
+    setLocalParts((prev) => prev.filter((p) => p.sourceFile !== file));
+    const res = await deleteFileParts(plan.id, file);
+    if (!res.success) {
+      setEditError(res.error ?? "ลบไม่สำเร็จ");
+      router.refresh();
+    }
+  };
+
+  // Rows keep the order the server gave them while being edited (a row must not jump away while its length is typed).
+  const order = useMemo(() => new Map([...serverParts].sort(byFileThenLength).map((p, i) => [p.id, i])), [serverParts]);
+
+  // One group per kind of steel, rows by file name first and then the longest cut.
   const groups = useMemo(() => {
     const map = new Map<string, { profile: EditorPart; parts: EditorPart[] }>();
-    for (const p of parts) {
+    for (const p of localParts) {
       const key = profileKey(p);
       const g = map.get(key) ?? { profile: p, parts: [] };
       g.parts.push(p);
       map.set(key, g);
     }
     return [...map.values()]
-      .map((g) => ({ ...g, parts: [...g.parts].sort(byFileThenLength) }))
+      .map((g) => ({ ...g, parts: [...g.parts].sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity) || byFileThenLength(a, b)) }))
       .sort((a, b) => comparePieces({ ...a.profile, cutLength: 0 }, { ...b.profile, cutLength: 0 }));
-  }, [parts]);
+  }, [localParts, order]);
 
   const [name, setName] = useState(plan.name);
   const [kerf, setKerf] = useState(String(plan.kerf));
@@ -721,12 +788,12 @@ export default function SteelPlanEditor({
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : plan.kerf;
   const result = useMemo(
     () =>
-      planCuts(parts, [], {
+      planCuts(localParts, [], {
         barLengths: Object.fromEntries(bars.map((b) => [profileKey(b), b.length])),
         kerf: kerfValue,
         newBarLength: standard,
       }),
-    [parts, bars, kerfValue, standard]
+    [localParts, bars, kerfValue, standard]
   );
 
   const saveCutSettings = async (next: { kerf: number; newBarLength: number }) => {
@@ -793,7 +860,7 @@ export default function SteelPlanEditor({
       </section>
 
       <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({parts.length})</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({localParts.length})</h2>
         <div className="mb-4 flex flex-wrap items-end gap-4 rounded border border-orange-200 bg-orange-50 p-3">
           <label className="block text-xs text-gray-600">
             ระยะตัด / ใบเลื่อย (มม.)
@@ -824,7 +891,8 @@ export default function SteelPlanEditor({
           <p className="text-xs text-gray-500">ระยะตัดนับทุกรอยตัดในแผนด้านล่าง ความยาวเหล็กเลือกแยกตามชนิดเหล็กได้ในแต่ละกลุ่ม</p>
         </div>
 
-        <ImportedFiles planId={plan.id} parts={parts} canEdit={canEdit} onChanged={refresh} />
+        {editError && <p className="mb-2 text-sm text-red-600">{editError}</p>}
+        <ImportedFiles parts={localParts} canEdit={canEdit} onFileRounds={editFileRounds} onDeleteFile={removeFile} />
 
         <div className="space-y-4">
           {groups.map((g) => (
@@ -858,12 +926,7 @@ export default function SteelPlanEditor({
                 </thead>
                 <tbody>
                   {g.parts.map((p) => (
-                    <PartRow
-                      key={`${p.id}-${p.cutLength}-${p.baseQuantity ?? p.quantity}-${p.rounds}`}
-                      part={p}
-                      canEdit={canEdit}
-                      onChanged={refresh}
-                    />
+                    <PartRow key={p.id} part={p} canEdit={canEdit} onEdit={(patch) => editPart(p.id, patch)} onDelete={() => removePart(p.id)} />
                   ))}
                 </tbody>
               </table>
