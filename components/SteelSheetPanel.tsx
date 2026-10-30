@@ -270,7 +270,7 @@ export default function SteelSheetPanel({ planId, parts, canEdit }: { planId: st
 
       <div className="space-y-4">
         {parts.map((p) => (
-          <PartCard key={p.id} part={p} canEdit={canEdit} />
+          <PartCard key={`${p.id}-${p.thickness}-${p.quantity}`} part={p} canEdit={canEdit} />
         ))}
         {parts.length === 0 && <p className="text-sm text-gray-400 print:hidden">ยังไม่มีชิ้นแผ่น</p>}
       </div>

@@ -139,8 +139,8 @@ export default function SteelCutSteps({
           ระยะห่างระหว่างชิ้น (มม.)
           <input type="number" min={0} step="any" value={gap} onChange={(e) => setGap(e.target.value)} className={`${inputClass} block w-24`} />
         </label>
-        <label className="inline-flex items-center gap-1 text-xs text-gray-700">
-          <input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} />
+        <label className="inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:border-orange-400 has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50">
+          <input type="checkbox" className="h-5 w-5 cursor-pointer accent-orange-600" checked={rotate} onChange={(e) => setRotate(e.target.checked)} />
           หมุนชิ้นงาน 90° ได้
         </label>
       </div>
