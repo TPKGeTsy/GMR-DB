@@ -15,8 +15,11 @@ export type PrintSectionId = (typeof PRINT_SECTIONS)[number]["id"];
 interface PrintLayoutValue {
   order: PrintSectionId[];
   included: Record<PrintSectionId, boolean>;
+  /** Print in black and white (colours turned to grey). */
+  mono: boolean;
   setOrder: (order: PrintSectionId[]) => void;
   setIncluded: (id: PrintSectionId, value: boolean) => void;
+  setMono: (value: boolean) => void;
 }
 
 const DEFAULT_ORDER = PRINT_SECTIONS.map((s) => s.id) as PrintSectionId[];
@@ -35,18 +38,19 @@ function subscribe(onChange: () => void) {
   };
 }
 
-function parseLayout(raw: string): { order: PrintSectionId[]; included: Record<PrintSectionId, boolean> } {
-  if (!raw) return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED };
+function parseLayout(raw: string): { order: PrintSectionId[]; included: Record<PrintSectionId, boolean>; mono: boolean } {
+  if (!raw) return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false };
   try {
-    const saved = JSON.parse(raw) as { order?: string[]; included?: Record<string, boolean> };
+    const saved = JSON.parse(raw) as { order?: string[]; included?: Record<string, boolean>; mono?: boolean };
     const known = (saved.order ?? []).filter((id): id is PrintSectionId => DEFAULT_ORDER.includes(id as PrintSectionId));
     // Sections added later still show up, at the end.
     return {
       order: [...known, ...DEFAULT_ORDER.filter((id) => !known.includes(id))],
       included: { ...DEFAULT_INCLUDED, ...(saved.included as Record<PrintSectionId, boolean> | undefined) },
+      mono: saved.mono === true,
     };
   } catch {
-    return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED };
+    return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false };
   }
 }
 
@@ -68,9 +72,9 @@ export function PrintLayoutProvider({ planId, children }: { planId: string; chil
   const layout = useMemo(() => parseLayout(raw), [raw]);
 
   const value = useMemo<PrintLayoutValue>(() => {
-    const save = (order: PrintSectionId[], included: Record<PrintSectionId, boolean>) => {
+    const save = (order: PrintSectionId[], included: Record<PrintSectionId, boolean>, mono: boolean) => {
       try {
-        window.localStorage.setItem(storageKey, JSON.stringify({ order, included }));
+        window.localStorage.setItem(storageKey, JSON.stringify({ order, included, mono }));
       } catch {
         // Storage can be blocked; the choice then lasts only until reload.
       }
@@ -79,8 +83,10 @@ export function PrintLayoutProvider({ planId, children }: { planId: string; chil
     return {
       order: layout.order,
       included: layout.included,
-      setOrder: (next) => save(next, layout.included),
-      setIncluded: (id, v) => save(layout.order, { ...layout.included, [id]: v }),
+      mono: layout.mono,
+      setOrder: (next) => save(next, layout.included, layout.mono),
+      setIncluded: (id, v) => save(layout.order, { ...layout.included, [id]: v }, layout.mono),
+      setMono: (v) => save(layout.order, layout.included, v),
     };
   }, [layout, storageKey]);
 
@@ -92,7 +98,7 @@ export function PrintLayoutProvider({ planId, children }: { planId: string; chil
 export function usePrintSection(id: PrintSectionId): { style: React.CSSProperties | undefined; className: string } {
   const ctx = useContext(PrintLayoutContext);
   if (!ctx) return { style: undefined, className: "" };
-  return { style: { order: 10 + ctx.order.indexOf(id) * 10 }, className: ctx.included[id] ? "" : "print:hidden" };
+  return { style: { order: 10 + ctx.order.indexOf(id) * 10 }, className: `${ctx.included[id] ? "" : "print:hidden"} ${ctx.mono ? "print:grayscale" : ""}`.trim() };
 }
 
 /** The "what to print and in which order" box: tick, drag, or use the arrows. */
@@ -124,6 +130,10 @@ export function PrintSetupPanel() {
         </button>
       </div>
       <p className="mb-2 text-xs text-gray-400">ติ๊กเพื่อใส่ในใบพิมพ์ ลากที่ไอคอนด้านซ้าย (หรือกดลูกศร) เพื่อเปลี่ยนลำดับ ลำดับเดียวกันนี้ใช้กับหน้าจอด้วย</p>
+      <label className="mb-2 inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:border-orange-400 has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50">
+        <input type="checkbox" className="h-5 w-5 cursor-pointer accent-orange-600" checked={ctx.mono} onChange={(e) => ctx.setMono(e.target.checked)} />
+        พิมพ์สีขาวดำ
+      </label>
       <ol className="space-y-1">
         {ctx.order.map((id, index) => (
           <li
