@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSizeFilter, mergeParts, parseBomLines, parsePartsCsv, parseSizeFilter, planCuts, profileKey, profileLabel } from "./steel";
+import { matchesSizeFilter, mergeParts, nameRows, parseBomLines, parsePartsCsv, parseSizeFilter, planCuts, profileKey, profileLabel } from "./steel";
 
 const box = { steelType: "BOX", sectionX: 50, sectionY: 25 };
 const opts = { kerf: 0, newBarLength: 6000 };
@@ -232,5 +232,34 @@ describe("parseBomLines with two tables on one drawing", () => {
 
   it("still reads plain rows when there is no table header at all", () => {
     expect(parseBomLines(["1 16 ST 75 x 75 x 2.3 1742"]).parts).toHaveLength(1);
+  });
+});
+
+describe("row names (ST1, L1 ...)", () => {
+  it("counts per kind of steel over the whole plan, in the order given", () => {
+    const names = nameRows([
+      { id: "a", steelType: "ST" },
+      { id: "b", steelType: "ANGLE" },
+      { id: "c", steelType: "ST" },
+      { id: "d", steelType: "RT" },
+      { id: "e", steelType: "ANGLE" },
+      { id: "f", steelType: "ST" },
+    ]);
+    expect([...names.values()]).toEqual(["ST1", "L1", "ST2", "RT1", "L2", "ST3"]);
+  });
+
+  it("carries the name of a row onto every piece cut from it, and keeps equal lengths with different names apart", () => {
+    const box = { steelType: "ST", sectionX: 50, sectionY: 50, thickness: 2.3 };
+    const plan = planCuts(
+      [
+        { ...box, cutLength: 1000, quantity: 2, label: "ST1" },
+        { ...box, cutLength: 1000, quantity: 1, label: "ST2" },
+      ],
+      [],
+      { kerf: 0, newBarLength: 6000 }
+    );
+    const bar = plan.profiles[0].bars[0];
+    expect(bar.cuts).toEqual([1000, 1000, 1000]);
+    expect([...bar.labels].sort()).toEqual(["ST1", "ST1", "ST2"]);
   });
 });
