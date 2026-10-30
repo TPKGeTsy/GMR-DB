@@ -614,12 +614,12 @@ function CutResults({
                         </div>
                         {/* One block per cut, each only as wide as its own text, wrapping onto a new line when the row is full.
                             The stripes are the saw kerf; what is left of the bar is the last (dashed) block. */}
-                        <div className="flex flex-wrap items-stretch gap-y-2" style={{ fontSize: font + 2 }}>
+                        <div className="flex flex-wrap items-stretch gap-y-1" style={{ fontSize: font + 2 }}>
                           {b.cuts.map((c, j) => (
                             <Fragment key={j}>
-                              {j > 0 && <span className="mx-1 inline-block w-2 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} title={`ระยะตัด ${formatLengthWithUnit(kerf, unit)}`} aria-hidden />}
+                              {j > 0 && <span className="mx-0.5 inline-block w-1.5 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} title={`ระยะตัด ${formatLengthWithUnit(kerf, unit)}`} aria-hidden />}
                               <span
-                                className="inline-flex items-center whitespace-nowrap border-2 border-black px-1.5 py-1 font-bold text-black"
+                                className="inline-flex items-center whitespace-nowrap border-2 border-black px-1 py-0.5 font-bold text-black"
                                 style={{ background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length] }}
                               >
                                 {formatLength(c, unit)}
@@ -631,8 +631,8 @@ function CutResults({
                           ))}
                           {b.leftover > 0 && (
                             <>
-                              <span className="mx-1 inline-block w-2 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} aria-hidden />
-                              <span className="inline-flex items-center whitespace-nowrap border-2 border-dashed border-black px-1.5 py-1 font-semibold text-gray-700" style={SCRAP_STYLE}>
+                              <span className="mx-0.5 inline-block w-1.5 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} aria-hidden />
+                              <span className="inline-flex items-center whitespace-nowrap border-2 border-dashed border-black px-1 py-0.5 font-semibold text-gray-700" style={SCRAP_STYLE}>
                                 เศษ {formatLengthWithUnit(b.leftover, unit)}
                               </span>
                             </>
