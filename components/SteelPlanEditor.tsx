@@ -4,6 +4,8 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
+import { useDisplayUnit } from "./useDisplayUnit";
+import { UNITS, UNIT_KEYS, formatLength, formatLengthWithUnit, type Unit } from "@/lib/units";
 import { ImportedFiles, PartRow, applyPartPatch, type PartPatch } from "./SteelPartRows";
 import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
 import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
@@ -28,6 +30,7 @@ import {
   planCuts,
   profileKey,
   profileLabel,
+  profileLabelUnits,
   type CuttingPlan,
   type SkippedRow,
   type SteelPartInput,
@@ -440,6 +443,7 @@ function BarLengthControl({
 // still read in a black-and-white print.
 const PIECE_COLORS = ["#fdba74", "#93c5fd", "#86efac", "#fde047", "#c4b5fd", "#f9a8d4"];
 const KERF_STYLE = { background: "repeating-linear-gradient(45deg, #b91c1c 0 3px, #ffffff 3px 6px)" };
+const SCRAP_STYLE = { background: "repeating-linear-gradient(135deg, #d1d5db 0 5px, #ffffff 5px 10px)" };
 
 const SIZE_STEPS = [
   { label: "ปกติ", scale: 1 },
@@ -455,17 +459,6 @@ const ROW_GAPS = [
   { label: "กว้างมาก", px: 72 },
 ] as const;
 
-/** Neighbouring cuts of the same length become one chip: 125.5 x 8. */
-function cutRuns(cuts: number[]): { length: number; count: number }[] {
-  const runs: { length: number; count: number }[] = [];
-  for (const c of cuts) {
-    const last = runs[runs.length - 1];
-    if (last && last.length === c) last.count += 1;
-    else runs.push({ length: c, count: 1 });
-  }
-  return runs;
-}
-
 function CutResults({
   planName,
   result,
@@ -475,6 +468,8 @@ function CutResults({
   onKerfText,
   onKerfCommit,
   canEdit,
+  unit,
+  labels,
 }: {
   planName: string;
   result: CuttingPlan;
@@ -485,12 +480,15 @@ function CutResults({
   onKerfText: (v: string) => void;
   onKerfCommit: () => void;
   canEdit: boolean;
+  /** Lengths are shown in this unit (they are stored in mm). */
+  unit: Unit;
+  /** The steel kinds with their sizes written with units, by profile key. */
+  labels: Record<string, string>;
 }) {
   const [sizeIndex, setSizeIndex] = useState(1);
   const [gapIndex, setGapIndex] = useState(2);
   const scale = SIZE_STEPS[sizeIndex].scale;
   const rowGap = ROW_GAPS[gapIndex].px;
-  const barHeight = Math.round(40 * scale);
   const font = Math.round(14 * scale);
   const totalBars = result.profiles.reduce((sum, p) => sum + p.bars.length, 0);
 
@@ -574,7 +572,7 @@ function CutResults({
           {planName}
         </p>
         <p className="mb-3 text-gray-700" style={{ fontSize: font }}>
-          ระยะตัด (ใบเลื่อย) {fmt(kerf)} มม. · เหล็กมาตรฐาน {fmt(standard)} มม.
+          ระยะตัด (ใบเลื่อย) {formatLengthWithUnit(kerf, unit)} · เหล็กมาตรฐาน {formatLengthWithUnit(standard, unit)}
         </p>
 
         {result.profiles.length === 0 ? (
@@ -589,6 +587,9 @@ function CutResults({
               <span className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-4 w-6 border border-black" style={KERF_STYLE} /> ระยะตัด
               </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-4 w-6 border border-dashed border-black" style={SCRAP_STYLE} /> เศษ
+              </span>
               {result.hasProblem && <span className="text-red-600">มีชิ้นงานยาวเกินความยาวเหล็ก</span>}
             </div>
 
@@ -597,14 +598,14 @@ function CutResults({
               return (
                 <div key={p.key} className={pi > 0 ? "border-t-4 border-black" : ""} style={{ paddingTop: pi > 0 ? rowGap / 2 : 0 }}>
                   <h3 className="mb-1 font-bold text-gray-900" style={{ fontSize: font + 2 }}>
-                    {p.label}
+                    {labels[p.key] ?? p.label}
                   </h3>
                   <p className="mb-3 text-gray-600" style={{ fontSize: font - 1 }}>
-                    {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {fmt(p.wasteLength)} มม.
+                    {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {formatLengthWithUnit(p.wasteLength, unit)}
                   </p>
                   {p.tooLong.length > 0 && (
                     <p className="mb-2 text-red-600" style={{ fontSize: font - 1 }}>
-                      ยาวเกินเหล็ก: {p.tooLong.map(fmt).join(", ")} มม.
+                      ยาวเกินเหล็ก: {p.tooLong.map((n) => formatLengthWithUnit(n, unit)).join(", ")}
                     </p>
                   )}
                   <ul className="flex flex-col" style={{ gap: rowGap }}>
@@ -613,40 +614,35 @@ function CutResults({
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-gray-900" style={{ fontSize: font }}>
                           <span className="flex items-center gap-2 font-bold">
                             <span className="rounded bg-black px-2 py-0.5 text-white">รายการที่ {firstNumber[pi] + i}</span>
-                            เหล็กยาว {fmt(b.length)} มม.
+                            เหล็กยาว {formatLengthWithUnit(b.length, unit)}
                           </span>
-                          <span>เศษ {fmt(b.leftover)} มม.</span>
+                          <span>เศษ {formatLengthWithUnit(b.leftover, unit)}</span>
                         </div>
-                        {/* Only the part that is cut, to scale (the offcut is not drawn - it is in the top right). A piece too
-                            short to hold its number is left blank here and shown in the chips below. */}
-                        <div className="flex w-full overflow-hidden border-2 border-black bg-white" style={{ height: barHeight }}>
+                        {/* One block per cut, each only as wide as its own text, wrapping onto a new line when the row is full.
+                            The stripes are the saw kerf; what is left of the bar is the last (dashed) block. */}
+                        <div className="flex flex-wrap items-stretch gap-y-2" style={{ fontSize: font + 2 }}>
                           {b.cuts.map((c, j) => (
                             <Fragment key={j}>
-                              {j > 0 && <div className="shrink-0 border-x border-black" style={{ flex: `${kerf} 0 6px`, ...KERF_STYLE }} title={`ระยะตัด ${fmt(kerf)} มม.`} />}
-                              <div
-                                style={{ flex: `${c} 1 0`, background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length], fontSize: font }}
-                                className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap border-x border-black font-bold text-black"
-                                title={`${fmt(c)} มม.`}
-                              >
-                                {c / (b.cuts.reduce((n, x) => n + x, 0) + kerf * (b.cuts.length - 1)) >= 0.04 ? fmt(c) : ""}
-                              </div>
-                            </Fragment>
-                          ))}
-                        </div>
-                        {/* Every cut written out large, wrapping onto new lines - short pieces are as easy to read as long ones. */}
-                        <div className="mt-3 flex flex-wrap items-center gap-y-2" style={{ fontSize: font + 1 }}>
-                          {cutRuns(b.cuts).map((r, k) => (
-                            <Fragment key={k}>
-                              {k > 0 && <span className="mx-1 inline-block h-5 w-2 shrink-0 border-x border-black" style={KERF_STYLE} aria-hidden />}
+                              {j > 0 && <span className="mx-1 inline-block w-2 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} title={`ระยะตัด ${formatLengthWithUnit(kerf, unit)}`} aria-hidden />}
                               <span
-                                className="whitespace-nowrap rounded border-2 border-black px-2 py-0.5 font-bold text-black"
-                                style={{ background: PIECE_COLORS[lengths.indexOf(r.length) % PIECE_COLORS.length] }}
+                                className="inline-flex items-center whitespace-nowrap border-2 border-black px-3 py-1.5 font-bold text-black"
+                                style={{ background: PIECE_COLORS[lengths.indexOf(c) % PIECE_COLORS.length] }}
                               >
-                                {fmt(r.length)}
-                                {r.count > 1 && <span className="ml-1">× {r.count}</span>}
+                                {formatLength(c, unit)}
+                                <span className="ml-1 font-semibold" style={{ fontSize: "0.7em" }}>
+                                  {UNITS[unit].label}
+                                </span>
                               </span>
                             </Fragment>
                           ))}
+                          {b.leftover > 0 && (
+                            <>
+                              <span className="mx-1 inline-block w-2 shrink-0 self-stretch border-x border-black" style={KERF_STYLE} aria-hidden />
+                              <span className="inline-flex items-center whitespace-nowrap border-2 border-dashed border-black px-3 py-1.5 font-semibold text-gray-700" style={SCRAP_STYLE}>
+                                เศษ {formatLengthWithUnit(b.leftover, unit)}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </li>
                     ))}
@@ -680,6 +676,7 @@ export default function SteelPlanEditor({
   children?: React.ReactNode;
 }) {
   const router = useRouter();
+  const [unit, setUnit] = useDisplayUnit();
 
   // The parts are edited right here: a change shows (totals, cut plan) the moment it is typed and is
   // saved a moment later. The server copy only replaces this one when the page's data is reloaded.
@@ -774,6 +771,9 @@ export default function SteelPlanEditor({
   const [projectId, setProjectId] = useState(plan.projectId ?? "");
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [showSkipped, setShowSkipped] = useState(skippedCount > 0);
+
+  // The steel kinds written with their sizes in the shown unit, by profile key (for the cut results).
+  const labels = useMemo(() => Object.fromEntries(groups.map((g) => [profileKey(g.profile), profileLabelUnits(g.profile, unit)])), [groups, unit]);
 
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : plan.kerf;
   const result = useMemo(
@@ -878,18 +878,30 @@ export default function SteelPlanEditor({
               />
             </div>
           </label>
-          <p className="text-xs text-gray-500">ระยะตัดนับทุกรอยตัดในแผนด้านล่าง ความยาวเหล็กเลือกแยกตามชนิดเหล็กได้ในแต่ละกลุ่ม</p>
+          <label className="block text-xs text-gray-600">
+            หน่วยที่แสดง
+            <div>
+              <select value={unit} onChange={(e) => setUnit(e.target.value as Unit)} className="rounded border border-gray-300 px-2 py-1 text-sm">
+                {UNIT_KEYS.map((u) => (
+                  <option key={u} value={u}>
+                    {UNITS[u].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+          <p className="text-xs text-gray-500">ข้อมูลที่นำเข้าเป็น มม. เสมอ หน่วยนี้เปลี่ยนแค่การแสดงผล (และช่องความยาวในตาราง) · ระยะตัดนับทุกรอยตัดในแผนด้านล่าง</p>
         </div>
 
         {editError && <p className="mb-2 text-sm text-red-600">{editError}</p>}
-        <ImportedFiles parts={localParts} canEdit={canEdit} onFileRounds={editFileRounds} onDeleteFile={removeFile} />
+        <ImportedFiles parts={localParts} unit={unit} canEdit={canEdit} onFileRounds={editFileRounds} onDeleteFile={removeFile} />
 
         <div className="space-y-4">
           {groups.map((g) => (
             <div key={profileKey(g.profile)} className="rounded border border-gray-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
                 <h3 className="text-sm font-semibold text-gray-900">
-                  {profileLabel(g.profile)}
+                  {profileLabelUnits(g.profile, unit)}
                   <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-800">
                     รวม {g.parts.reduce((n, p) => n + p.quantity, 0).toLocaleString("th-TH")} ชิ้น
                   </span>
@@ -906,7 +918,7 @@ export default function SteelPlanEditor({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500">
-                    <th className="px-3 py-1 text-right font-medium">z ยาว (มม.)</th>
+                    <th className="px-3 py-1 text-right font-medium">z ยาว ({UNITS[unit].label})</th>
                     <th className="px-3 py-1 text-right font-medium">QTY ในไฟล์</th>
                     <th className="px-3 py-1 text-right font-medium">× รอบ</th>
                     <th className="px-3 py-1 text-right font-medium">รวม (ชิ้น)</th>
@@ -916,7 +928,7 @@ export default function SteelPlanEditor({
                 </thead>
                 <tbody>
                   {g.parts.map((p) => (
-                    <PartRow key={p.id} part={p} canEdit={canEdit} onEdit={(patch) => editPart(p.id, patch)} onDelete={() => removePart(p.id)} />
+                    <PartRow key={`${p.id}-${unit}`} part={p} unit={unit} canEdit={canEdit} onEdit={(patch) => editPart(p.id, patch)} onDelete={() => removePart(p.id)} />
                   ))}
                 </tbody>
               </table>
@@ -945,6 +957,8 @@ export default function SteelPlanEditor({
         onKerfText={setKerf}
         onKerfCommit={() => canEdit && saveCutSettings({ kerf: kerfValue, newBarLength: standard })}
         canEdit={canEdit}
+        unit={unit}
+        labels={labels}
       />
     </div>
     </PrintLayoutProvider>

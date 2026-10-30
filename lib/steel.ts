@@ -1,5 +1,7 @@
 // Steel cutting plan: which stock bars to cut for a list of required pieces.
 
+import { formatSection, type Unit } from "./units";
+
 export const STEEL_TYPES = {
   ST: { label: "ST เหล็กกล่องจัตุรัส", needsY: true },
   RT: { label: "RT เหล็กกล่องสี่เหลี่ยมผืนผ้า", needsY: true },
@@ -61,6 +63,11 @@ export function profileKey(p: SteelProfile): string {
 export function profileLabel(p: SteelProfile): string {
   const size = p.sectionY != null ? `${p.sectionX} × ${p.sectionY}` : `Ø${p.sectionX}`;
   return `${steelTypeLabel(p.steelType)} ${size}${p.thickness != null ? ` หนา ${p.thickness}` : ""}`;
+}
+
+/** "L เหล็กฉาก 50 มม. × 50 มม. × 4 มม." - the kind of steel and its size with a unit on every number. */
+export function profileLabelUnits(p: SteelProfile, unit: Unit): string {
+  return `${steelTypeLabel(p.steelType)} ${formatSection(p, unit)}`;
 }
 
 /** Same kind of steel together first (type, then x, y, thickness), and within

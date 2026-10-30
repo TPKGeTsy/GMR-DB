@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
-import { profileLabel } from "@/lib/steel";
+import { profileLabelUnits } from "@/lib/steel";
+import { UNITS, formatLengthWithUnit, fromUnit, toUnit, type Unit } from "@/lib/units";
 
 export interface PartRowData {
   id: string;
@@ -54,19 +55,22 @@ function wholeOrNull(text: string): number | null {
  *  Every valid keystroke goes up at once, so the totals and the cut plan change as you type. */
 export function PartRow({
   part,
+  unit,
   canEdit,
   onEdit,
   onDelete,
   error,
 }: {
   part: PartRowData;
+  /** The length is shown and typed in this unit (stored in mm). */
+  unit: Unit;
   canEdit: boolean;
   onEdit: (patch: PartPatch) => void;
   onDelete: () => void;
   error?: string | null;
 }) {
   const base = part.baseQuantity ?? part.quantity;
-  const [z, setZ] = useState(String(part.cutLength));
+  const [z, setZ] = useState(String(Number(toUnit(part.cutLength, unit).toFixed(4))));
   const [qty, setQty] = useState(String(base));
   const [rounds, setRounds] = useState(String(part.rounds));
 
@@ -82,10 +86,10 @@ export function PartRow({
           onChange={(e) => {
             setZ(e.target.value);
             const n = Number(e.target.value);
-            if (e.target.value.trim() !== "" && n > 0) onEdit({ cutLength: n });
+            if (e.target.value.trim() !== "" && n > 0) onEdit({ cutLength: Math.round(fromUnit(n, unit) * 1000) / 1000 });
           }}
           className={cell}
-          aria-label="ความยาวตัด"
+          aria-label={`ความยาวตัด (${UNITS[unit].label})`}
         />
       </td>
       <td className="px-3 py-1 text-right">
@@ -143,11 +147,13 @@ export function PartRow({
  *  the cut plan at once; it is saved a moment later. */
 export function ImportedFiles({
   parts,
+  unit,
   canEdit,
   onFileRounds,
   onDeleteFile,
 }: {
   parts: PartRowData[];
+  unit: Unit;
   canEdit: boolean;
   onFileRounds: (file: string, rounds: number) => void;
   onDeleteFile: (file: string) => void;
@@ -165,7 +171,7 @@ export function ImportedFiles({
       </p>
       <ul className="divide-y divide-gray-100">
         {[...files.entries()].map(([name, rows]) => (
-          <ImportedFile key={name} name={name} rows={rows} canEdit={canEdit} onFileRounds={onFileRounds} onDeleteFile={onDeleteFile} />
+          <ImportedFile key={name} name={name} rows={rows} unit={unit} canEdit={canEdit} onFileRounds={onFileRounds} onDeleteFile={onDeleteFile} />
         ))}
       </ul>
     </div>
@@ -175,12 +181,14 @@ export function ImportedFiles({
 function ImportedFile({
   name,
   rows,
+  unit,
   canEdit,
   onFileRounds,
   onDeleteFile,
 }: {
   name: string;
   rows: PartRowData[];
+  unit: Unit;
   canEdit: boolean;
   onFileRounds: (file: string, rounds: number) => void;
   onDeleteFile: (file: string) => void;
@@ -255,8 +263,8 @@ function ImportedFile({
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className={r.quantity === 0 ? "text-gray-300 line-through" : ""}>
-                <td className="pr-4">{profileLabel(r)}</td>
-                <td className="pr-4 text-right">{fmt(r.cutLength)}</td>
+                <td className="pr-4">{profileLabelUnits(r, unit)}</td>
+                <td className="pr-4 text-right">{formatLengthWithUnit(r.cutLength, unit)}</td>
                 <td className="pr-4 text-right">{r.baseQuantity ?? r.quantity}</td>
                 <td className="pr-4 text-right">{r.rounds}</td>
                 <td className="text-right font-semibold">{r.quantity}</td>
