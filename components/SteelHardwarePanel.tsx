@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageUp, Trash2 } from "lucide-react";
-import { addPartsListImage, deleteAllHardware, importHardwarePdf, deleteHardwareRow, deletePartsListImage, updateHardwareRow } from "@/app/actions/steelSources";
+import { addPartsListImage, deleteAllHardware, deleteHardwareFile, importHardwarePdf, deleteHardwareRow, setHardwareFileRounds, deletePartsListImage, updateHardwareRow } from "@/app/actions/steelSources";
 import { CATEGORY_LABEL, summarizeFasteners, type BomCategory, type BomRow } from "@/lib/bomImage";
 import { usePrintSection } from "./PrintLayout";
 
@@ -14,6 +14,9 @@ export interface HardwareRow {
   description: string;
   quantity: number;
   category: string;
+  sourceFile: string | null;
+  baseQuantity: number | null;
+  rounds: number;
 }
 
 export interface PartsListImage {
@@ -31,14 +34,16 @@ const KIND_LABEL = { screw: "สกรู", nut: "น็อต", washer: "แห
 function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: boolean; onChanged: () => void }) {
   const [partNumber, setPartNumber] = useState(row.partNumber);
   const [description, setDescription] = useState(row.description);
-  const [quantity, setQuantity] = useState(String(row.quantity));
+  const [quantity, setQuantity] = useState(String(row.baseQuantity ?? row.quantity));
+  const [rounds, setRounds] = useState(String(row.rounds));
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     const qty = Math.round(Number(quantity));
-    if (partNumber === row.partNumber && description === row.description && qty === row.quantity) return;
+    const times = rounds.trim() === "" ? 1 : Math.round(Number(rounds));
+    if (partNumber === row.partNumber && description === row.description && qty === (row.baseQuantity ?? row.quantity) && times === row.rounds) return;
     setError(null);
-    const res = await updateHardwareRow(row.id, { partNumber, description, quantity: qty });
+    const res = await updateHardwareRow(row.id, { partNumber, description, quantity: qty, rounds: times });
     if (!res.success) setError(res.error ?? "บันทึกไม่สำเร็จ");
     else onChanged();
   };
@@ -63,6 +68,23 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
           className={`${inputClass} text-right font-semibold print:border-0`}
         />
       </td>
+      <td className="w-20 px-1 py-1">
+        <span className="inline-flex items-center gap-1 text-gray-500">
+          ×
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            value={rounds}
+            disabled={!canEdit}
+            onChange={(e) => setRounds(e.target.value)}
+            onBlur={save}
+            className={`${inputClass} !w-12 text-right print:border-0`}
+            aria-label="จำนวนรอบ"
+          />
+        </span>
+      </td>
+      <td className="px-2 py-1 text-right font-bold">{row.quantity.toLocaleString("th-TH")}</td>
       <td className="px-2 py-1 text-gray-500">
         {CATEGORY_LABEL[row.category as BomCategory] ?? row.category}
         {error && <span className="ml-1 text-red-600">{error}</span>}
@@ -83,6 +105,83 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
         )}
       </td>
     </tr>
+  );
+}
+
+/** The imported parts-list files, each with "whole file x N": every screw, nut and washer of it counts N times. */
+function ImportedHardwareFiles({ planId, rows, canEdit, onChanged }: { planId: string; rows: HardwareRow[]; canEdit: boolean; onChanged: () => void }) {
+  const files = new Map<string, HardwareRow[]>();
+  for (const r of rows) if (r.sourceFile) files.set(r.sourceFile, [...(files.get(r.sourceFile) ?? []), r]);
+  if (files.size === 0) return null;
+  return (
+    <div className="rounded border border-gray-200 print:hidden">
+      <p className="border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">
+        ไฟล์ที่นำเข้า ({files.size}) — แก้จำนวนรอบของทั้งไฟล์ได้เลย ยอดสรุปด้านบนเปลี่ยนทันที
+      </p>
+      <ul className="divide-y divide-gray-100">
+        {[...files.entries()].map(([name, list]) => (
+          <HardwareFile key={name} planId={planId} name={name} list={list} canEdit={canEdit} onChanged={onChanged} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HardwareFile({ planId, name, list, canEdit, onChanged }: { planId: string; name: string; list: HardwareRow[]; canEdit: boolean; onChanged: () => void }) {
+  const same = list.every((r) => r.rounds === list[0].rounds);
+  const current = same ? String(list[0].rounds) : "";
+  const [text, setText] = useState(current);
+  const [lastCurrent, setLastCurrent] = useState(current);
+  if (current !== lastCurrent) {
+    setLastCurrent(current);
+    setText(current);
+  }
+  const pieces = list.reduce((n, r) => n + r.quantity, 0);
+
+  return (
+    <li className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+      <span className="min-w-0 flex-1 truncate font-medium text-gray-800" title={name}>
+        {name}
+      </span>
+      <span className="text-xs text-gray-500">
+        {list.length} รายการ · {pieces.toLocaleString("th-TH")} ตัว
+      </span>
+      <span className="inline-flex items-center gap-1 text-gray-600">
+        ทั้งไฟล์ ×
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          step={1}
+          value={text}
+          placeholder={same ? undefined : "หลายค่า"}
+          disabled={!canEdit}
+          onChange={async (e) => {
+            setText(e.target.value);
+            const n = Number(e.target.value);
+            if (e.target.value.trim() === "" || !Number.isInteger(n) || n < 0 || n > 1000) return;
+            await setHardwareFileRounds(planId, name, n);
+            onChanged();
+          }}
+          className={`${inputClass} !w-16`}
+          aria-label={`จำนวนรอบของ ${name}`}
+        />
+      </span>
+      {canEdit && (
+        <button
+          type="button"
+          title="ลบรายการทั้งหมดของไฟล์นี้"
+          onClick={async () => {
+            if (!confirm(`ลบรายการทั้งหมดที่มาจาก ${name} (${list.length} รายการ)?`)) return;
+            await deleteHardwareFile(planId, name);
+            onChanged();
+          }}
+          className="text-gray-400 hover:text-red-600"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -241,6 +340,7 @@ export default function SteelHardwarePanel({
 
       {rows.length > 0 && (
         <div className="mt-4 space-y-3">
+          <ImportedHardwareFiles planId={planId} rows={rows} canEdit={canEdit} onChanged={() => router.refresh()} />
           <div className="rounded border border-gray-200 text-sm">
             <div className="flex items-center justify-between bg-gray-50 px-3 py-1.5">
               <span className="text-xs font-medium text-gray-600">รายการตามต้นฉบับ ({rows.length})</span>

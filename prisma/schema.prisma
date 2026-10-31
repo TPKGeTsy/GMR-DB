@@ -887,6 +887,9 @@ model SteelPlanHardware {
   description String    @default("")
   quantity    Int
   category    String // screw | nut | washer | steel | plate | other
+  sourceFile  String?   @map("source_file")
+  baseQuantity Int?     @map("base_quantity") // QTY in the file; quantity = baseQuantity x rounds
+  rounds      Int       @default(1)
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("steel_plan_hardware")

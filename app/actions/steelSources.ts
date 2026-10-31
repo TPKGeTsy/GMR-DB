@@ -76,7 +76,7 @@ export async function deleteAllHardware(planId: string) {
 }
 
 /** Fixes a saved row of the parts list (a wrong part number or quantity read from the picture). */
-export async function updateHardwareRow(id: string, data: { partNumber: string; description: string; quantity: number }) {
+export async function updateHardwareRow(id: string, data: { partNumber: string; description: string; quantity: number; rounds?: number }) {
   try {
     const row = await prisma.steelPlanHardware.findUnique({ where: { id }, select: { planId: true } });
     if (!row) return { success: false, error: "ไม่พบรายการ" };
@@ -85,10 +85,19 @@ export async function updateHardwareRow(id: string, data: { partNumber: string; 
     const partNumber = data.partNumber.trim().slice(0, 200);
     if (!partNumber) return { success: false, error: "ต้องมี part number" };
     if (!Number.isInteger(data.quantity) || data.quantity < 1 || data.quantity > 1_000_000) return { success: false, error: "QTY ไม่ถูกต้อง" };
+    const rounds = data.rounds ?? 1;
+    if (!Number.isInteger(rounds) || rounds < 0 || rounds > 1000) return { success: false, error: "จำนวนรอบต้องเป็นเลข 0–1000" };
     const candidate: BomRow = { item: null, partNumber, description: data.description.trim().slice(0, 200), qty: data.quantity };
     await prisma.steelPlanHardware.update({
       where: { id },
-      data: { partNumber, description: candidate.description, quantity: data.quantity, category: classifyBomRow(candidate) },
+      data: {
+        partNumber,
+        description: candidate.description,
+        baseQuantity: data.quantity,
+        rounds,
+        quantity: Math.min(1_000_000, data.quantity * rounds),
+        category: classifyBomRow(candidate),
+      },
     });
     revalidatePlan(row.planId);
     return { success: true };
@@ -265,20 +274,65 @@ export async function importHardwarePdf(
 
     const fasteners = rows.filter((r) => fastenerOf(r) !== null).slice(0, 500);
     if (fasteners.length === 0) return { success: false, error: "ไม่พบแถวที่เป็นสกรู / น็อต / แหวน (ต้องมีคำว่า screw, bolt, nut หรือ washer)" };
-    await prisma.steelPlanHardware.createMany({
-      data: fasteners.map((r) => ({
-        planId,
-        itemNo: r.item,
-        partNumber: r.partNumber.slice(0, 200),
-        description: r.description.slice(0, 200),
-        quantity: Math.min(1_000_000, Math.max(1, r.qty)),
-        category: classifyBomRow(r),
-      })),
-    });
+    const sourceFile = file.name.slice(0, 200);
+    // Importing the same file again replaces its rows instead of doubling them.
+    await prisma.$transaction([
+      prisma.steelPlanHardware.deleteMany({ where: { planId, sourceFile } }),
+      prisma.steelPlanHardware.createMany({
+        data: fasteners.map((r) => {
+          const qty = Math.min(1_000_000, Math.max(1, r.qty));
+          return {
+            planId,
+            itemNo: r.item,
+            partNumber: r.partNumber.slice(0, 200),
+            description: r.description.slice(0, 200),
+            quantity: qty,
+            baseQuantity: qty,
+            rounds: 1,
+            sourceFile,
+            category: classifyBomRow(r),
+          };
+        }),
+      }),
+    ]);
     revalidatePlan(planId);
     return { success: true, added: fasteners.length, skipped: rows.length - fasteners.length };
   } catch (error) {
     logError("Error importing parts-list PDF:", error);
     return { success: false, error: "อ่านไฟล์ PDF ไม่สำเร็จ" };
+  }
+}
+
+/** "x2 for the whole file": every row of an imported parts list counts QTY x rounds. */
+export async function setHardwareFileRounds(planId: string, sourceFile: string, rounds: number) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    if (!Number.isInteger(rounds) || rounds < 0 || rounds > 1000) return { success: false, error: "จำนวนรอบต้องเป็นเลข 0–1000" };
+    const rows = await prisma.steelPlanHardware.findMany({ where: { planId, sourceFile }, select: { id: true, quantity: true, baseQuantity: true, rounds: true } });
+    await prisma.$transaction(
+      rows.map((r) => {
+        const base = r.baseQuantity ?? Math.round(r.quantity / Math.max(1, r.rounds));
+        return prisma.steelPlanHardware.update({ where: { id: r.id }, data: { baseQuantity: base, rounds, quantity: Math.min(1_000_000, base * rounds) } });
+      })
+    );
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting hardware file rounds:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+export async function deleteHardwareFile(planId: string, sourceFile: string) {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    await prisma.steelPlanHardware.deleteMany({ where: { planId, sourceFile } });
+    revalidatePlan(planId);
+    return { success: true };
+  } catch (error) {
+    logError("Error deleting hardware file rows:", error);
+    return { success: false, error: "ลบรายการไม่สำเร็จ" };
   }
 }

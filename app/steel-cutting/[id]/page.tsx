@@ -96,6 +96,9 @@ export default async function SteelPlanPage({
             description: h.description,
             quantity: h.quantity,
             category: h.category,
+            sourceFile: h.sourceFile,
+            baseQuantity: h.baseQuantity,
+            rounds: h.rounds,
           }))}
         />
         <SteelSheetPanel planId={plan.id} canEdit={canEdit} parts={sheetParts} />
