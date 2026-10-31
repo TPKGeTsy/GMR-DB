@@ -60,15 +60,17 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
           <input value={description} disabled={!canEdit} onChange={(e) => setDescription(e.target.value)} onBlur={save} title={description} className={`${inputClass} print:border-0`} />
         </td>
       )}
-      <td className="w-24 px-1 py-1">
+      <td className="w-20 min-w-20 px-1 py-1">
         <input
           type="number"
           min={1}
+          aria-label="จำนวนต่อรอบ (จากไฟล์)"
+          title="จำนวนต่อ 1 รอบ (QTY จากไฟล์)"
           value={quantity}
           disabled={!canEdit}
           onChange={(e) => setQuantity(e.target.value)}
           onBlur={save}
-          className={`${inputClass} text-right font-semibold print:border-0`}
+          className={`${inputClass} min-w-16 text-right font-semibold print:border-0`}
         />
       </td>
       <td className="w-20 px-1 py-1">
