@@ -51,12 +51,15 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
   return (
     <tr className="border-t border-gray-100">
       <td className="px-2 py-1 text-gray-400">{row.itemNo ?? ""}</td>
-      <td className="px-1 py-1">
-        <input value={partNumber} disabled={!canEdit} onChange={(e) => setPartNumber(e.target.value)} onBlur={save} className={`${inputClass} print:border-0`} />
+      <td className="w-full px-1 py-1">
+        <input value={partNumber} disabled={!canEdit} onChange={(e) => setPartNumber(e.target.value)} onBlur={save} title={partNumber} className={`${inputClass} print:border-0`} />
       </td>
-      <td className="px-1 py-1">
-        <input value={description} disabled={!canEdit} onChange={(e) => setDescription(e.target.value)} onBlur={save} className={`${inputClass} print:border-0`} />
-      </td>
+      {/* Only drawn when the list has a description column with something in it. */}
+      {row.description !== "" && (
+        <td className="min-w-48 px-1 py-1">
+          <input value={description} disabled={!canEdit} onChange={(e) => setDescription(e.target.value)} onBlur={save} title={description} className={`${inputClass} print:border-0`} />
+        </td>
+      )}
       <td className="w-24 px-1 py-1">
         <input
           type="number"
