@@ -242,6 +242,25 @@ describe("parseBomLines with two tables on one drawing", () => {
     expect(parts.map((p) => p.cutLength).sort((a, b) => a - b)).toEqual([3650, 5183.5]);
   });
 
+  it("reads channels, I and T sections, rebars and square bars", () => {
+    const { parts, skipped } = parseBomLines([
+      "ITEM NO. QTY. DESCRIPTION LENGTH",
+      "1 2 C 100 x 50 x 20 x 2.3 1500",
+      "2 1 I SECTION 200 x 100 x 21 3000",
+      "3 4 T SECTION 50 x 50 x 5 800",
+      "4 6 DB 16 1200",
+      "5 3 SQUARE BAR 16 x 16 700",
+    ]);
+    expect(skipped).toEqual([]);
+    expect(parts.map((p) => [p.steelType, p.sectionX, p.sectionY, p.thickness, p.cutLength, p.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
+      ["CHANNEL", 100, 50, 2.3, 1500, 2],
+      ["IBEAM", 200, 100, 21, 3000, 1],
+      ["REBAR", 16, null, null, 1200, 6],
+      ["SQBAR", 16, null, null, 700, 3],
+      ["TEE", 50, 50, 5, 800, 4],
+    ]);
+  });
+
   it("still reads plain rows when there is no table header at all", () => {
     expect(parseBomLines(["1 16 ST 75 x 75 x 2.3 1742"]).parts).toHaveLength(1);
   });

@@ -73,6 +73,13 @@ export function PartRow({
   const [z, setZ] = useState(String(Number(toUnit(part.cutLength, unit).toFixed(4))));
   const [qty, setQty] = useState(String(base));
   const [rounds, setRounds] = useState(String(part.rounds));
+  // Follow changes made elsewhere (the whole-file rounds above), not only what was typed here.
+  const [seen, setSeen] = useState({ rounds: part.rounds, base });
+  if (seen.rounds !== part.rounds || seen.base !== base) {
+    setSeen({ rounds: part.rounds, base });
+    setRounds(String(part.rounds));
+    setQty(String(base));
+  }
 
   return (
     <tr className={`border-t border-gray-100 ${part.quantity === 0 ? "text-gray-300" : ""}`}>

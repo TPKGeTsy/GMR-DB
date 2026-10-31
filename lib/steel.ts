@@ -9,6 +9,11 @@ export const STEEL_TYPES = {
   ANGLE: { label: "L เหล็กฉาก", needsY: true },
   // H SECTION 300 x 150 x 37: height x width x weight (kg/m), the weight goes in the thickness column.
   HBEAM: { label: "H เหล็กตัวเอช (x = สูง, y = กว้าง, หนา = กก./ม.)", needsY: true },
+  IBEAM: { label: "I เหล็กตัวไอ (x = สูง, y = กว้าง, หนา = กก./ม.)", needsY: true },
+  CHANNEL: { label: "C เหล็กรางน้ำ / ราง C (x = สูง, y = กว้าง)", needsY: true },
+  TEE: { label: "T เหล็กตัวที (x = สูง, y = กว้าง)", needsY: true },
+  REBAR: { label: "RB เหล็กเส้นกลม / ข้ออ้อย (x = เส้นผ่านศูนย์กลาง)", needsY: false },
+  SQBAR: { label: "SB เหล็กเส้นสี่เหลี่ยมตัน (x = ด้าน)", needsY: false },
   ROUND: { label: "เหล็กกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
   PIPE: { label: "ท่อกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
   // Older plans / CSV rows that only said "box" (square or rectangular not known).
@@ -375,7 +380,21 @@ export interface SkippedRow {
 const SIZE_RE = /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)(?:\s*[xX×]\s*(\d+(?:\.\d+)?))?/;
 const BOM_ROW_RE = /^(\d+)\s+(\d+)\s*(.*?)\s*(\d+(?:\.\d+)?)?$/;
 
+/** Bars have one size only ("DB 16", "SQUARE BAR 16 x 16"): the type and the size, or null when the row is not a bar. */
+function barOf(description: string): { type: SteelType; x: number } | null {
+  const squareBar = /SQUARE\s*BAR|\bSB\b/i;
+  if (squareBar.test(description)) {
+    const n = /(\d+(?:\.\d+)?)/.exec(description.replace(squareBar, ""));
+    return n ? { type: "SQBAR", x: Number(n[1]) } : null;
+  }
+  const m = /\b(?:RB|DB)\s*-?\s*(\d+(?:\.\d+)?)|(?:REBAR|DEFORMED\s*BAR|ROUND\s*BAR)\D{0,6}(\d+(?:\.\d+)?)/i.exec(description);
+  return m ? { type: "REBAR", x: Number(m[1] ?? m[2]) } : null;
+}
+
 function bomType(description: string, x: number, y: number): SteelType | null {
+  if (/\bI[\s-]*(SECTION|BEAM)\b/i.test(description)) return "IBEAM";
+  if (/\b(C|U)[\s-]*(SECTION|CHANNEL)\b|\bCHANNEL\b|^C\s/i.test(description)) return "CHANNEL";
+  if (/\bT[\s-]*(SECTION|BAR)\b|\bTEE\b/i.test(description)) return "TEE";
   if (/\b(ST|SHS)\b|SQUARE/i.test(description)) return "ST";
   if (/\b(RT|RHS)\b|RECT/i.test(description)) return "RT";
   // A plain "TUBE" / "BOX": square when both sides are equal, otherwise rectangular.
@@ -422,6 +441,18 @@ export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipp
       if (Number(match[1]) > 8 || quantity !== Number(match[1])) skipped.push({ line, reason: "ไม่มีรายละเอียดและความยาว" });
       continue;
     }
+    const bar = barOf(description);
+    if (bar) {
+      const barLength = lengthText === undefined ? NaN : Number(lengthText);
+      if (!(barLength > 0) || !(bar.x > 0)) {
+        skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
+        continue;
+      }
+      parts.push({ steelType: bar.type, sectionX: bar.x, sectionY: null, thickness: null, cutLength: barLength, quantity });
+      continue;
+    }
+    // A lipped channel is written with four sizes: height x width x lip x thickness.
+    const four = /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*[xX×]\s*\d+(?:\.\d+)?\s*[xX×]\s*(\d+(?:\.\d+)?)/.exec(description);
     const size = SIZE_RE.exec(description);
     const afterSize = size ? /^\s*(\d+(?:\.\d+)?)/.exec(description.slice(size.index + size[0].length)) : null;
     const length = afterSize ? Number(afterSize[1]) : lengthText === undefined ? NaN : Number(lengthText);
@@ -436,7 +467,7 @@ export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipp
       skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
       continue;
     }
-    const t = size[3] === undefined ? null : Number(size[3]);
+    const t = type === "CHANNEL" && four ? Number(four[3]) : size[3] === undefined ? null : Number(size[3]);
     parts.push({ steelType: type, sectionX: x, sectionY: y, thickness: t, cutLength: length, quantity });
   }
   return { parts: mergeParts(parts), skipped };

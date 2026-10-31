@@ -29,6 +29,28 @@ export const DEFAULT_TIMES_STATE: TimesState = { same: false, common: "1" };
 
 const MAX_TIMES = 1000;
 
+const TIMES_KEY = "steel-last-times";
+
+/** The rounds typed last: new files start with it instead of 1 (kept for the browser session, so the next page has it too). */
+export function rememberedTimes(): string {
+  try {
+    const n = Math.floor(Number(sessionStorage.getItem(TIMES_KEY)));
+    return Number.isFinite(n) && n >= 1 && n <= MAX_TIMES ? String(n) : "1";
+  } catch {
+    return "1";
+  }
+}
+
+export function rememberTimes(text: string) {
+  const n = Math.floor(Number(text));
+  if (!Number.isFinite(n) || n < 1 || n > MAX_TIMES) return;
+  try {
+    sessionStorage.setItem(TIMES_KEY, String(n));
+  } catch {
+    // no storage: the number is simply not carried over
+  }
+}
+
 const wholeNumber = (text: string, min: number): number => {
   const n = Math.floor(Number(text));
   return Number.isFinite(n) ? Math.min(MAX_TIMES, Math.max(min, n)) : min === 0 ? 1 : min;
@@ -93,7 +115,7 @@ export function useStagedFiles() {
     fresh.forEach((f) => seen.current.add(f.key));
     setItems((prev) => [
       ...prev,
-      ...fresh.map<StagedFile>(({ file, key }) => ({ key, file, times: "1", partial: false, rowTimes: [], status: "reading", parts: [], skipped: 0, error: null })),
+      ...fresh.map<StagedFile>(({ file, key }) => ({ key, file, times: rememberedTimes(), partial: false, rowTimes: [], status: "reading", parts: [], skipped: 0, error: null })),
     ]);
     for (const { file, key } of fresh) {
       const read = await readFileParts(file);
@@ -170,7 +192,10 @@ function FileCard({
                 step={1}
                 value={item.times}
                 disabled={disabled}
-                onChange={(e) => onUpdate({ times: e.target.value })}
+                onChange={(e) => {
+                  rememberTimes(e.target.value);
+                  onUpdate({ times: e.target.value });
+                }}
                 className={inputClass}
                 aria-label={`จำนวนรอบของ ${item.file.name}`}
               />
@@ -277,7 +302,10 @@ export default function SteelStagedFiles({
               step={1}
               value={state.common}
               disabled={disabled}
-              onChange={(e) => setState({ ...state, common: e.target.value })}
+              onChange={(e) => {
+                rememberTimes(e.target.value);
+                setState({ ...state, common: e.target.value });
+              }}
               className={inputClass}
               aria-label="จำนวนรอบของทุกไฟล์"
             />
