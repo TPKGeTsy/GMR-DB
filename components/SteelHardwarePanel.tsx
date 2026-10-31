@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageUp, Trash2 } from "lucide-react";
-import { addPartsListImage, deleteAllHardware, deleteHardwareRow, deletePartsListImage, updateHardwareRow } from "@/app/actions/steelSources";
+import { addPartsListImage, deleteAllHardware, importHardwarePdf, deleteHardwareRow, deletePartsListImage, updateHardwareRow } from "@/app/actions/steelSources";
 import { CATEGORY_LABEL, summarizeFasteners, type BomCategory, type BomRow } from "@/lib/bomImage";
 import { usePrintSection } from "./PrintLayout";
 
@@ -106,9 +106,9 @@ export default function SteelHardwarePanel({
   const [message, setMessage] = useState<string | null>(null);
 
   const upload = async (files: FileList | File[] | null | undefined) => {
-    const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
+    const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/") || /\.pdf$/i.test(f.name) || f.type === "application/pdf");
     if (list.length === 0) {
-      setMessage("เลือกไฟล์รูป (PNG, JPG, WEBP)");
+      setMessage("เลือกไฟล์ PDF ของตารางรายการ หรือรูป (PNG, JPG, WEBP)");
       return;
     }
     setBusy(true);
@@ -117,7 +117,8 @@ export default function SteelHardwarePanel({
     for (const file of list) {
       const form = new FormData();
       form.set("file", file);
-      const result = await addPartsListImage(planId, form);
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      const result = isPdf ? await importHardwarePdf(planId, form) : await addPartsListImage(planId, form);
       if (!result.success) problems.push(`${file.name}: ${result.error}`);
     }
     setBusy(false);
@@ -132,9 +133,9 @@ export default function SteelHardwarePanel({
 
   return (
     <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
-      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">รายการน็อต / สกรู ({images.length} รูป)</h2>
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">รายการน็อต / สกรู ({rows.length} รายการ · {images.length} รูป)</h2>
       <p className="mb-3 text-xs text-gray-400 print:hidden">
-        โยนรูปตารางรายการ (PNG / JPG) หรือวางรูปที่ก๊อปมา (Ctrl+V) ระบบเก็บรูปไว้และปรับให้เหมือนหน้าสแกน (พื้นขาว ตัวอักษรดำ) ไว้พิมพ์ต่อท้ายใบงาน ไม่ได้อ่านข้อความออกจากรูป
+        โยนไฟล์ PDF ของตารางรายการ (ITEM NO. / PART NUMBER / QTY.) ระบบอ่านเฉพาะสกรู (screw / bolt) น็อตตัวเมีย (nut) และแหวน (washer) เรียงตามต้นฉบับ แล้วสรุปยอดของที่เหมือนกันเป๊ะไว้ด้านบน · ถ้าเป็นรูปภาพ (PNG / JPG หรือวางด้วย Ctrl+V) ระบบเก็บรูปไว้พิมพ์ต่อท้ายใบงานอย่างเดียว ไม่ได้อ่านข้อความ
       </p>
 
       {canEdit && (
@@ -162,12 +163,12 @@ export default function SteelHardwarePanel({
           } ${busy ? "pointer-events-none opacity-60" : ""}`}
         >
           <ImageUp className="mb-1 h-6 w-6 text-orange-500" />
-          <span className="text-sm font-semibold text-gray-800">{busy ? "กำลังบันทึกรูป…" : "ลากรูปตารางมาวาง · คลิกเลือกไฟล์ · หรือกดที่นี่แล้ววาง (Ctrl+V)"}</span>
-          <span className="mt-1 text-xs text-gray-500">รูปไม่เกิน 8 MB · วางได้หลายรูป</span>
+          <span className="text-sm font-semibold text-gray-800">{busy ? "กำลังบันทึกรูป…" : "ลากไฟล์ PDF / รูปตารางมาวาง · คลิกเลือกไฟล์ · หรือกดที่นี่แล้ววาง (Ctrl+V)"}</span>
+          <span className="mt-1 text-xs text-gray-500">PDF ไม่เกิน 5 MB (ต้องมีตัวหนังสือ ไม่ใช่ภาพสแกน) · รูปไม่เกิน 8 MB · วางได้หลายไฟล์</span>
           <input
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp"
+            accept="application/pdf,.pdf,image/png,image/jpeg,image/webp"
             className="sr-only"
             disabled={busy}
             onChange={(e) => {
@@ -179,6 +180,33 @@ export default function SteelHardwarePanel({
       )}
 
       {message && <p className="mb-3 text-sm text-red-600 print:hidden">{message}</p>}
+
+      {totals.length > 0 && (
+        <div className="mb-4 break-inside-avoid rounded border-2 border-black p-3">
+          <p className="mb-1 text-sm font-bold text-gray-900">สรุปยอดรวม — ของที่เหมือนกันเป๊ะ (ชนิด ขนาด ความยาวเดียวกัน)</p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500">
+                <th className="py-1 font-medium">ชนิด</th>
+                <th className="py-1 font-medium">ขนาด</th>
+                <th className="py-1 text-right font-medium">ยาว (มม.)</th>
+                <th className="py-1 text-right font-medium">รวม (ตัว)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {totals.map((t) => (
+                <tr key={`${t.kind}${t.size}${t.length}`} className="border-t border-gray-200">
+                  <td className="py-1">{KIND_LABEL[t.kind]}</td>
+                  <td className="py-1 font-medium">{t.size}</td>
+                  <td className="py-1 text-right">{t.length ?? "—"}</td>
+                  <td className="py-1 text-right font-bold">{t.quantity.toLocaleString("th-TH")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
 
       {images.length > 0 && (
         <div className="space-y-3">
@@ -213,39 +241,14 @@ export default function SteelHardwarePanel({
 
       {rows.length > 0 && (
         <div className="mt-4 space-y-3">
-          {totals.length > 0 && (
-            <div>
-              <p className="mb-1 text-xs font-semibold text-gray-600">สรุปรวมตามขนาด (รายการที่บันทึกไว้เดิม)</p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-gray-500">
-                    <th className="py-1 font-medium">ชนิด</th>
-                    <th className="py-1 font-medium">ขนาด</th>
-                    <th className="py-1 text-right font-medium">ยาว (มม.)</th>
-                    <th className="py-1 text-right font-medium">รวม (ตัว)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {totals.map((t) => (
-                    <tr key={`${t.kind}${t.size}${t.length}`} className="border-t border-gray-100">
-                      <td className="py-1">{KIND_LABEL[t.kind]}</td>
-                      <td className="py-1 font-medium">{t.size}</td>
-                      <td className="py-1 text-right">{t.length ?? "—"}</td>
-                      <td className="py-1 text-right font-bold">{t.quantity.toLocaleString("th-TH")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
           <div className="rounded border border-gray-200 text-sm">
             <div className="flex items-center justify-between bg-gray-50 px-3 py-1.5">
-              <span className="text-xs font-medium text-gray-600">รายการที่บันทึกไว้เดิม ({rows.length})</span>
+              <span className="text-xs font-medium text-gray-600">รายการตามต้นฉบับ ({rows.length})</span>
               {canEdit && (
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!confirm(`ลบรายการที่บันทึกไว้เดิมทั้งหมด ${rows.length} แถว?`)) return;
+                    if (!confirm(`ลบรายการตามต้นฉบับทั้งหมด ${rows.length} แถว?`)) return;
                     await deleteAllHardware(planId);
                     router.refresh();
                   }}

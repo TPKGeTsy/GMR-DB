@@ -27,7 +27,7 @@ export function classifyBomRow(row: BomRow): BomCategory {
   const text = `${row.partNumber} ${row.description}`;
   if (/washer/i.test(text)) return "washer";
   if (/\bnut\b/i.test(text)) return "nut";
-  if (/screw|\bbolt\b/i.test(text)) return "screw";
+  if (/screw|\bbolt\b|\bstud\b/i.test(text)) return "screw";
   if (angleFromRow(row)) return "steel";
   if (/plate|stiffener|\bTP\d|\bPL\b|support/i.test(text)) return "plate";
   return "other";

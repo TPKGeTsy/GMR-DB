@@ -7,7 +7,8 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { canEditPlan } from "@/lib/steelAccess";
 import { toScanImage } from "@/lib/scanImage";
 import { saveDataUrlImage, deleteUploadedFile } from "@/lib/storage";
-import { classifyBomRow, type BomRow } from "@/lib/bomImage";
+import { classifyBomRow, fastenerOf, type BomRow } from "@/lib/bomImage";
+import { parseBomTable, type TextPiece } from "@/lib/bomTable";
 import { analyzeDxf, readDxfFileName, type DxfAnalysis } from "@/lib/dxf";
 
 type Fail = { success: false; error: string };
@@ -229,5 +230,55 @@ export async function bulkUpdateSheetParts(planId: string, data: { thickness?: n
   } catch (error) {
     logError("Error bulk-updating sheet parts:", error);
     return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
+const MAX_PARTS_PDF_BYTES = 5 * 1024 * 1024;
+
+/** Reads the screws, nuts and washers out of a drawing's parts list (a text PDF) and adds them to the plan,
+ *  in the order of the original table. Rows that are not fasteners (plates, angles, the assembly itself) are left out. */
+export async function importHardwarePdf(
+  planId: string,
+  formData: FormData
+): Promise<{ success: true; added: number; skipped: number } | Fail> {
+  try {
+    const check = await canEditPlan(planId);
+    if (!("ok" in check)) return check;
+    const file = formData.get("file");
+    if (!(file instanceof File)) return { success: false, error: "ไม่พบไฟล์" };
+    if (file.size > MAX_PARTS_PDF_BYTES) return { success: false, error: "ไฟล์ใหญ่เกิน 5 MB" };
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return { success: false, error: "ไม่ใช่ไฟล์ PDF" };
+
+    const { getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(bytes);
+    const rows: BomRow[] = [];
+    for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
+      const content = await (await pdf.getPage(pageNo)).getTextContent();
+      const pieces: TextPiece[] = [];
+      for (const item of content.items) {
+        if ("str" in item) pieces.push({ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width });
+      }
+      rows.push(...parseBomTable(pieces));
+    }
+    if (rows.length === 0) return { success: false, error: "ไม่พบตารางรายการ (ITEM NO. / PART NUMBER / QTY.) ใน PDF — ต้องเป็น PDF ที่มีตัวหนังสือ ไม่ใช่ภาพสแกน" };
+
+    const fasteners = rows.filter((r) => fastenerOf(r) !== null).slice(0, 500);
+    if (fasteners.length === 0) return { success: false, error: "ไม่พบแถวที่เป็นสกรู / น็อต / แหวน (ต้องมีคำว่า screw, bolt, nut หรือ washer)" };
+    await prisma.steelPlanHardware.createMany({
+      data: fasteners.map((r) => ({
+        planId,
+        itemNo: r.item,
+        partNumber: r.partNumber.slice(0, 200),
+        description: r.description.slice(0, 200),
+        quantity: Math.min(1_000_000, Math.max(1, r.qty)),
+        category: classifyBomRow(r),
+      })),
+    });
+    revalidatePlan(planId);
+    return { success: true, added: fasteners.length, skipped: rows.length - fasteners.length };
+  } catch (error) {
+    logError("Error importing parts-list PDF:", error);
+    return { success: false, error: "อ่านไฟล์ PDF ไม่สำเร็จ" };
   }
 }
