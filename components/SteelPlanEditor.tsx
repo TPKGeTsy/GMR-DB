@@ -38,6 +38,7 @@ import {
   profileLabelUnits,
   type CuttingPlan,
   type SkippedRow,
+  type SteelProfile,
   type SteelPartInput,
   type SteelType,
 } from "@/lib/steel";
@@ -399,7 +400,8 @@ function BarLengthControl({
   // Most plans buy the standard length: show it as text and keep the 20 choices out of the way until asked for.
   const [open, setOpen] = useState(current !== null);
 
-  if (!open) {
+  // A length set for this steel always shows its controls, so the number on screen is the one in use.
+  if (!open && current === null) {
     return (
       <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
         <span>
@@ -598,6 +600,66 @@ function StickyBar({ result, refreshing }: { result: CuttingPlan; refreshing: bo
   );
 }
 
+/** Pieces longer than the bar: says how long a bar they need and sets it for this kind of steel in one click. */
+function TooLongHelp({
+  planId,
+  canEdit,
+  profile,
+  tooLong,
+  barLength,
+  unit,
+  fontSize,
+  onChanged,
+}: {
+  planId: string;
+  canEdit: boolean;
+  profile: SteelProfile | undefined;
+  tooLong: number[];
+  barLength: number;
+  unit: Unit;
+  fontSize: number;
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const longest = Math.max(...tooLong);
+  // Bars are bought in whole metres: the next length that holds the longest piece.
+  const needed = BAR_LENGTH_OPTIONS.find((v) => v >= longest) ?? null;
+  const counts = new Map<number, number>();
+  for (const n of tooLong) counts.set(n, (counts.get(n) ?? 0) + 1);
+  return (
+    <div className="mb-2 space-y-1 rounded border border-red-200 bg-red-50 p-2 text-red-700" style={{ fontSize }}>
+      <p className="font-semibold">
+        ยาวเกินเหล็ก {formatLengthWithUnit(barLength, unit)}: {[...counts].map(([n, c]) => `${formatLengthWithUnit(n, unit)}${c > 1 ? ` × ${c}` : ""}`).join(", ")}
+      </p>
+      {needed !== null ? (
+        <p className="flex flex-wrap items-center gap-2">
+          <span>
+            ชิ้นยาวสุด {formatLengthWithUnit(longest, unit)} → ต้องใช้เหล็กยาวอย่างน้อย <span className="font-bold">{formatLengthWithUnit(needed, unit)}</span>
+          </span>
+          {canEdit && profile && (
+            <button
+              type="button"
+              className={`${buttonClass} print:hidden`}
+              onClick={async () => {
+                setError(null);
+                const res = await setSteelBarLength(planId, { ...profile, thickness: profile.thickness ?? null }, needed);
+                if (!res.success) setError(res.error ?? "บันทึกไม่สำเร็จ");
+                else onChanged();
+              }}
+            >
+              ใช้เหล็กยาว {formatLengthWithUnit(needed, unit)} สำหรับรายการนี้
+            </button>
+          )}
+        </p>
+      ) : (
+        <p>ยาวกว่าเหล็กที่ซื้อได้ (20 เมตร) — ต้องแบ่งชิ้นเป็นท่อนหรือสั่งตัดพิเศษ</p>
+      )}
+      <p className="text-gray-600 print:hidden">หรือแก้ความยาวของชิ้นนี้ในตารางชิ้นงาน (หัวข้อ &quot;ชิ้นงานที่ต้องตัด&quot;) / ตั้งความยาวเหล็กเองที่ &quot;เปลี่ยนความยาว&quot;</p>
+      {error && <p>{error}</p>}
+    </div>
+  );
+}
+
 function CutResults({
   planName,
   result,
@@ -613,7 +675,11 @@ function CutResults({
   onToggleBar,
   linkedToProject,
   planId,
+  profiles,
+  onChanged,
 }: {
+  profiles: Map<string, SteelProfile>;
+  onChanged: () => void;
   planId: string;
   /** The plan belongs to a project: when every bar is cut, the "ตัดเหล็ก" duty there can be closed. */
   linkedToProject: boolean;
@@ -777,9 +843,16 @@ function CutResults({
                     {p.piecesTotal} ชิ้น · ใช้เหล็ก {p.bars.length} เส้น · เศษรวม {formatLengthWithUnit(p.wasteLength, unit)}
                   </p>
                   {p.tooLong.length > 0 && (
-                    <p className="mb-2 text-red-600" style={{ fontSize: font - 1 }}>
-                      ยาวเกินเหล็ก: {p.tooLong.map((n) => formatLengthWithUnit(n, unit)).join(", ")}
-                    </p>
+                    <TooLongHelp
+                      planId={planId}
+                      canEdit={canEdit}
+                      profile={profiles.get(p.key)}
+                      tooLong={p.tooLong}
+                      barLength={p.newBarLength}
+                      unit={unit}
+                      fontSize={font - 1}
+                      onChanged={onChanged}
+                    />
                   )}
                   <ul className="flex flex-col" style={{ gap: rowGap }}>
                     {p.bars.map((b, i) => {
@@ -1193,6 +1266,8 @@ export default function SteelPlanEditor({
         onToggleBar={toggleBar}
         linkedToProject={!!plan.projectId}
         planId={plan.id}
+        profiles={planProfiles}
+        onChanged={refresh}
       />
     </div>
     </PrintLayoutProvider>

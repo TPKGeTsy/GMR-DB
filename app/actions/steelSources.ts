@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { revalidatePath } from "next/cache";
+import { auth } from "@/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { canEditPlan } from "@/lib/steelAccess";
 import { toScanImage } from "@/lib/scanImage";
@@ -246,6 +247,37 @@ const MAX_PARTS_PDF_BYTES = 5 * 1024 * 1024;
 
 /** Reads the screws, nuts and washers out of a drawing's parts list (a text PDF) and adds them to the plan,
  *  in the order of the original table. Rows that are not fasteners (plates, angles, the assembly itself) are left out. */
+/** The parts-list table rows (ITEM NO. / PART NUMBER / QTY.) of every page of a PDF. */
+async function readBomTableRows(bytes: Uint8Array): Promise<BomRow[]> {
+  const { getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(bytes);
+  const rows: BomRow[] = [];
+  for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
+    const content = await (await pdf.getPage(pageNo)).getTextContent();
+    const pieces: TextPiece[] = [];
+    for (const item of content.items) {
+      if ("str" in item) pieces.push({ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width });
+    }
+    rows.push(...parseBomTable(pieces));
+  }
+  return rows;
+}
+
+/** How many screw / nut / washer rows a PDF's parts list has (nothing is saved): shown next to the file before the plan exists. */
+export async function countHardwareInPdf(formData: FormData): Promise<number> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return 0;
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size > MAX_PARTS_PDF_BYTES) return 0;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return 0;
+    return (await readBomTableRows(bytes)).filter((r) => fastenerOf(r) !== null).length;
+  } catch {
+    return 0;
+  }
+}
+
 export async function importHardwarePdf(
   planId: string,
   formData: FormData
@@ -259,17 +291,7 @@ export async function importHardwarePdf(
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return { success: false, error: "ไม่ใช่ไฟล์ PDF" };
 
-    const { getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(bytes);
-    const rows: BomRow[] = [];
-    for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
-      const content = await (await pdf.getPage(pageNo)).getTextContent();
-      const pieces: TextPiece[] = [];
-      for (const item of content.items) {
-        if ("str" in item) pieces.push({ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width });
-      }
-      rows.push(...parseBomTable(pieces));
-    }
+    const rows = await readBomTableRows(bytes);
     if (rows.length === 0) return { success: false, error: "ไม่พบตารางรายการ (ITEM NO. / PART NUMBER / QTY.) ใน PDF — ต้องเป็น PDF ที่มีตัวหนังสือ ไม่ใช่ภาพสแกน" };
 
     const fasteners = rows.filter((r) => fastenerOf(r) !== null).slice(0, 500);

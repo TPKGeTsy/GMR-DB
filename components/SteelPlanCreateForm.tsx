@@ -17,7 +17,8 @@ import {
 } from "@/lib/steel";
 import BarLengthSelect from "./BarLengthSelect";
 import { filesFromDrop, isDataFile } from "@/lib/dropFiles";
-import SteelStagedFiles, { finalParts, rememberedTimes, useStagedFiles } from "./SteelStagedFiles";
+import SteelStagedFiles, { finalParts, rememberedTimes, timesFor, useStagedFiles } from "./SteelStagedFiles";
+import { importHardwarePdf, setHardwareFileRounds } from "@/app/actions/steelSources";
 import { smartImportFile } from "@/app/actions/steelSmartImport";
 
 /** Everything the create box takes: data files read here (PDF / CSV) and files sent to the new plan as they are (DXF, pictures). */
@@ -81,10 +82,11 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   // the steel filter is applied, and the plan(s) are created.
   const createFromFiles = async () => {
     const ready = staged.items.filter((i) => i.status === "ready");
-    // A PDF with no steel rows may be a parts list (screws, nuts): it goes to the plan like a DXF does.
+    // Steel rows make the plan; the screws / nuts / washers of a parts list and the DXF files and pictures go into it.
     const list = ready.filter((i) => i.parts.length > 0);
-    const side = [...ready.filter((i) => i.parts.length === 0).map((i) => i.file), ...extras];
-    if (list.length === 0 && side.length === 0) return;
+    const hardwareFiles = ready.filter((i) => i.hardware > 0);
+    const side = extras;
+    if (list.length === 0 && side.length === 0 && hardwareFiles.length === 0) return;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -119,6 +121,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
           : []
         : perFile.map((f) => ({ name: "", parts: [...f.parts].sort(comparePieces), skipped: f.skipped }));
 
+    for (const i of ready) if (i.parts.length === 0 && i.hardware === 0) problems.push(`${i.file.name}: ไม่พบรายการเหล็กหรือน็อตในไฟล์นี้`);
     const created: { id: string; skipped: number }[] = [];
     if (list.length === 0) {
       const empty = await createSteelPlan(name, projectId || null, options);
@@ -135,6 +138,19 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
     }
 
     // The files that are not steel rows go into the (first) new plan.
+    if (created.length > 0 && hardwareFiles.length > 0) {
+      for (const item of hardwareFiles) {
+        const form = new FormData();
+        form.set("file", item.file);
+        const done = await importHardwarePdf(created[0].id, form);
+        if (!done.success) {
+          problems.push(`${item.file.name}: ${done.error}`);
+          continue;
+        }
+        const times = timesFor(item, staged.state);
+        if (times > 1) await setHardwareFileRounds(created[0].id, item.file.name.slice(0, 200), times);
+      }
+    }
     if (created.length > 0 && side.length > 0) {
       const times = rememberedTimes();
       for (const file of side) {

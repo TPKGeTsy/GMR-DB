@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { parseSteelPdf } from "@/app/actions/steel";
+import { countHardwareInPdf } from "@/app/actions/steelSources";
 import { parseBomLines, parsePartsCsv, profileLabel, type SteelPartInput } from "@/lib/steel";
 
 export interface StagedFile {
@@ -16,6 +17,8 @@ export interface StagedFile {
   status: "reading" | "ready" | "error";
   parts: SteelPartInput[];
   skipped: number;
+  /** Screw / nut / washer rows of a parts-list PDF: they go to the plan's hardware list, not to the cutting rows. */
+  hardware: number;
   error: string | null;
 }
 
@@ -84,19 +87,21 @@ export function finalParts(item: StagedFile, state: TimesState): SteelPartInput[
 }
 
 /** A file's rows: a PDF is read on the server, anything else as text / CSV. */
-async function readFileParts(file: File): Promise<{ parts: SteelPartInput[]; skipped: number } | string> {
+async function readFileParts(file: File): Promise<{ parts: SteelPartInput[]; skipped: number; hardware: number } | string> {
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
     const form = new FormData();
     form.set("file", file);
-    const read = await parseSteelPdf(form);
-    return read.success ? { parts: read.parts, skipped: read.skipped.length } : read.error;
+    const [read, hardware] = await Promise.all([parseSteelPdf(form), countHardwareInPdf(form)]);
+    if (read.success) return { parts: read.parts, skipped: read.skipped.length, hardware };
+    // Not a cut list, but a parts list of screws and nuts: still a file the plan can use.
+    return hardware > 0 ? { parts: [], skipped: 0, hardware } : read.error;
   }
   const text = await file.text();
   const bom = parseBomLines(text.split(/\r?\n/));
-  if (bom.parts.length > 0) return { parts: bom.parts, skipped: bom.skipped.length };
+  if (bom.parts.length > 0) return { parts: bom.parts, skipped: bom.skipped.length, hardware: 0 };
   const csv = parsePartsCsv(text);
   if (csv.parts.length === 0) return "ไม่พบรายการที่ใช้ได้ในไฟล์";
-  return { parts: csv.parts, skipped: csv.errors.length };
+  return { parts: csv.parts, skipped: csv.errors.length, hardware: 0 };
 }
 
 /** Files waiting to be used: read as soon as they are dropped, so the rows can be
@@ -115,7 +120,7 @@ export function useStagedFiles() {
     fresh.forEach((f) => seen.current.add(f.key));
     setItems((prev) => [
       ...prev,
-      ...fresh.map<StagedFile>(({ file, key }) => ({ key, file, times: rememberedTimes(), partial: false, rowTimes: [], status: "reading", parts: [], skipped: 0, error: null })),
+      ...fresh.map<StagedFile>(({ file, key }) => ({ key, file, times: rememberedTimes(), partial: false, rowTimes: [], status: "reading", parts: [], skipped: 0, hardware: 0, error: null })),
     ]);
     for (const { file, key } of fresh) {
       const read = await readFileParts(file);
@@ -125,7 +130,7 @@ export function useStagedFiles() {
             ? s
             : typeof read === "string"
               ? { ...s, status: "error", error: read }
-              : { ...s, status: "ready", parts: read.parts, skipped: read.skipped, rowTimes: read.parts.map(() => "1") }
+              : { ...s, status: "ready", parts: read.parts, skipped: read.skipped, hardware: read.hardware, rowTimes: read.parts.map(() => "1") }
         )
       );
     }
@@ -213,6 +218,11 @@ function FileCard({
             {item.partial ? `ใช้ ${used} จาก ${item.parts.length} รายการ` : `${item.parts.length} รายการ`}
             {item.skipped > 0 && ` · ข้าม ${item.skipped} แถว`}
           </span>
+          {item.hardware > 0 && (
+            <span className="rounded-full bg-sky-50 px-2 py-0.5 text-sky-700">
+              + น็อต/สกรู/แหวน {item.hardware} รายการ (นำเข้าเป็นรายการน็อต)
+            </span>
+          )}
           <label className="inline-flex items-center gap-1 text-gray-700">
             <input
               type="checkbox"
@@ -283,7 +293,7 @@ export default function SteelStagedFiles({
   const { items, state, setState, update, remove } = staged;
   if (items.length === 0) {
     return (
-      <div className="flex h-full min-h-[8rem] items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-400">
+      <div className="flex min-h-[8rem] items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-400">
         ไฟล์ที่วางจะแสดงตรงนี้ พร้อมรายการในไฟล์ ใส่ &quot;กี่ชุด&quot; ของแต่ละไฟล์ได้ (เช่น A × 2, B × 3, C × 1) หรือเลือกนับเฉพาะบางรายการ
       </div>
     );
