@@ -237,12 +237,13 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
 
     const bars: PlannedBar[] = open.map((b) => {
       const used = b.cuts.reduce((sum, c) => sum + c, 0);
-      const kerfLost = kerf * Math.max(0, b.cuts.length - 1);
+      // The cut that frees the last piece from the offcut costs a kerf too (none when the piece takes the whole rest).
+      const raw = b.length - used - kerf * Math.max(0, b.cuts.length - 1);
       return {
         source: b.source,
         length: b.length,
         cuts: b.cuts,
-        leftover: Math.max(0, b.length - used - kerfLost),
+        leftover: raw > 0 ? Math.max(0, raw - kerf) : 0,
       };
     });
     const usedLength = bars.reduce((sum, b) => sum + b.cuts.reduce((s, c) => s + c, 0), 0);
