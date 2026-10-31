@@ -230,6 +230,18 @@ describe("parseBomLines with two tables on one drawing", () => {
     expect(parts.find((p) => p.cutLength === 125.5)).toMatchObject({ steelType: "ANGLE", sectionX: 50, sectionY: 50, thickness: 4, quantity: 8 });
   });
 
+  it("reads H SECTION rows (height x width x kg/m)", () => {
+    const { parts, skipped } = parseBomLines([
+      "ITEM NO. QTY. DESCRIPTION LENGTH",
+      "1 2 H SECTION 300 x 150 x 37 3650",
+      "2 2 H SECTION 300 x 150 x 37 5183.5",
+    ]);
+    expect(skipped).toEqual([]);
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toMatchObject({ steelType: "HBEAM", sectionX: 300, sectionY: 150, thickness: 37, quantity: 2 });
+    expect(parts.map((p) => p.cutLength).sort((a, b) => a - b)).toEqual([3650, 5183.5]);
+  });
+
   it("still reads plain rows when there is no table header at all", () => {
     expect(parseBomLines(["1 16 ST 75 x 75 x 2.3 1742"]).parts).toHaveLength(1);
   });

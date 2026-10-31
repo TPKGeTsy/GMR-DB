@@ -7,6 +7,8 @@ export const STEEL_TYPES = {
   RT: { label: "RT เหล็กกล่องสี่เหลี่ยมผืนผ้า", needsY: true },
   FLAT: { label: "FB เหล็กแบน", needsY: true },
   ANGLE: { label: "L เหล็กฉาก", needsY: true },
+  // H SECTION 300 x 150 x 37: height x width x weight (kg/m), the weight goes in the thickness column.
+  HBEAM: { label: "H เหล็กตัวเอช (x = สูง, y = กว้าง, หนา = กก./ม.)", needsY: true },
   ROUND: { label: "เหล็กกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
   PIPE: { label: "ท่อกลม (x = เส้นผ่านศูนย์กลาง)", needsY: false },
   // Older plans / CSV rows that only said "box" (square or rectangular not known).
@@ -380,6 +382,7 @@ function bomType(description: string, x: number, y: number): SteelType | null {
   if (/\bBOX\b|TUBE/i.test(description)) return x === y ? "ST" : "RT";
   if (/\bFB\b|FLAT/i.test(description)) return "FLAT";
   if (/ANGLE|^L\s/i.test(description)) return "ANGLE";
+  if (/\bH[\s-]*(SECTION|BEAM)\b/i.test(description)) return "HBEAM";
   return null;
 }
 

@@ -67,7 +67,8 @@ export interface FastenerTotal extends Fastener {
   quantity: number;
 }
 
-export function summarizeFasteners(rows: BomRow[]): FastenerTotal[] {
+/** Totals per exact kind/size/length. `sorted: false` keeps the order the items first appear in, so a new file never moves the lines above it. */
+export function summarizeFasteners(rows: BomRow[], sorted = true): FastenerTotal[] {
   const totals = new Map<string, FastenerTotal>();
   for (const row of rows) {
     const f = fastenerOf(row);
@@ -77,6 +78,7 @@ export function summarizeFasteners(rows: BomRow[]): FastenerTotal[] {
     if (cur) cur.quantity += row.qty;
     else totals.set(key, { ...f, quantity: row.qty });
   }
+  if (!sorted) return [...totals.values()];
   const order = { screw: 0, nut: 1, washer: 2 };
   return [...totals.values()].sort(
     (a, b) => Number(a.size.slice(1)) - Number(b.size.slice(1)) || order[a.kind] - order[b.kind] || (a.length ?? 0) - (b.length ?? 0)

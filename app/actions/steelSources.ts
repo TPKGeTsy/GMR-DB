@@ -275,11 +275,14 @@ export async function importHardwarePdf(
     const fasteners = rows.filter((r) => fastenerOf(r) !== null).slice(0, 500);
     if (fasteners.length === 0) return { success: false, error: "ไม่พบแถวที่เป็นสกรู / น็อต / แหวน (ต้องมีคำว่า screw, bolt, nut หรือ washer)" };
     const sourceFile = file.name.slice(0, 200);
-    // Importing the same file again replaces its rows instead of doubling them.
+    // Importing the same file again replaces its rows instead of doubling them, and the file keeps its place in the
+    // list. Rows get consecutive timestamps so their order is the order of the original table.
+    const first = await prisma.steelPlanHardware.aggregate({ where: { planId, sourceFile }, _min: { createdAt: true } });
+    const base = (first._min.createdAt ?? new Date()).getTime();
     await prisma.$transaction([
       prisma.steelPlanHardware.deleteMany({ where: { planId, sourceFile } }),
       prisma.steelPlanHardware.createMany({
-        data: fasteners.map((r) => {
+        data: fasteners.map((r, index) => {
           const qty = Math.min(1_000_000, Math.max(1, r.qty));
           return {
             planId,
@@ -291,6 +294,7 @@ export async function importHardwarePdf(
             rounds: 1,
             sourceFile,
             category: classifyBomRow(r),
+            createdAt: new Date(base + index),
           };
         }),
       }),

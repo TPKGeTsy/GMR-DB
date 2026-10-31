@@ -27,7 +27,7 @@ export default async function SteelPlanPage({
       include: {
         parts: { orderBy: { createdAt: "asc" } },
         bars: true,
-        hardware: { orderBy: { createdAt: "asc" } },
+        hardware: { orderBy: [{ createdAt: "asc" }, { itemNo: "asc" }, { id: "asc" }] },
         sheetParts: { orderBy: { createdAt: "asc" } },
         nestDone: true,
         images: { orderBy: { createdAt: "asc" } },

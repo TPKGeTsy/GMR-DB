@@ -231,7 +231,7 @@ export default function SteelHardwarePanel({
   };
 
   const savedRows: BomRow[] = rows.map((r) => ({ item: r.itemNo, partNumber: r.partNumber, description: r.description, qty: r.quantity }));
-  const totals = summarizeFasteners(savedRows);
+  const totals = summarizeFasteners(savedRows, false);
 
   if (images.length === 0 && rows.length === 0 && !canEdit) return null;
 
