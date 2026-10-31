@@ -362,6 +362,24 @@ export async function deleteProjectTask(taskId: string) {
   }
 }
 
+/** Ticks a planned duty as done (or not). The project's managers and the person it is planned for can do it. */
+export async function setTaskDone(taskId: string, done: boolean) {
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) return { success: false, error: "Unauthorized" };
+    const task = await prisma.projectTask.findUnique({ where: { id: taskId }, select: { projectId: true, userId: true } });
+    if (!task) return { success: false, error: "ไม่พบงานนี้" };
+    if (task.userId !== userId && !(await requireManager(task.projectId))) return { success: false, error: "Unauthorized" };
+    await prisma.projectTask.update({ where: { id: taskId }, data: { doneAt: done ? new Date() : null } });
+    revalidatePath(`/projects/${task.projectId}`);
+    return { success: true };
+  } catch (error) {
+    logError("Error setting task done:", error);
+    return { success: false, error: "บันทึกไม่สำเร็จ" };
+  }
+}
+
 export async function setMemberCapacity(projectId: string, userId: string, capacity: number) {
   try {
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return { success: false, error: "ต้องเป็นเลข 1–20" };

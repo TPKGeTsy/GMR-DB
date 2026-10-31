@@ -69,3 +69,36 @@ export function dailyTaskMessage(tasks: ReminderTask[]): string | null {
   }
   return lines.join("\n");
 }
+
+export interface EveningTask {
+  projectName: string;
+  duty: string;
+  note: string | null;
+  startKey: string;
+  endKey: string;
+  /** The day (Bangkok) it was ticked done, or null while it is open. */
+  doneKey: string | null;
+}
+
+const dm = (key: string) => key.split("-").reverse().slice(0, 2).join("/");
+
+/** The evening LINE text: what got done today, what is past its date, what is still open today and what starts tomorrow.
+ *  Null when there is nothing to say. */
+export function eveningTaskMessage(tasks: EveningTask[], todayKey: string): string | null {
+  const tomorrow = addDays(todayKey, 1);
+  const line = (t: EveningTask, tail: string) => `• ${t.projectName} — ${t.duty}${t.note ? ` (${t.note})` : ""}${tail}`;
+  const doneToday = tasks.filter((t) => t.doneKey === todayKey);
+  const open = tasks.filter((t) => t.doneKey === null);
+  const overdue = open.filter((t) => t.endKey < todayKey);
+  const today = open.filter((t) => t.startKey <= todayKey && t.endKey >= todayKey);
+  const next = open.filter((t) => t.startKey === tomorrow);
+  if (doneToday.length + overdue.length + today.length + next.length === 0) return null;
+
+  const out = ["🌆 สรุปงานของคุณวันนี้"];
+  if (doneToday.length > 0) out.push("", `✅ เสร็จวันนี้ ${doneToday.length} งาน`, ...doneToday.map((t) => line(t, "")));
+  if (overdue.length > 0) out.push("", "⚠️ เลยกำหนดแล้วยังไม่เสร็จ", ...overdue.map((t) => line(t, ` (ครบ ${dm(t.endKey)})`)));
+  if (today.length > 0) out.push("", "🔶 ยังไม่เสร็จของวันนี้", ...today.map((t) => line(t, ` — ถึง ${dm(t.endKey)}`)));
+  if (next.length > 0) out.push("", "📅 เริ่มพรุ่งนี้", ...next.map((t) => line(t, "")));
+  out.push("", "ติ๊กงานที่เสร็จแล้วได้ที่หน้าโปรเจกต์ (Gantt)");
+  return out.join("\n");
+}

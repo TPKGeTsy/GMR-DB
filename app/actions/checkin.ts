@@ -1271,7 +1271,7 @@ async function sendTodayTasks(userId: string, lineUserId: string, at: Date) {
   try {
     const today = bangkokDateKey(at);
     const rows = await prisma.projectTask.findMany({
-      where: { userId, startKey: { lte: today }, endKey: { gte: today } },
+      where: { userId, startKey: { lte: today }, endKey: { gte: today }, doneAt: null },
       orderBy: { startKey: "asc" },
       select: { duty: true, note: true, endKey: true, project: { select: { name: true, status: true } } },
     });

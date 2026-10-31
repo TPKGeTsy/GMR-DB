@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
-import { addProjectTask, deleteProjectTask, setMemberCapacity } from "@/app/actions/projects";
+import { addProjectTask, deleteProjectTask, setMemberCapacity, setTaskDone } from "@/app/actions/projects";
 import { DUTY_PRESETS, addDays, daysBetween, overloadedDays } from "@/lib/projectTasks";
 
 export interface GanttMember {
@@ -17,6 +17,7 @@ export interface GanttTask {
   note: string | null;
   startKey: string;
   endKey: string;
+  done: boolean;
 }
 
 const DAY_W = 28;
@@ -30,12 +31,14 @@ export default function ProjectGantt({
   tasks,
   todayKey,
   canManage,
+  currentUserId,
 }: {
   projectId: string;
   members: GanttMember[];
   tasks: GanttTask[];
   todayKey: string;
   canManage: boolean;
+  currentUserId?: string;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -173,9 +176,19 @@ export default function ProjectGantt({
                   {mine.map((t, i) => (
                     <div key={t.id} className="flex items-center">
                       <div style={{ width: NAME_W }} className="flex shrink-0 items-center justify-between gap-1 px-2 py-1 pl-4 text-gray-700">
-                        <span className="truncate" title={t.note ? `${t.duty} (${t.note})` : t.duty}>
-                          {t.duty}
-                        </span>
+                        <label className="flex min-w-0 items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0"
+                            checked={t.done}
+                            disabled={pending || !(canManage || t.userId === currentUserId)}
+                            onChange={(e) => run(() => setTaskDone(t.id, e.target.checked))}
+                            title="ติ๊กเมื่องานนี้เสร็จแล้ว"
+                          />
+                          <span className={`truncate ${t.done ? "text-gray-400 line-through" : ""}`} title={t.note ? `${t.duty} (${t.note})` : t.duty}>
+                            {t.duty}
+                          </span>
+                        </label>
                         {canManage && (
                           <button
                             type="button"
@@ -190,7 +203,7 @@ export default function ProjectGantt({
                       </div>
                       <div className="relative h-6" style={{ width: days * DAY_W }}>
                         <div
-                          className={`absolute top-1 h-4 truncate rounded px-1 text-[10px] leading-4 text-white ${COLORS[i % COLORS.length]}`}
+                          className={`absolute top-1 h-4 truncate rounded px-1 text-[10px] leading-4 text-white ${t.done ? "bg-gray-300" : COLORS[i % COLORS.length]}`}
                           style={{
                             left: daysBetween(from, t.startKey) * DAY_W,
                             width: (daysBetween(t.startKey, t.endKey) + 1) * DAY_W - 2,

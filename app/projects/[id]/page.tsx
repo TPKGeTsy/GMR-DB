@@ -45,7 +45,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const projectTasks = await prisma.projectTask.findMany({
     where: { projectId: id },
     orderBy: [{ startKey: "asc" }, { createdAt: "asc" }],
-    select: { id: true, userId: true, duty: true, note: true, startKey: true, endKey: true },
+    select: { id: true, userId: true, duty: true, note: true, startKey: true, endKey: true, doneAt: true },
   });
   const ganttMembers = project.members.map(
     (m: { userId: string; dailyCapacity: number; user: { fullName?: string | null; nickname?: string | null; username: string } }) => ({
@@ -122,7 +122,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <ProjectGantt
             projectId={project.id}
             members={ganttMembers}
-            tasks={projectTasks}
+            tasks={projectTasks.map(({ doneAt, ...t }) => ({ ...t, done: doneAt !== null }))}
+            currentUserId={session?.user?.id}
             todayKey={bangkokDateKey(new Date())}
             canManage={canManage}
           />
