@@ -158,16 +158,30 @@ export function nest(items: { item: NestItem; quantity: number }[], opts: NestOp
     (a, b) => b.height - a.height || b.width - a.width,
     (a, b) => b.width - a.width || b.height - a.height,
   ];
+  // Fewest sheets first, then the emptiest sheet as empty as possible (one big reusable offcut sheet).
+  const emptiest = (s: Sheet[]) => Math.min(...s.map(usedArea));
   let best: Sheet[] | null = null;
-  for (const order of orders) {
-    const sheets = pack([...pieces].sort(order), opts);
-    if (
-      !best ||
-      sheets.length < best.length ||
-      (sheets.length === best.length && sheets.reduce((s, x) => s + usedArea(x), 0) > best.reduce((s, x) => s + usedArea(x), 0))
-    ) {
-      best = sheets;
+  const consider = (sheets: Sheet[]) => {
+    if (!best || sheets.length < best.length || (sheets.length === best.length && emptiest(sheets) < emptiest(best))) best = sheets;
+  };
+  for (const order of orders) consider(pack([...pieces].sort(order), opts));
+
+  // Then reshuffle the best order a number of times (fixed seed: the layout never jumps around) and keep any better one.
+  const tries = pieces.length > 400 ? 0 : pieces.length > 150 ? 15 : pieces.length > 1 ? 80 : 0;
+  let seed = 7 + pieces.length;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < tries; i++) {
+    const order = [...pieces].sort(orders[i % orders.length]);
+    const swaps = 1 + Math.floor(rand() * Math.max(1, order.length / 3));
+    for (let s = 0; s < swaps; s++) {
+      const a = Math.floor(rand() * order.length);
+      const b = Math.min(order.length - 1, a + 1 + Math.floor(rand() * 5));
+      [order[a], order[b]] = [order[b], order[a]];
     }
+    consider(pack(order, opts));
   }
   return { sheets: best ?? [], tooBig };
 }

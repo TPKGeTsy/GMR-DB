@@ -197,43 +197,82 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
       remaining: number;
       cuts: number[];
     }
-    const open: OpenBar[] = [];
-    const tooLong: number[] = [];
-
-    const place = (bar: OpenBar, cut: number) => {
-      bar.cuts.push(cut);
-      bar.remaining = Math.max(0, bar.remaining - cut - kerf);
+    // One best-fit pass over the pieces in the given order.
+    const pack = (order: number[]) => {
+      const open: OpenBar[] = [];
+      const tooLong: number[] = [];
+      const left = [...available];
+      const place = (bar: OpenBar, cut: number) => {
+        bar.cuts.push(cut);
+        bar.remaining = Math.max(0, bar.remaining - cut - kerf);
+      };
+      for (const cut of order) {
+        if (cut > maxBar) {
+          tooLong.push(cut);
+          continue;
+        }
+        let best: OpenBar | null = null;
+        for (const bar of open) {
+          if (bar.remaining >= cut && (!best || bar.remaining < best.remaining)) best = bar;
+        }
+        if (best) {
+          place(best, cut);
+          continue;
+        }
+        const stockIndex = left.findIndex((len) => len >= cut);
+        if (stockIndex >= 0) {
+          const [length] = left.splice(stockIndex, 1);
+          const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [] };
+          open.push(bar);
+          place(bar, cut);
+          continue;
+        }
+        if (buyLength >= cut) {
+          const bar: OpenBar = { source: "new", length: buyLength, remaining: buyLength, cuts: [] };
+          open.push(bar);
+          place(bar, cut);
+        } else {
+          tooLong.push(cut);
+        }
+      }
+      return { open, tooLong, left };
     };
+    // Fewest new bars first, then the longest single offcut (a reusable one beats many scraps).
+    const score = (r: { open: OpenBar[] }) => {
+      const fresh = r.open.filter((b) => b.source === "new");
+      return [fresh.length, -Math.max(0, ...fresh.map((b) => b.remaining))];
+    };
+    const better = (a: number[], b: number[]) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 
-    for (const cut of wanted) {
-      if (cut > maxBar) {
-        tooLong.push(cut);
-        continue;
+    // Start from best-fit decreasing, then try many reshuffled orders (a fixed seed, so the plan never jumps around)
+    // and keep the cheapest packing.
+    let chosen = pack(wanted);
+    let chosenScore = score(chosen);
+    let seed = 12345 + wanted.length;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    const tries = wanted.length * Math.max(1, available.length + 1) > 20000 ? 10 : wanted.length > 1 ? 300 : 0;
+    for (let i = 0; i < tries; i++) {
+      const order = [...wanted];
+      // Mostly decreasing, with random swaps of neighbours-in-size so the pass explores nearby orders.
+      const swaps = 1 + Math.floor(rand() * Math.max(1, order.length / 2));
+      for (let s = 0; s < swaps; s++) {
+        const a = Math.floor(rand() * order.length);
+        const b = Math.min(order.length - 1, a + 1 + Math.floor(rand() * 6));
+        [order[a], order[b]] = [order[b], order[a]];
       }
-      let best: OpenBar | null = null;
-      for (const bar of open) {
-        if (bar.remaining >= cut && (!best || bar.remaining < best.remaining)) best = bar;
-      }
-      if (best) {
-        place(best, cut);
-        continue;
-      }
-      const stockIndex = available.findIndex((len) => len >= cut);
-      if (stockIndex >= 0) {
-        const [length] = available.splice(stockIndex, 1);
-        const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [] };
-        open.push(bar);
-        place(bar, cut);
-        continue;
-      }
-      if (buyLength >= cut) {
-        const bar: OpenBar = { source: "new", length: buyLength, remaining: buyLength, cuts: [] };
-        open.push(bar);
-        place(bar, cut);
-      } else {
-        tooLong.push(cut);
+      const attempt = pack(order);
+      const s = score(attempt);
+      if (better(s, chosenScore)) {
+        chosen = attempt;
+        chosenScore = s;
       }
     }
+    const { open, tooLong, left } = chosen;
+    available.length = 0;
+    available.push(...left);
 
     const bars: PlannedBar[] = open.map((b) => {
       const used = b.cuts.reduce((sum, c) => sum + c, 0);
