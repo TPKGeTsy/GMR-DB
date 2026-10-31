@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileUp, Plus } from "lucide-react";
+import { FileUp, Plus, X } from "lucide-react";
 import { createSteelPlan, createSteelPlanWithParts } from "@/app/actions/steel";
 import {
   DEFAULT_KERF_MM,
@@ -17,7 +17,11 @@ import {
 } from "@/lib/steel";
 import BarLengthSelect from "./BarLengthSelect";
 import { filesFromDrop, isDataFile } from "@/lib/dropFiles";
-import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
+import SteelStagedFiles, { finalParts, rememberedTimes, useStagedFiles } from "./SteelStagedFiles";
+import { smartImportFile } from "@/app/actions/steelSmartImport";
+
+/** Everything the create box takes: data files read here (PDF / CSV) and files sent to the new plan as they are (DXF, pictures). */
+const isAccepted = (f: File) => isDataFile(f) || /\.(dxf|png|jpe?g|webp)$/i.test(f.name);
 
 const fieldClass =
   "w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500";
@@ -43,6 +47,19 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const staged = useStagedFiles();
+  // DXF files and pictures wait here; they are imported into the plan once it exists.
+  const [extras, setExtras] = useState<File[]>([]);
+  const addDropped = (files: ArrayLike<File> | null | undefined) => {
+    const all = Array.from(files ?? []);
+    const rejected = all.filter((f) => !isAccepted(f));
+    staged.add(all.filter(isDataFile));
+    setExtras((prev) => {
+      const key = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+      const seen = new Set(prev.map(key));
+      return [...prev, ...all.filter((f) => !isDataFile(f) && isAccepted(f) && !seen.has(key(f)))];
+    });
+    setError(rejected.length > 0 ? `ไม่รู้จักไฟล์ ${rejected.length} ไฟล์ (รองรับ PDF, CSV, DXF, รูป PNG/JPG/WEBP): ${rejected.slice(0, 3).map((f) => f.name).join(", ")}` : null);
+  };
 
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : DEFAULT_KERF_MM;
   const options = { kerf: kerfValue, newBarLength: barLength };
@@ -63,8 +80,11 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
   // The files were read when they were dropped; here the rounds / chosen rows are applied,
   // the steel filter is applied, and the plan(s) are created.
   const createFromFiles = async () => {
-    const list = staged.items.filter((i) => i.status === "ready");
-    if (list.length === 0) return;
+    const ready = staged.items.filter((i) => i.status === "ready");
+    // A PDF with no steel rows may be a parts list (screws, nuts): it goes to the plan like a DXF does.
+    const list = ready.filter((i) => i.parts.length > 0);
+    const side = [...ready.filter((i) => i.parts.length === 0).map((i) => i.file), ...extras];
+    if (list.length === 0 && side.length === 0) return;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -79,7 +99,7 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
       const kept = all.filter(wanted);
       leftOut += all.length - kept.length;
       if (kept.length === 0) {
-        problems.push(`${item.file.name}: ไม่มีรายการที่ใช้ได้ (ตรวจรอบรายแถว และตัวเลือกชนิด/ขนาดเหล็กด้านบน)`);
+        problems.push(`${item.file.name}: ไม่มีรายการที่ใช้ได้ (ตรวจชุดรายแถว และตัวเลือกชนิด/ขนาดเหล็กด้านบน)`);
         continue;
       }
       perFile.push({ name: item.file.name, parts: kept, skipped: item.skipped });
@@ -100,6 +120,11 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
         : perFile.map((f) => ({ name: "", parts: [...f.parts].sort(comparePieces), skipped: f.skipped }));
 
     const created: { id: string; skipped: number }[] = [];
+    if (list.length === 0) {
+      const empty = await createSteelPlan(name, projectId || null, options);
+      if (empty.success) created.push({ id: empty.id, skipped: 0 });
+      else problems.push(empty.error);
+    }
     for (const g of groups) {
       const result = await createSteelPlanWithParts(g.name, projectId || null, g.parts, options);
       if (!result.success) {
@@ -109,7 +134,22 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
       created.push({ id: result.id, skipped: g.skipped });
     }
 
-    if (problems.length === 0) staged.clear();
+    // The files that are not steel rows go into the (first) new plan.
+    if (created.length > 0 && side.length > 0) {
+      const times = rememberedTimes();
+      for (const file of side) {
+        const form = new FormData();
+        form.set("file", file);
+        form.set("rounds", times);
+        const done = await smartImportFile(created[0].id, form);
+        if (!done.ok) problems.push(`${file.name}: ${done.error ?? "นำเข้าไม่สำเร็จ"}`);
+      }
+    }
+
+    if (problems.length === 0) {
+      staged.clear();
+      setExtras([]);
+    }
     if (problems.length > 0) setError(problems.join("\n"));
     if (created.length === 1 && problems.length === 0) {
       router.push(`/steel-cutting/${created[0].id}${created[0].skipped > 0 ? `?skipped=${created[0].skipped}` : ""}`);
@@ -177,23 +217,23 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            filesFromDrop(e.dataTransfer, isDataFile).then(staged.add);
+            filesFromDrop(e.dataTransfer, () => true).then(addDropped);
           }}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center ${
             dragging ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white hover:border-orange-400"
           } ${busy ? "pointer-events-none opacity-60" : ""}`}
         >
           <FileUp className="mb-2 h-8 w-8 text-orange-500" />
-          <span className="text-base font-semibold text-gray-800">ลากไฟล์ PDF / CSV หรือทั้งโฟลเดอร์มาวางตรงนี้</span>
+          <span className="text-base font-semibold text-gray-800">ลากไฟล์ใบตัด PDF / CSV / DXF / รูป หรือทั้งโฟลเดอร์มาวางตรงนี้</span>
           <span className="mt-1 text-xs text-gray-500">หรือคลิกเพื่อเลือกไฟล์ · วางเพิ่มทีหลังได้ · ไม่ต้องตั้งชื่อ</span>
           <input
             type="file"
             multiple
-            accept="application/pdf,.pdf,.csv,.txt,.tsv"
+            accept="application/pdf,.pdf,.csv,.txt,.tsv,.dxf,.png,.jpg,.jpeg,.webp"
             className="sr-only"
             disabled={busy}
             onChange={(e) => {
-              staged.add(e.target.files);
+              addDropped(e.target.files);
               e.target.value = "";
             }}
           />
@@ -201,14 +241,31 @@ export default function SteelPlanCreateForm({ projects }: { projects: { id: stri
 
         <div className="space-y-2">
           <SteelStagedFiles staged={staged} disabled={busy} />
-          {staged.items.length > 0 && (
+          {extras.length > 0 && (
+            <div className="rounded border border-gray-200 bg-white p-2 text-xs">
+              <p className="mb-1 font-semibold text-gray-700">ไฟล์ที่จะส่งเข้าแผน ({extras.length}) — DXF / รูป</p>
+              <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                {extras.map((f, i) => (
+                  <li key={`${f.name}${i}`} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate" title={f.name}>
+                      {f.name}
+                    </span>
+                    <button type="button" disabled={busy} onClick={() => setExtras((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600" aria-label={`เอา ${f.name} ออก`}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(staged.items.length > 0 || extras.length > 0) && (
             <button
               type="button"
               onClick={createFromFiles}
-              disabled={busy || staged.reading || !staged.items.some((i) => i.status === "ready")}
+              disabled={busy || staged.reading || (!staged.items.some((i) => i.status === "ready") && extras.length === 0)}
               className="inline-flex w-full items-center justify-center gap-1 rounded bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
             >
-              {busy ? "กำลังสร้างแผน…" : staged.reading ? "กำลังอ่านไฟล์…" : `สร้างแผนจาก ${staged.items.filter((i) => i.status === "ready").length} ไฟล์`}
+              {busy ? "กำลังสร้างแผน…" : staged.reading ? "กำลังอ่านไฟล์…" : `สร้างแผนจาก ${staged.items.filter((i) => i.status === "ready").length + extras.length} ไฟล์`}
             </button>
           )}
         </div>

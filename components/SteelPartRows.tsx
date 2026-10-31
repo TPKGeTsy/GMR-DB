@@ -82,8 +82,8 @@ export function PartRow({
   }
 
   return (
-    <tr className={`border-t border-gray-100 ${part.quantity === 0 ? "text-gray-300" : ""}`}>
-      <td className="px-3 py-1 text-right">
+    <tr className={`border-t border-gray-100 max-sm:mb-2 max-sm:flex max-sm:flex-wrap max-sm:items-end max-sm:gap-x-1 max-sm:rounded max-sm:border max-sm:p-2 ${part.quantity === 0 ? "text-gray-300" : ""}`}>
+      <td data-label="ความยาวตัด" className="px-3 py-1 text-right max-sm:before:block max-sm:before:text-[10px] max-sm:before:text-gray-400 max-sm:before:content-[attr(data-label)]">
         <input
           type="number"
           min={0}
@@ -99,7 +99,7 @@ export function PartRow({
           aria-label={`ความยาวตัด (${UNITS[unit].label})`}
         />
       </td>
-      <td className="px-3 py-1 text-right">
+      <td data-label="จำนวนต่อชุด" className="px-3 py-1 text-right max-sm:before:block max-sm:before:text-[10px] max-sm:before:text-gray-400 max-sm:before:content-[attr(data-label)]">
         <input
           type="number"
           min={0}
@@ -112,10 +112,10 @@ export function PartRow({
             if (n !== null) onEdit({ baseQuantity: n });
           }}
           className={`${cell} !w-16`}
-          aria-label="QTY"
+          aria-label="จำนวนต่อชุด"
         />
       </td>
-      <td className="px-3 py-1 text-right">
+      <td data-label="× ชุด" className="px-3 py-1 text-right max-sm:before:block max-sm:before:text-[10px] max-sm:before:text-gray-400 max-sm:before:content-[attr(data-label)]">
         <span className="inline-flex items-center gap-1 text-gray-500">
           ×
           <input
@@ -130,16 +130,16 @@ export function PartRow({
               if (n !== null) onEdit({ rounds: n });
             }}
             className={`${cell} !w-14`}
-            aria-label="จำนวนรอบ"
+            aria-label="จำนวนชุด"
           />
         </span>
       </td>
-      <td className={`px-3 py-1 text-right font-bold ${part.quantity === 0 ? "line-through" : ""}`}>{part.quantity}</td>
-      <td className="px-3 py-1 text-left text-xs text-gray-500">
+      <td data-label="รวม" className={`px-3 py-1 text-right font-bold max-sm:before:block max-sm:before:text-[10px] max-sm:before:text-gray-400 max-sm:before:content-[attr(data-label)] ${part.quantity === 0 ? "line-through" : ""}`}>{part.quantity}</td>
+      <td data-label="จากไฟล์" className="px-3 py-1 text-left text-xs text-gray-500 max-sm:before:block max-sm:before:text-[10px] max-sm:before:text-gray-400 max-sm:before:content-[attr(data-label)]">
         {part.sourceFile ?? "เพิ่มเอง"}
         {error && <span className="ml-2 text-red-600">{error}</span>}
       </td>
-      <td className="px-3 py-1 text-right">
+      <td className="px-3 py-1 text-right max-sm:ml-auto">
         {canEdit && (
           <button type="button" title="ลบ" onClick={onDelete} className="text-gray-400 hover:text-red-600">
             <Trash2 className="h-4 w-4" />
@@ -174,7 +174,7 @@ export function ImportedFiles({
   return (
     <div className="mb-4 rounded border border-gray-200">
       <p className="border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">
-        ไฟล์ที่นำเข้า ({files.size}) — แก้จำนวนรอบของทั้งไฟล์ได้เลย ตัวเลขและแผนตัดเปลี่ยนทันที หรือแก้ทีละรายการในตารางด้านล่าง
+        ไฟล์ที่นำเข้า ({files.size}) — แก้จำนวนชุดของทั้งไฟล์ได้เลย ตัวเลขและแผนตัดเปลี่ยนทันที หรือแก้ทีละรายการในตารางด้านล่าง
       </p>
       <ul className="divide-y divide-gray-100">
         {[...files.entries()].map(([name, rows]) => (
@@ -239,7 +239,7 @@ function ImportedFile({
               if (n !== null && n <= 1000) onFileRounds(name, n);
             }}
             className={`${cell} !w-16`}
-            aria-label={`จำนวนรอบของ ${name}`}
+            aria-label={`จำนวนชุดของ ${name}`}
           />
         </span>
         {canEdit && (
@@ -257,13 +257,13 @@ function ImportedFile({
         )}
       </div>
       {open && (
-        <table className="ml-6 mt-1 text-xs">
+        <table className="ml-6 mt-1 block max-w-full overflow-x-auto text-xs sm:table sm:overflow-visible">
           <thead>
             <tr className="text-left text-gray-500">
               <th className="pr-4 font-medium">ประเภท / หน้าตัด</th>
-              <th className="pr-4 text-right font-medium">z ยาว</th>
-              <th className="pr-4 text-right font-medium">QTY</th>
-              <th className="pr-4 text-right font-medium">× รอบ</th>
+              <th className="pr-4 text-right font-medium">ความยาวตัด</th>
+              <th className="pr-4 text-right font-medium">จำนวน</th>
+              <th className="pr-4 text-right font-medium">× ชุด</th>
               <th className="text-right font-medium">รวม</th>
             </tr>
           </thead>

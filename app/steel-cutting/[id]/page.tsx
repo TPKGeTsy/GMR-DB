@@ -8,6 +8,7 @@ import PageHelp from "@/components/PageHelp";
 import SteelHardwarePanel from "@/components/SteelHardwarePanel";
 import SteelSheetPanel, { type SheetPartRow } from "@/components/SteelSheetPanel";
 import SteelNestingPanel from "@/components/SteelNestingPanel";
+import SteelSmartDrop from "@/components/SteelSmartDrop";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function SteelPlanPage({
 }) {
   const { id } = await params;
   const skippedCount = Math.max(0, Number((await searchParams).skipped) || 0);
-  const [session, plan, projects] = await Promise.all([
+  const [session, plan, projects, offcuts] = await Promise.all([
     auth(),
     prisma.steelPlan.findUnique({
       where: { id },
@@ -35,6 +36,7 @@ export default async function SteelPlanPage({
       },
     }),
     prisma.project.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.steelOffcut.findMany({ where: { OR: [{ reservedPlanId: null }, { reservedPlanId: id }] }, orderBy: { createdAt: "asc" } }),
   ]);
   if (!plan) notFound();
 
@@ -59,6 +61,7 @@ export default async function SteelPlanPage({
           <PageHelp id="steelCutting" />
         </h1>
       </div>
+      {canEdit && <SteelSmartDrop planId={plan.id} empty={plan.parts.length + plan.hardware.length + plan.sheetParts.length === 0} />}
       <SteelPlanEditor
         plan={{ id: plan.id, name: plan.name, kerf: plan.kerf, newBarLength: plan.newBarLength, projectId: plan.projectId }}
         parts={plan.parts.map((p) => ({
@@ -82,6 +85,17 @@ export default async function SteelPlanPage({
           length: b.length,
         }))}
         projects={projects}
+        offcuts={offcuts.map((o) => ({
+          id: o.id,
+          steelType: o.steelType,
+          sectionX: o.sectionX,
+          sectionY: o.sectionY,
+          thickness: o.thickness,
+          length: o.length,
+          sourceName: o.sourceName,
+          reservedPlanId: o.reservedPlanId,
+        }))}
+        doneBySignature={Object.fromEntries(plan.nestDone.map((d) => [d.signature, d.done]))}
         canEdit={canEdit}
         skippedCount={skippedCount}
       >

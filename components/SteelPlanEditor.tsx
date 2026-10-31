@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Printer, Trash2, Plus, Upload } from "lucide-react";
 import BarLengthSelect from "./BarLengthSelect";
@@ -9,6 +9,9 @@ import { useDisplayUnit } from "./useDisplayUnit";
 import { UNITS, UNIT_KEYS, formatLength, formatLengthWithUnit, type Unit } from "@/lib/units";
 import { ImportedFiles, PartRow, applyPartPatch, type PartPatch } from "./SteelPartRows";
 import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles";
+import { setNestDone } from "@/app/actions/steelSources";
+import { completeCuttingDuty } from "@/app/actions/steelOffcuts";
+import SteelOffcutPanel, { type OffcutRow } from "./SteelOffcutPanel";
 import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
 import {
   addSteelParts,
@@ -29,6 +32,7 @@ import {
   parseBomLines,
   parsePartsCsv,
   planCuts,
+  barSignature,
   profileKey,
   profileLabel,
   profileLabelUnits,
@@ -212,7 +216,7 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
     const parts = ready.flatMap((i) => finalParts(i, staged.state)).sort(comparePieces);
     const skipped: SkippedRow[] = ready.filter((i) => i.skipped > 0).map((i) => ({ line: `${i.file.name}: ข้าม ${i.skipped} แถว`, reason: "ข้อมูลไม่ครบ" }));
     if (parts.length === 0) {
-      setMessage("ไม่มีรายการให้นำเข้า (ตรวจจำนวนรอบรายแถว)");
+      setMessage("ไม่มีรายการให้นำเข้า (ตรวจจำนวนชุดรายแถว)");
       return;
     }
     setPreview({ parts, skipped });
@@ -240,7 +244,7 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
     <details className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
       <summary className="cursor-pointer font-medium text-gray-700">
         <Upload className="mr-1 inline h-4 w-4" />
-        นำเข้ารายการชิ้นงานจาก PDF (ตาราง BOM) / CSV
+        นำเข้าแบบเลือกเอง (ขั้นสูง): ตั้งชุด/เลือกบางแถวต่อไฟล์ หรือวางข้อความ
       </summary>
       <div className="mt-2 space-y-3">
         <div className="grid gap-3 md:grid-cols-2">
@@ -314,8 +318,8 @@ function ImportPanel({ planId, onDone }: { planId: string; onDone: () => void })
                 <thead>
                   <tr className="text-left text-gray-500">
                     <th className="py-0.5 font-medium">ประเภท / หน้าตัด</th>
-                    <th className="py-0.5 text-right font-medium">z ยาว (มม.)</th>
-                    <th className="py-0.5 text-right font-medium">QTY (จำนวน)</th>
+                    <th className="py-0.5 text-right font-medium">ความยาวตัด (มม.)</th>
+                    <th className="py-0.5 text-right font-medium">จำนวน</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -392,6 +396,23 @@ function BarLengthControl({
   };
 
   const picked = current ?? standard;
+  // Most plans buy the standard length: show it as text and keep the 20 choices out of the way until asked for.
+  const [open, setOpen] = useState(current !== null);
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+        <span>
+          ความยาวเหล็ก <span className="font-semibold">{formatLengthWithUnit(standard, "mm")}</span> (มาตรฐาน)
+        </span>
+        {canEdit && (
+          <button type="button" onClick={() => setOpen(true)} className="text-xs text-orange-600 hover:underline">
+            เปลี่ยนความยาว
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
@@ -459,6 +480,124 @@ const ROW_GAPS = [
   { label: "กว้างมาก", px: 72 },
 ] as const;
 
+/** Check of the totals (pieces asked = pieces in the plan), the waste, and the steel to buy as text for the purchaser. */
+function OrderSummary({ planName, result, labels, unit }: { planName: string; result: CuttingPlan; labels: Record<string, string>; unit: Unit }) {
+  const [copied, setCopied] = useState(false);
+  const wanted = result.profiles.reduce((n, p) => n + p.piecesTotal, 0);
+  const placed = result.profiles.reduce((n, p) => n + p.bars.reduce((m, b) => m + b.cuts.length, 0), 0);
+  const tooLong = result.profiles.reduce((n, p) => n + p.tooLong.length, 0);
+  const barLength = result.profiles.reduce((n, p) => n + p.bars.reduce((m, b) => m + b.length, 0), 0);
+  const waste = result.profiles.reduce((n, p) => n + p.wasteLength, 0);
+  const wastePercent = barLength > 0 ? (waste / barLength) * 100 : 0;
+  const balanced = wanted === placed + tooLong;
+
+  const buy = result.profiles
+    .map((p) => {
+      const byLength = new Map<number, number>();
+      for (const b of p.bars) if (b.source === "new") byLength.set(b.length, (byLength.get(b.length) ?? 0) + 1);
+      return { key: p.key, label: labels[p.key] ?? p.label, lines: [...byLength].sort((a, b) => b[0] - a[0]) };
+    })
+    .filter((p) => p.lines.length > 0);
+
+  const orderText = [
+    `ใบสั่งซื้อเหล็ก — ${planName}`,
+    ...buy.flatMap((p) => p.lines.map(([len, n]) => `• ${p.label} ยาว ${formatLengthWithUnit(len, unit)} × ${n} เส้น`)),
+  ].join("\n");
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(orderText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("คัดลอกข้อความนี้", orderText);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm print:hidden md:grid-cols-2">
+      <div className="space-y-1">
+        <p className="font-semibold text-gray-800">ตรวจยอด</p>
+        <p className={balanced ? "text-green-700" : "text-red-600"}>
+          {balanced ? "✓" : "✗"} ชิ้นที่ต้องการ {wanted.toLocaleString("th-TH")} · วางในแผน {placed.toLocaleString("th-TH")}
+          {tooLong > 0 && ` · ยาวเกินเหล็ก ${tooLong}`}
+        </p>
+        <p className="text-gray-600">
+          เศษรวม {formatLengthWithUnit(waste, unit)} จากเหล็ก {formatLengthWithUnit(barLength, unit)} ={" "}
+          <span className="font-semibold">{wastePercent.toFixed(1)}%</span> (รวมระยะตัดใบเลื่อย)
+        </p>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-semibold text-gray-800">ต้องสั่งซื้อ</p>
+          {buy.length > 0 && (
+            <button type="button" onClick={copy} className={buttonClass}>
+              {copied ? "คัดลอกแล้ว ✓" : "คัดลอกใบสั่งซื้อ (ส่ง LINE)"}
+            </button>
+          )}
+        </div>
+        {buy.length === 0 ? (
+          <p className="text-gray-500">ไม่ต้องซื้อเพิ่ม ใช้สต็อกที่มีพอ</p>
+        ) : (
+          <ul className="space-y-0.5 text-gray-700">
+            {buy.map((p) =>
+              p.lines.map(([len, n]) => (
+                <li key={`${p.key}${len}`}>
+                  {p.label} · ยาว {formatLengthWithUnit(len, unit)} × <span className="font-bold">{n}</span> เส้น
+                </li>
+              ))
+            )}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const NAV_CHIPS = [
+  { href: "#sec-import", label: "นำเข้าไฟล์" },
+  { href: "#sec-parts", label: "ชิ้นงาน" },
+  { href: "#sec-hardware", label: "น็อต" },
+  { href: "#sec-dxf", label: "แผ่น DXF" },
+  { href: "#sec-result", label: "แผนตัด" },
+];
+
+/** Stays under the menu while scrolling: the numbers that matter at a glance and jumps to each part of this long page. */
+function StickyBar({ result, refreshing }: { result: CuttingPlan; refreshing: boolean }) {
+  const wanted = result.profiles.reduce((n, p) => n + p.piecesTotal, 0);
+  const placed = result.profiles.reduce((n, p) => n + p.bars.reduce((m, b) => m + b.cuts.length, 0), 0);
+  const tooLong = result.profiles.reduce((n, p) => n + p.tooLong.length, 0);
+  const barLength = result.profiles.reduce((n, p) => n + p.bars.reduce((m, b) => m + b.length, 0), 0);
+  const waste = result.profiles.reduce((n, p) => n + p.wasteLength, 0);
+  const toBuy = result.profiles.reduce((n, p) => n + p.toBuy, 0);
+  const balanced = wanted === placed + tooLong;
+  return (
+    <div className="sticky top-16 z-30 -mx-1 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur print:hidden">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        {wanted > 0 ? (
+          <>
+            <span className={balanced ? "font-medium text-green-700" : "font-medium text-red-600"}>
+              {balanced ? "✓" : "✗"} ยอด {placed}/{wanted} ชิ้น
+            </span>
+            <span className="text-gray-600">ซื้อ {toBuy} เส้น</span>
+            <span className="text-gray-600">เศษ {barLength > 0 ? ((waste / barLength) * 100).toFixed(1) : "0"}%</span>
+          </>
+        ) : (
+          <span className="text-gray-500">ยังไม่มีชิ้นงาน — เริ่มจากโยนไฟล์ใบตัด</span>
+        )}
+        {refreshing && <span className="animate-pulse text-xs text-orange-600">กำลังอัปเดต…</span>}
+      </div>
+      <nav className="mt-1 flex gap-2 overflow-x-auto pb-0.5 text-xs">
+        {NAV_CHIPS.map((c) => (
+          <a key={c.href} href={c.href} className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-600 hover:border-orange-300 hover:text-orange-700">
+            {c.label}
+          </a>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 function CutResults({
   planName,
   result,
@@ -470,7 +609,17 @@ function CutResults({
   canEdit,
   unit,
   labels,
+  barDone,
+  onToggleBar,
+  linkedToProject,
+  planId,
 }: {
+  planId: string;
+  /** The plan belongs to a project: when every bar is cut, the "ตัดเหล็ก" duty there can be closed. */
+  linkedToProject: boolean;
+  /** Which bars are ticked as cut (by barSignature) and how to tick one. */
+  barDone: Record<string, number>;
+  onToggleBar: (signature: string, done: boolean) => void;
   planName: string;
   result: CuttingPlan;
   kerf: number;
@@ -485,12 +634,28 @@ function CutResults({
   /** The steel kinds with their sizes written with units, by profile key. */
   labels: Record<string, string>;
 }) {
+  const [dutyMessage, setDutyMessage] = useState<string | null>(null);
   const [sizeIndex, setSizeIndex] = useState(1);
   const [gapIndex, setGapIndex] = useState(2);
   const scale = SIZE_STEPS[sizeIndex].scale;
   const rowGap = ROW_GAPS[gapIndex].px;
   const font = Math.round(14 * scale);
   const totalBars = result.profiles.reduce((sum, p) => sum + p.bars.length, 0);
+  // Every bar with its signature; identical bars are told apart by counting them.
+  const signatures = new Map<string, string[]>();
+  for (const p of result.profiles) {
+    const seen = new Map<string, number>();
+    signatures.set(
+      p.key,
+      p.bars.map((b) => {
+        const base = barSignature(p.key, b.length, b.cuts, 0);
+        const n = seen.get(base) ?? 0;
+        seen.set(base, n + 1);
+        return barSignature(p.key, b.length, b.cuts, n);
+      })
+    );
+  }
+  const cutBars = [...signatures.values()].flat().filter((sig) => barDone[sig]).length;
 
   const exportCsv = () => {
     const rows: string[][] = [["รายการที่", "ชนิดเหล็ก", "ความยาวเหล็ก(มม.)", "ชิ้นที่ตัด(มม.)", "ระยะตัด(มม.)", "เศษเหลือ(มม.)"]];
@@ -511,7 +676,7 @@ function CutResults({
 
   const print = usePrintSection("bars");
   return (
-    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
+    <section id="sec-result" style={print.style} className={`scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">ผลการวางแผนตัด</h2>
         <div className="flex flex-wrap items-center gap-2">
@@ -574,6 +739,22 @@ function CutResults({
           <div className="flex flex-col" style={{ gap: rowGap }}>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-gray-700" style={{ fontSize: font }}>
               <span className="font-semibold">ใช้เหล็กรวม {totalBars} เส้น</span>
+              <span className={`print:hidden ${cutBars === totalBars && totalBars > 0 ? "font-semibold text-green-700" : "text-gray-500"}`}>
+                ตัดแล้ว {cutBars}/{totalBars} เส้น
+              </span>
+              {canEdit && linkedToProject && totalBars > 0 && cutBars === totalBars && (
+                <button
+                  type="button"
+                  className={`${buttonClass} print:hidden`}
+                  onClick={async () => {
+                    const res = await completeCuttingDuty(planId);
+                    setDutyMessage(res.success ? (res.count > 0 ? `ติ๊ก "ตัดเหล็ก" เสร็จใน Gantt ของโปรเจกต์แล้ว ${res.count} งาน ✓` : 'ไม่มีงาน "ตัดเหล็ก" ที่ค้างอยู่ใน Gantt') : res.error);
+                  }}
+                >
+                  ตัดครบแล้ว → ปิดงาน &quot;ตัดเหล็ก&quot; ใน Gantt
+                </button>
+              )}
+              {dutyMessage && <span className="text-sm text-green-700 print:hidden">{dutyMessage}</span>}
               <span className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-4 w-6 border border-black" style={{ background: PIECE_COLORS[0] }} /> ชิ้นที่ตัด
               </span>
@@ -582,6 +763,8 @@ function CutResults({
               </span>
               {result.hasProblem && <span className="text-red-600">มีชิ้นงานยาวเกินความยาวเหล็ก</span>}
             </div>
+
+            <OrderSummary planName={planName} result={result} labels={labels} unit={unit} />
 
             {result.profiles.map((p, pi) => {
               const lengths = [...new Set(p.bars.flatMap((b) => b.cuts))].sort((a, b) => b - a);
@@ -599,11 +782,31 @@ function CutResults({
                     </p>
                   )}
                   <ul className="flex flex-col" style={{ gap: rowGap }}>
-                    {p.bars.map((b, i) => (
-                      <li key={i} className="break-inside-avoid rounded border-2 border-black bg-white" style={{ padding: Math.round(10 * scale) }}>
+                    {p.bars.map((b, i) => {
+                      const isCut = !!barDone[signatures.get(p.key)?.[i] ?? ""];
+                      return (
+                      <li
+                        key={i}
+                        className={`break-inside-avoid rounded border-2 transition-colors print:border-black print:bg-white ${isCut ? "border-green-600 bg-green-50" : "border-black bg-white"}`}
+                        style={{ padding: Math.round(10 * scale) }}
+                      >
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-gray-900" style={{ fontSize: font }}>
                           <span className="flex items-center gap-2 font-bold">
                             <span className="rounded bg-black px-2 py-0.5 text-white">รายการที่ {i + 1}</span>
+                            <label
+                              className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm font-medium print:hidden ${
+                                isCut ? "border-green-600 bg-green-600 text-white" : "border-gray-300 bg-white text-gray-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-6 w-6 accent-green-700"
+                                checked={!!barDone[signatures.get(p.key)?.[i] ?? ""]}
+                                disabled={!canEdit}
+                                onChange={(e) => onToggleBar(signatures.get(p.key)![i], e.target.checked)}
+                              />
+                              {isCut ? "ตัดแล้ว ✓" : "ตัดแล้ว"}
+                            </label>
                             เหล็กยาว {formatLengthWithUnit(b.length, unit)}
                           </span>
                           <span>เศษ {formatLengthWithUnit(b.leftover, unit)}</span>
@@ -649,7 +852,8 @@ function CutResults({
                           </span>
                         </p>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </div>
               );
@@ -668,6 +872,8 @@ export default function SteelPlanEditor({
   projects,
   canEdit,
   skippedCount,
+  offcuts = [],
+  doneBySignature = {},
   children,
 }: {
   plan: { id: string; name: string; kerf: number; newBarLength: number; projectId: string | null };
@@ -676,6 +882,10 @@ export default function SteelPlanEditor({
   projects: { id: string; name: string }[];
   canEdit: boolean;
   skippedCount: number;
+  /** The shared offcut library: free ones and the ones this plan has taken. */
+  offcuts?: OffcutRow[];
+  /** Ticks saved for the plan (bars cut, sheet layouts cut), by signature. */
+  doneBySignature?: Record<string, number>;
   /** Extra sections (parts list picture, DXF parts) shown above the results. */
   children?: React.ReactNode;
 }) {
@@ -696,9 +906,10 @@ export default function SteelPlanEditor({
   const refreshWanted = useRef(false);
 
   // A reload while saves are waiting would show old numbers, so it waits for them.
+  const [refreshing, startRefresh] = useTransition();
   const refresh = () => {
     if (pending.current.size > 0) refreshWanted.current = true;
-    else router.refresh();
+    else startRefresh(() => router.refresh());
   };
 
   const saveLater = (key: string, run: () => Promise<{ success: boolean; error?: string }>) => {
@@ -782,13 +993,25 @@ export default function SteelPlanEditor({
   const kerfValue = Number.isFinite(Number(kerf)) && kerf.trim() !== "" ? Number(kerf) : plan.kerf;
   const result = useMemo(
     () =>
-      planCuts(localParts, [], {
-        barLengths: Object.fromEntries(bars.map((b) => [profileKey(b), b.length])),
-        kerf: kerfValue,
-        newBarLength: standard,
-      }),
-    [localParts, bars, kerfValue, standard]
+      planCuts(
+        localParts,
+        offcuts.filter((o) => o.reservedPlanId === plan.id).map((o) => ({ id: o.id, steelType: o.steelType, sectionX: o.sectionX, sectionY: o.sectionY, thickness: o.thickness, length: o.length, quantity: 1 })),
+        {
+          barLengths: Object.fromEntries(bars.map((b) => [profileKey(b), b.length])),
+          kerf: kerfValue,
+          newBarLength: standard,
+        }
+      ),
+    [localParts, offcuts, plan.id, bars, kerfValue, standard]
   );
+  const [tickedHere, setTickedHere] = useState<Record<string, number>>({});
+  const barDone = { ...doneBySignature, ...tickedHere };
+  const toggleBar = async (signature: string, done: boolean) => {
+    setTickedHere((prev) => ({ ...prev, [signature]: done ? 1 : 0 }));
+    const res = await setNestDone(plan.id, signature, done ? 1 : 0);
+    if (!res.success) setTickedHere((prev) => ({ ...prev, [signature]: done ? 0 : 1 }));
+  };
+  const planProfiles = useMemo(() => new Map(groups.map((g) => [profileKey(g.profile), g.profile])), [groups]);
 
   const saveCutSettings = async (next: { kerf: number; newBarLength: number }) => {
     const res = await updateSteelPlanCutSettings(plan.id, next);
@@ -812,6 +1035,7 @@ export default function SteelPlanEditor({
   return (
     <PrintLayoutProvider planId={plan.id}>
     <div className="flex flex-col gap-6">
+      <StickyBar result={result} refreshing={refreshing} />
       {showSkipped && (
         <p className="flex items-center justify-between rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 print:hidden">
           <span>นำเข้าจากไฟล์แล้ว ข้าม {skippedCount} แถวที่ข้อมูล x, y, z หรือ QTY ไม่ครบ</span>
@@ -853,7 +1077,7 @@ export default function SteelPlanEditor({
         )}
       </section>
 
-      <section className="rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
+      <section id="sec-parts" className="scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({localParts.length})</h2>
         <div className="mb-4 flex flex-wrap items-end gap-4 rounded border border-orange-200 bg-orange-50 p-3">
           <label className="block text-xs text-gray-600">
@@ -919,12 +1143,12 @@ export default function SteelPlanEditor({
                   onDone={refresh}
                 />
               </div>
-              <table className="w-full text-sm">
-                <thead>
+              <table className="block w-full overflow-x-auto text-sm sm:table sm:overflow-visible">
+                <thead className="max-sm:hidden">
                   <tr className="text-left text-xs text-gray-500">
-                    <th className="px-3 py-1 text-right font-medium">z ยาว ({UNITS[unit].label})</th>
-                    <th className="px-3 py-1 text-right font-medium">QTY ในไฟล์</th>
-                    <th className="px-3 py-1 text-right font-medium">× รอบ</th>
+                    <th className="px-3 py-1 text-right font-medium">ความยาวตัด ({UNITS[unit].label})</th>
+                    <th className="px-3 py-1 text-right font-medium">จำนวนต่อชุด</th>
+                    <th className="px-3 py-1 text-right font-medium">× ชุด</th>
                     <th className="px-3 py-1 text-right font-medium">รวม (ชิ้น)</th>
                     <th className="px-3 py-1 text-left font-medium">จากไฟล์</th>
                     <th />
@@ -952,6 +1176,8 @@ export default function SteelPlanEditor({
 
       {children}
 
+      <SteelOffcutPanel planId={plan.id} canEdit={canEdit} offcuts={offcuts} result={result} profiles={planProfiles} unit={unit} onChanged={refresh} />
+
       <CutResults
         planName={plan.name}
         result={result}
@@ -963,6 +1189,10 @@ export default function SteelPlanEditor({
         canEdit={canEdit}
         unit={unit}
         labels={labels}
+        barDone={barDone}
+        onToggleBar={toggleBar}
+        linkedToProject={!!plan.projectId}
+        planId={plan.id}
       />
     </div>
     </PrintLayoutProvider>

@@ -161,7 +161,7 @@ export default function SteelNestingPanel({
   };
 
   return (
-    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
+    <section id="sec-nesting" style={print.style} className={`scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">วางชิ้นแผ่นลงแผ่นเหล็ก</h2>
         <Link
@@ -219,7 +219,7 @@ export default function SteelNestingPanel({
             {timesMessage && <span className="text-gray-700">{timesMessage}</span>}
           </label>
         )}
-        <p className="text-xs text-gray-500">วางตามกรอบสี่เหลี่ยมของแต่ละชิ้น ความหนาต่างกันแยกแผ่น แผ่นที่วางเหมือนกันรวมเป็น Result เดียว (Done = ตัดไปแล้วกี่แผ่น)</p>
+        <p className="text-xs text-gray-500">วางตามกรอบสี่เหลี่ยมของแต่ละชิ้น ความหนาต่างกันแยกแผ่น แผ่นที่วางเหมือนกันรวมเป็นแบบเดียว (ตัดแล้ว = ตัดไปแล้วกี่แผ่น)</p>
       </div>
 
       {!valid && <p className="text-sm text-red-600">ขนาดแผ่นไม่ถูกต้อง</p>}
@@ -274,7 +274,7 @@ export default function SteelNestingPanel({
                         >
                           <SheetDrawing placed={r.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} compact className="h-24 w-auto shrink-0" />
                           <div className="min-w-0 space-y-0.5">
-                            <p className="text-sm font-bold text-gray-900">Result {i + 1}</p>
+                            <p className="text-sm font-bold text-gray-900">แบบที่ {i + 1}</p>
                             <p className="text-gray-600">
                               {sheetWidth}*{sheetHeight}
                             </p>
@@ -320,7 +320,7 @@ export default function SteelNestingPanel({
                 {chosen && (
                   <figure>
                     <figcaption className="mb-1 text-sm font-semibold text-gray-800">
-                      Result {g.results.indexOf(chosen) + 1} · {chosen.sheet.placed.length} ชิ้น · ต้องตัด {chosen.count} แผ่น
+                      แบบที่ {g.results.indexOf(chosen) + 1} · {chosen.sheet.placed.length} ชิ้น · ต้องตัด {chosen.count} แผ่น
                     </figcaption>
                     <SheetDrawing placed={chosen.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} />
                   </figure>
@@ -332,7 +332,7 @@ export default function SteelNestingPanel({
                 {g.results.map((r, i) => (
                   <figure key={r.signature} className="break-inside-avoid">
                     <figcaption className="mb-1 text-sm font-semibold text-gray-800">
-                      Result {i + 1} · {fmt(sheetWidth)}×{fmt(sheetHeight)} · {r.sheet.placed.length} ชิ้น · {sheetUtilization(g, r).toFixed(1)}% · ตัด {r.count} แผ่น (Done {Math.min(done[r.signature] ?? 0, r.count)}/{r.count})
+                      แบบที่ {i + 1} · {fmt(sheetWidth)}×{fmt(sheetHeight)} · {r.sheet.placed.length} ชิ้น · {sheetUtilization(g, r).toFixed(1)}% · ตัด {r.count} แผ่น (ตัดแล้ว {Math.min(done[r.signature] ?? 0, r.count)}/{r.count})
                     </figcaption>
                     <SheetDrawing placed={r.sheet.placed} width={sheetWidth} height={sheetHeight} parts={parts} />
                   </figure>

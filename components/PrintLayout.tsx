@@ -6,7 +6,7 @@ import { ArrowDown, ArrowUp, GripVertical, Printer } from "lucide-react";
 export const PRINT_SECTIONS = [
   { id: "bars", label: "แผนตัดเหล็กเส้น / กล่อง / ฉาก" },
   { id: "dxfParts", label: "ชิ้นแผ่นจาก DXF (ภาพ + ลำดับการตัด)" },
-  { id: "nesting", label: "วางชิ้นลงแผ่นเหล็ก (Result)" },
+  { id: "nesting", label: "วางชิ้นลงแผ่นเหล็ก" },
   { id: "hardware", label: "รายการน็อต / สกรู" },
 ] as const;
 

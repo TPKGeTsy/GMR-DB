@@ -265,3 +265,31 @@ describe("parseBomLines with two tables on one drawing", () => {
     expect(parseBomLines(["1 16 ST 75 x 75 x 2.3 1742"]).parts).toHaveLength(1);
   });
 });
+
+describe("planCuts stock ids", () => {
+  it("tells which stock bar a cut came from", () => {
+    const box = { steelType: "ST", sectionX: 50, sectionY: 50, thickness: 2.3 };
+    const plan = planCuts(
+      [{ ...box, cutLength: 900, quantity: 1 }],
+      [
+        { ...box, id: "short", length: 500, quantity: 1 },
+        { ...box, id: "fits", length: 1000, quantity: 1 },
+        { ...box, id: "long", length: 3000, quantity: 1 },
+      ],
+      { kerf: 0, newBarLength: 6000 }
+    );
+    expect(plan.profiles[0].bars).toHaveLength(1);
+    expect(plan.profiles[0].bars[0]).toMatchObject({ source: "stock", stockId: "fits", length: 1000 });
+  });
+});
+
+describe("taught words", () => {
+  const row = ["1 2 UPN 100 x 50 x 5 1200"];
+  it("skips an unknown steel word, then reads it once it was taught", () => {
+    expect(parseBomLines(row).parts).toEqual([]);
+    expect(parseBomLines(row).skipped).toHaveLength(1);
+    const taught = parseBomLines(row, [{ keyword: "upn", steelType: "CHANNEL" }]);
+    expect(taught.skipped).toEqual([]);
+    expect(taught.parts[0]).toMatchObject({ steelType: "CHANNEL", sectionX: 100, sectionY: 50, thickness: 5, cutLength: 1200, quantity: 2 });
+  });
+});

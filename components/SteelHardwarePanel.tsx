@@ -64,8 +64,8 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
         <input
           type="number"
           min={1}
-          aria-label="จำนวนต่อรอบ (จากไฟล์)"
-          title="จำนวนต่อ 1 รอบ (QTY จากไฟล์)"
+          aria-label="จำนวนต่อชุด (จากไฟล์)"
+          title="จำนวนต่อ 1 ชุด (QTY จากไฟล์)"
           value={quantity}
           disabled={!canEdit}
           onChange={(e) => setQuantity(e.target.value)}
@@ -85,7 +85,7 @@ function SavedRow({ row, canEdit, onChanged }: { row: HardwareRow; canEdit: bool
             onChange={(e) => setRounds(e.target.value)}
             onBlur={save}
             className={`${inputClass} !w-12 text-right print:border-0`}
-            aria-label="จำนวนรอบ"
+            aria-label="จำนวนชุด"
           />
         </span>
       </td>
@@ -121,7 +121,7 @@ function ImportedHardwareFiles({ planId, rows, canEdit, onChanged }: { planId: s
   return (
     <div className="rounded border border-gray-200 print:hidden">
       <p className="border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">
-        ไฟล์ที่นำเข้า ({files.size}) — แก้จำนวนรอบของทั้งไฟล์ได้เลย ยอดสรุปด้านบนเปลี่ยนทันที
+        ไฟล์ที่นำเข้า ({files.size}) — แก้จำนวนชุดของทั้งไฟล์ได้เลย ยอดสรุปด้านบนเปลี่ยนทันที
       </p>
       <ul className="divide-y divide-gray-100">
         {[...files.entries()].map(([name, list]) => (
@@ -169,7 +169,7 @@ function HardwareFile({ planId, name, list, canEdit, onChanged }: { planId: stri
             onChanged();
           }}
           className={`${inputClass} !w-16`}
-          aria-label={`จำนวนรอบของ ${name}`}
+          aria-label={`จำนวนชุดของ ${name}`}
         />
       </span>
       {canEdit && (
@@ -236,7 +236,7 @@ export default function SteelHardwarePanel({
   if (images.length === 0 && rows.length === 0 && !canEdit) return null;
 
   return (
-    <section style={print.style} className={`rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
+    <section id="sec-hardware" style={print.style} className={`scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500">รายการน็อต / สกรู ({rows.length} รายการ · {images.length} รูป)</h2>
       <p className="mb-3 text-xs text-gray-400 print:hidden">
         โยนไฟล์ PDF ของตารางรายการ (ITEM NO. / PART NUMBER / QTY.) ระบบอ่านเฉพาะสกรู (screw / bolt) น็อตตัวเมีย (nut) และแหวน (washer) เรียงตามต้นฉบับ แล้วสรุปยอดของที่เหมือนกันเป๊ะไว้ด้านบน · ถ้าเป็นรูปภาพ (PNG / JPG หรือวางด้วย Ctrl+V) ระบบเก็บรูปไว้พิมพ์ต่อท้ายใบงานอย่างเดียว ไม่ได้อ่านข้อความ
@@ -364,7 +364,7 @@ export default function SteelHardwarePanel({
                 </button>
               )}
             </div>
-            <table className="w-full text-xs">
+            <table className="block w-full overflow-x-auto text-xs sm:table sm:overflow-visible">
               <tbody>
                 {rows.map((r) => (
                   <SavedRow key={`${r.id}-${r.partNumber}-${r.description}-${r.quantity}`} row={r} canEdit={canEdit} onChanged={() => router.refresh()} />

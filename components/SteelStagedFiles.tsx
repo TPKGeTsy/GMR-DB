@@ -197,7 +197,7 @@ function FileCard({
                   onUpdate({ times: e.target.value });
                 }}
                 className={inputClass}
-                aria-label={`จำนวนรอบของ ${item.file.name}`}
+                aria-label={`จำนวนชุดของ ${item.file.name}`}
               />
             </span>
           ))}
@@ -223,7 +223,7 @@ function FileCard({
                 if (e.target.checked) setOpen(true);
               }}
             />
-            เลือกนับเฉพาะบางรายการ (ระบุรอบรายแถว)
+            เลือกนับเฉพาะบางรายการ (ระบุชุดรายแถว)
           </label>
         </div>
       )}
@@ -234,9 +234,9 @@ function FileCard({
             <thead className="sticky top-0 bg-gray-50 text-left text-gray-500">
               <tr>
                 <th className="px-2 py-1 font-medium">ประเภท / หน้าตัด</th>
-                <th className="px-2 py-1 text-right font-medium">z ยาว</th>
-                <th className="px-2 py-1 text-right font-medium">QTY</th>
-                {item.partial && <th className="px-2 py-1 text-right font-medium">× รอบ</th>}
+                <th className="px-2 py-1 text-right font-medium">ความยาวตัด</th>
+                <th className="px-2 py-1 text-right font-medium">จำนวน</th>
+                {item.partial && <th className="px-2 py-1 text-right font-medium">× ชุด</th>}
               </tr>
             </thead>
             <tbody>
@@ -257,7 +257,7 @@ function FileCard({
                           disabled={disabled}
                           onChange={(e) => onUpdate({ rowTimes: item.rowTimes.map((t, j) => (j === i ? e.target.value : t)) })}
                           className={`${inputClass} !w-14 !py-0.5`}
-                          aria-label={`จำนวนรอบของแถวที่ ${i + 1}`}
+                          aria-label={`จำนวนชุดของแถวที่ ${i + 1}`}
                         />
                       </td>
                     )}
@@ -284,7 +284,7 @@ export default function SteelStagedFiles({
   if (items.length === 0) {
     return (
       <div className="flex h-full min-h-[8rem] items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-400">
-        ไฟล์ที่วางจะแสดงตรงนี้ พร้อมรายการในไฟล์ ใส่ &quot;กี่รอบ&quot; ของแต่ละไฟล์ได้ (เช่น A × 2, B × 3, C × 1) หรือเลือกนับเฉพาะบางรายการ
+        ไฟล์ที่วางจะแสดงตรงนี้ พร้อมรายการในไฟล์ ใส่ &quot;กี่ชุด&quot; ของแต่ละไฟล์ได้ (เช่น A × 2, B × 3, C × 1) หรือเลือกนับเฉพาะบางรายการ
       </div>
     );
   }
@@ -292,7 +292,7 @@ export default function SteelStagedFiles({
     <div className="space-y-1 rounded-lg border border-gray-200 bg-white p-3">
       <label className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
         <input type="checkbox" checked={state.same} disabled={disabled} onChange={(e) => setState({ ...state, same: e.target.checked })} />
-        ทุกไฟล์ใช้จำนวนรอบเท่ากัน
+        ทุกไฟล์ใช้จำนวนชุดเท่ากัน
         {state.same && (
           <span className="inline-flex items-center gap-1">
             ×
@@ -307,7 +307,7 @@ export default function SteelStagedFiles({
                 setState({ ...state, common: e.target.value });
               }}
               className={inputClass}
-              aria-label="จำนวนรอบของทุกไฟล์"
+              aria-label="จำนวนชุดของทุกไฟล์"
             />
           </span>
         )}

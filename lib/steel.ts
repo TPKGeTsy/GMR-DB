@@ -128,6 +128,8 @@ export interface PlannedBar {
   length: number;
   cuts: number[];
   leftover: number;
+  /** The id of the stock bar (offcut) it was cut from, when the stock row had one. */
+  stockId?: string;
 }
 
 export interface ProfilePlan {
@@ -172,7 +174,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
 
   const profiles = new Map<string, SteelProfile>();
   const pieces = new Map<string, number[]>();
-  const stockBars = new Map<string, number[]>();
+  const stockBars = new Map<string, { length: number; id?: string }[]>();
 
   for (const part of parts) {
     if (!(part.cutLength > 0) || !(part.quantity > 0)) continue;
@@ -186,15 +188,15 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
     if (!(s.length > 0) || !(s.quantity > 0)) continue;
     const key = profileKey(s);
     const list = stockBars.get(key) ?? [];
-    for (let i = 0; i < s.quantity; i++) list.push(s.length);
+    for (let i = 0; i < s.quantity; i++) list.push({ length: s.length, id: s.id });
     stockBars.set(key, list);
   }
 
   const result: ProfilePlan[] = [];
   for (const [key, profile] of profiles) {
     const wanted = [...(pieces.get(key) ?? [])].sort((a, b) => b - a);
-    const available = [...(stockBars.get(key) ?? [])].sort((a, b) => a - b);
-    const longestStock = available.length > 0 ? available[available.length - 1] : 0;
+    const available = [...(stockBars.get(key) ?? [])].sort((a, b) => a.length - b.length);
+    const longestStock = available.length > 0 ? available[available.length - 1].length : 0;
     const buyLength = Math.max(0, options.barLengths?.[key] ?? newBarLength);
     const maxBar = Math.max(buyLength, longestStock);
 
@@ -203,6 +205,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
       length: number;
       remaining: number;
       cuts: number[];
+      stockId?: string;
     }
     // One best-fit pass over the pieces in the given order.
     const pack = (order: number[]) => {
@@ -226,10 +229,10 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
           place(best, cut);
           continue;
         }
-        const stockIndex = left.findIndex((len) => len >= cut);
+        const stockIndex = left.findIndex((st) => st.length >= cut);
         if (stockIndex >= 0) {
-          const [length] = left.splice(stockIndex, 1);
-          const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [] };
+          const [{ length, id }] = left.splice(stockIndex, 1);
+          const bar: OpenBar = { source: "stock", length, remaining: length, cuts: [], stockId: id };
           open.push(bar);
           place(bar, cut);
           continue;
@@ -289,6 +292,7 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
         source: b.source,
         length: b.length,
         cuts: b.cuts,
+        stockId: b.stockId,
         leftover: raw > 0 ? Math.max(0, raw - kerf) : 0,
       };
     });
@@ -391,7 +395,16 @@ function barOf(description: string): { type: SteelType; x: number } | null {
   return m ? { type: "REBAR", x: Number(m[1] ?? m[2]) } : null;
 }
 
-function bomType(description: string, x: number, y: number): SteelType | null {
+/** A word taught by a user: a description with it is that kind of steel (checked before the built-in words). */
+export interface SteelAlias {
+  keyword: string;
+  steelType: string;
+}
+
+function bomType(description: string, x: number, y: number, aliases: SteelAlias[] = []): SteelType | null {
+  const upper = description.toUpperCase();
+  const taught = aliases.find((a) => a.keyword !== "" && upper.includes(a.keyword.toUpperCase()) && isSteelType(a.steelType));
+  if (taught) return taught.steelType as SteelType;
   if (/\bI[\s-]*(SECTION|BEAM)\b/i.test(description)) return "IBEAM";
   if (/\b(C|U)[\s-]*(SECTION|CHANNEL)\b|\bCHANNEL\b|^C\s/i.test(description)) return "CHANNEL";
   if (/\bT[\s-]*(SECTION|BAR)\b|\bTEE\b/i.test(description)) return "TEE";
@@ -405,13 +418,25 @@ function bomType(description: string, x: number, y: number): SteelType | null {
   return null;
 }
 
+/** A name for one bar of the plan that stays the same while the bar's cuts do, for ticking it "cut" (ordinal = the nth identical bar). */
+export function barSignature(key: string, length: number, cuts: number[], ordinal: number): string {
+  let h = 5381;
+  for (const ch of `${key}|${length}|${cuts.join(",")}`) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+  return `bar-${h.toString(36)}-${ordinal}`;
+}
+
+/** True when the lines hold a cut list: an ITEM NO. header with LENGTH and no PART NUMBER. */
+export function hasCutListHeader(lines: string[]): boolean {
+  return lines.some((l) => /ITEM\s*NO/i.test(l) && /LENGTH/i.test(l) && !/PART\s*NUMBER/i.test(l));
+}
+
 /** Reads the bill-of-materials lines of a drawing (SolidWorks/SolidCAM style):
  *  `ITEM QTY DESCRIPTION LENGTH`, e.g. `1 16 ST 75 x 75 x 2.3 1742` or
  *  `1 2 TUBE, SQUARE 49.00 X 49.00 X 2.30 1710`. In the description the
  *  numbers are x, y and the wall thickness; the length is the last column.
  *  Rows without x, y and z (e.g. `4 1 Sheet`) are skipped and reported; lines
  *  that are not table rows at all (title block, frame letters) are ignored. */
-export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipped: SkippedRow[] } {
+export function parseBomLines(lines: string[], aliases: SteelAlias[] = []): { parts: SteelPartInput[]; skipped: SkippedRow[] } {
   const parts: SteelPartInput[] = [];
   const skipped: SkippedRow[] = [];
   // A drawing can carry two tables: the assembly list (ITEM NO. / PART NUMBER / DESCRIPTION / QTY.)
@@ -458,7 +483,7 @@ export function parseBomLines(lines: string[]): { parts: SteelPartInput[]; skipp
     const length = afterSize ? Number(afterSize[1]) : lengthText === undefined ? NaN : Number(lengthText);
     const x = size ? Number(size[1]) : NaN;
     const y = size ? Number(size[2]) : NaN;
-    const type = bomType(description, x, y);
+    const type = bomType(description, x, y, aliases);
     if (!type) {
       skipped.push({ line, reason: "ไม่ใช่เหล็กที่รู้จัก (ไม่มี x, y, z)" });
       continue;
