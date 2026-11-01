@@ -12,7 +12,7 @@ import SteelStagedFiles, { finalParts, useStagedFiles } from "./SteelStagedFiles
 import { setNestDone } from "@/app/actions/steelSources";
 import { completeCuttingDuty } from "@/app/actions/steelOffcuts";
 import SteelOffcutPanel, { type OffcutRow } from "./SteelOffcutPanel";
-import { PrintLayoutProvider, PrintSetupPanel, usePrintSection } from "./PrintLayout";
+import { PrintLayoutProvider, PrintSetupPanel, usePagePrefs, usePrintSection } from "./PrintLayout";
 import {
   addSteelParts,
   deleteFileParts,
@@ -33,6 +33,7 @@ import {
   parsePartsCsv,
   planCuts,
   barSignature,
+  partsToCsv,
   profileKey,
   profileLabel,
   profileLabelUnits,
@@ -506,6 +507,11 @@ function OrderSummary({ planName, result, labels, unit }: { planName: string; re
     ...buy.flatMap((p) => p.lines.map(([len, n]) => `• ${p.label} ยาว ${formatLengthWithUnit(len, unit)} × ${n} เส้น`)),
   ].join("\n");
 
+  // Opens LINE's share box with the text in it (the LINE app on a phone, the chooser page on a computer).
+  const shareToLine = () => {
+    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(orderText)}`, "_blank", "noopener");
+  };
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(orderText);
@@ -533,9 +539,14 @@ function OrderSummary({ planName, result, labels, unit }: { planName: string; re
         <div className="flex items-center justify-between gap-2">
           <p className="font-semibold text-gray-800">ต้องสั่งซื้อ</p>
           {buy.length > 0 && (
-            <button type="button" onClick={copy} className={buttonClass}>
-              {copied ? "คัดลอกแล้ว ✓" : "คัดลอกใบสั่งซื้อ (ส่ง LINE)"}
-            </button>
+            <span className="flex flex-wrap gap-2">
+              <button type="button" onClick={shareToLine} className="inline-flex items-center gap-1 rounded bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700">
+                ส่งเข้า LINE
+              </button>
+              <button type="button" onClick={copy} className={buttonClass}>
+                {copied ? "คัดลอกแล้ว ✓" : "คัดลอกข้อความ"}
+              </button>
+            </span>
           )}
         </div>
         {buy.length === 0 ? (
@@ -741,6 +752,7 @@ function CutResults({
   };
 
   const print = usePrintSection("bars");
+  const page = usePagePrefs();
   return (
     <section id="sec-result" style={print.style} className={`scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:border-0 print:p-0 print:shadow-none ${print.className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
@@ -830,12 +842,14 @@ function CutResults({
               {result.hasProblem && <span className="text-red-600">มีชิ้นงานยาวเกินความยาวเหล็ก</span>}
             </div>
 
-            <OrderSummary planName={planName} result={result} labels={labels} unit={unit} />
-
             {result.profiles.map((p, pi) => {
               const lengths = [...new Set(p.bars.flatMap((b) => b.cuts))].sort((a, b) => b - a);
               return (
-                <div key={p.key} className={pi > 0 ? "border-t-4 border-black" : ""} style={{ paddingTop: pi > 0 ? rowGap / 2 : 0 }}>
+                <div
+                  key={p.key}
+                  className={`${pi > 0 ? "border-t-4 border-black" : ""} ${pi > 0 && page.newPagePerHeading ? "steel-print-new-page print:border-t-0" : ""}`}
+                  style={{ paddingTop: pi > 0 ? rowGap / 2 : 0 }}
+                >
                   <h3 className="mb-1 font-bold text-gray-900" style={{ fontSize: font + 2 }}>
                     {labels[p.key] ?? p.label}
                   </h3>
@@ -854,7 +868,7 @@ function CutResults({
                       onChanged={onChanged}
                     />
                   )}
-                  <ul className="flex flex-col" style={{ gap: rowGap }}>
+                  <ul className="steel-print-cols flex flex-col" style={{ gap: rowGap }}>
                     {p.bars.map((b, i) => {
                       const isCut = !!barDone[signatures.get(p.key)?.[i] ?? ""];
                       return (
@@ -1086,6 +1100,15 @@ export default function SteelPlanEditor({
   };
   const planProfiles = useMemo(() => new Map(groups.map((g) => [profileKey(g.profile), g.profile])), [groups]);
 
+  const exportPartsCsv = () => {
+    const url = URL.createObjectURL(new Blob(["\uFEFF" + partsToCsv(localParts)], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${plan.name || "steel-parts"}-ชิ้นงาน.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const saveCutSettings = async (next: { kerf: number; newBarLength: number }) => {
     const res = await updateSteelPlanCutSettings(plan.id, next);
     setSettingsMsg(res.success ? null : (res.error ?? "บันทึกไม่สำเร็จ"));
@@ -1109,6 +1132,7 @@ export default function SteelPlanEditor({
     <PrintLayoutProvider planId={plan.id}>
     <div className="flex flex-col gap-6">
       <StickyBar result={result} refreshing={refreshing} />
+      <OrderSummary planName={plan.name} result={result} labels={labels} unit={unit} />
       {showSkipped && (
         <p className="flex items-center justify-between rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 print:hidden">
           <span>นำเข้าจากไฟล์แล้ว ข้าม {skippedCount} แถวที่ข้อมูล x, y, z หรือ QTY ไม่ครบ</span>
@@ -1151,7 +1175,13 @@ export default function SteelPlanEditor({
       </section>
 
       <section id="sec-parts" className="scroll-mt-36 rounded-lg border border-gray-100 bg-white p-4 shadow print:hidden">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({localParts.length})</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">ชิ้นงานที่ต้องตัด ({localParts.length})</h2>
+          <button type="button" onClick={exportPartsCsv} disabled={localParts.length === 0} className={buttonClass} title="ไฟล์นี้นำกลับเข้ามาได้ที่ นำเข้าแบบเลือกเอง (ขั้นสูง)">
+            <Download className="h-4 w-4" />
+            ส่งออกชิ้นงาน CSV
+          </button>
+        </div>
         <div className="mb-4 flex flex-wrap items-end gap-4 rounded border border-orange-200 bg-orange-50 p-3">
           <label className="block text-xs text-gray-600">
             ระยะตัด / ใบเลื่อย (มม.)

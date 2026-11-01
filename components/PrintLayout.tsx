@@ -12,14 +12,26 @@ export const PRINT_SECTIONS = [
 
 export type PrintSectionId = (typeof PRINT_SECTIONS)[number]["id"];
 
+/** How the pages are filled: the paper, which way it is turned, how many columns the bars are set in and whether each kind of steel starts a new sheet. */
+export interface PagePrefs {
+  paper: "A4" | "A3";
+  landscape: boolean;
+  columns: 1 | 2 | 3;
+  newPagePerHeading: boolean;
+}
+
+export const DEFAULT_PAGE_PREFS: PagePrefs = { paper: "A4", landscape: false, columns: 1, newPagePerHeading: false };
+
 interface PrintLayoutValue {
   order: PrintSectionId[];
   included: Record<PrintSectionId, boolean>;
   /** Print in black and white (colours turned to grey). */
   mono: boolean;
+  page: PagePrefs;
   setOrder: (order: PrintSectionId[]) => void;
   setIncluded: (id: PrintSectionId, value: boolean) => void;
   setMono: (value: boolean) => void;
+  setPage: (patch: Partial<PagePrefs>) => void;
 }
 
 const DEFAULT_ORDER = PRINT_SECTIONS.map((s) => s.id) as PrintSectionId[];
@@ -38,19 +50,32 @@ function subscribe(onChange: () => void) {
   };
 }
 
-function parseLayout(raw: string): { order: PrintSectionId[]; included: Record<PrintSectionId, boolean>; mono: boolean } {
-  if (!raw) return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false };
+interface SavedLayout {
+  order: PrintSectionId[];
+  included: Record<PrintSectionId, boolean>;
+  mono: boolean;
+  page: PagePrefs;
+}
+
+function parseLayout(raw: string): SavedLayout {
+  if (!raw) return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false, page: DEFAULT_PAGE_PREFS };
   try {
-    const saved = JSON.parse(raw) as { order?: string[]; included?: Record<string, boolean>; mono?: boolean };
+    const saved = JSON.parse(raw) as { order?: string[]; included?: Record<string, boolean>; mono?: boolean; page?: Partial<PagePrefs> };
     const known = (saved.order ?? []).filter((id): id is PrintSectionId => DEFAULT_ORDER.includes(id as PrintSectionId));
     // Sections added later still show up, at the end.
     return {
       order: [...known, ...DEFAULT_ORDER.filter((id) => !known.includes(id))],
       included: { ...DEFAULT_INCLUDED, ...(saved.included as Record<PrintSectionId, boolean> | undefined) },
       mono: saved.mono === true,
+      page: {
+        paper: saved.page?.paper === "A3" ? "A3" : "A4",
+        landscape: saved.page?.landscape === true,
+        columns: saved.page?.columns === 2 || saved.page?.columns === 3 ? saved.page.columns : 1,
+        newPagePerHeading: saved.page?.newPagePerHeading === true,
+      },
     };
   } catch {
-    return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false };
+    return { order: DEFAULT_ORDER, included: DEFAULT_INCLUDED, mono: false, page: DEFAULT_PAGE_PREFS };
   }
 }
 
@@ -72,9 +97,9 @@ export function PrintLayoutProvider({ planId, children }: { planId: string; chil
   const layout = useMemo(() => parseLayout(raw), [raw]);
 
   const value = useMemo<PrintLayoutValue>(() => {
-    const save = (order: PrintSectionId[], included: Record<PrintSectionId, boolean>, mono: boolean) => {
+    const save = (next: SavedLayout) => {
       try {
-        window.localStorage.setItem(storageKey, JSON.stringify({ order, included, mono }));
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
       } catch {
         // Storage can be blocked; the choice then lasts only until reload.
       }
@@ -84,13 +109,29 @@ export function PrintLayoutProvider({ planId, children }: { planId: string; chil
       order: layout.order,
       included: layout.included,
       mono: layout.mono,
-      setOrder: (next) => save(next, layout.included, layout.mono),
-      setIncluded: (id, v) => save(layout.order, { ...layout.included, [id]: v }, layout.mono),
-      setMono: (v) => save(layout.order, layout.included, v),
+      page: layout.page,
+      setOrder: (order) => save({ ...layout, order }),
+      setIncluded: (id, v) => save({ ...layout, included: { ...layout.included, [id]: v } }),
+      setMono: (mono) => save({ ...layout, mono }),
+      setPage: (patch) => save({ ...layout, page: { ...layout.page, ...patch } }),
     };
   }, [layout, storageKey]);
 
-  return <PrintLayoutContext.Provider value={value}>{children}</PrintLayoutContext.Provider>;
+  const { paper, landscape, columns } = layout.page;
+  // The paper size is what the print box starts with; the columns and page breaks are classes the plan's printout uses.
+  const css = `@media print { @page { size: ${paper} ${landscape ? "landscape" : "portrait"}; margin: 8mm; } .steel-print-cols { display: block; column-count: ${columns}; column-gap: 14px; } .steel-print-cols > li { margin-bottom: 12px; break-inside: avoid; } .steel-print-new-page { break-before: page; page-break-before: always; } }`;
+
+  return (
+    <PrintLayoutContext.Provider value={value}>
+      <style>{css}</style>
+      {children}
+    </PrintLayoutContext.Provider>
+  );
+}
+
+/** The page settings for the printout (class names to put on the bar lists and headings). */
+export function usePagePrefs(): PagePrefs {
+  return useContext(PrintLayoutContext)?.page ?? DEFAULT_PAGE_PREFS;
 }
 
 /** Put `style` and `className` on a printable section: its place in the order and
@@ -134,6 +175,41 @@ export function PrintSetupPanel() {
         <input type="checkbox" className="h-5 w-5 cursor-pointer accent-orange-600" checked={ctx.mono} onChange={(e) => ctx.setMono(e.target.checked)} />
         พิมพ์สีขาวดำ
       </label>
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded border border-gray-200 bg-gray-50 p-2 text-sm text-gray-700">
+        <label className="flex items-center gap-1">
+          กระดาษ
+          <select value={ctx.page.paper} onChange={(e) => ctx.setPage({ paper: e.target.value === "A3" ? "A3" : "A4" })} className="rounded border border-gray-300 px-2 py-1">
+            <option value="A4">A4</option>
+            <option value="A3">A3</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          แนว
+          <select value={ctx.page.landscape ? "landscape" : "portrait"} onChange={(e) => ctx.setPage({ landscape: e.target.value === "landscape" })} className="rounded border border-gray-300 px-2 py-1">
+            <option value="portrait">แนวตั้ง</option>
+            <option value="landscape">แนวนอน</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          แผนตัดเรียงกี่คอลัมน์
+          <select
+            value={ctx.page.columns}
+            onChange={(e) => ctx.setPage({ columns: Number(e.target.value) === 3 ? 3 : Number(e.target.value) === 2 ? 2 : 1 })}
+            className="rounded border border-gray-300 px-2 py-1"
+          >
+            <option value={1}>1 (เต็มความกว้าง)</option>
+            <option value={2}>2 คอลัมน์</option>
+            <option value={3}>3 คอลัมน์</option>
+          </select>
+        </label>
+        <label className="flex cursor-pointer items-center gap-2">
+          <input type="checkbox" className="h-4 w-4 accent-orange-600" checked={ctx.page.newPagePerHeading} onChange={(e) => ctx.setPage({ newPagePerHeading: e.target.checked })} />
+          แต่ละหัวข้อ (ชนิดเหล็ก) ขึ้นหน้าใหม่ — แจกช่างทีละหัวข้อ
+        </label>
+        <p className="basis-full text-xs text-gray-400">
+          ขนาดกระดาษและแนวถูกส่งไปที่หน้าต่างพิมพ์เป็นค่าเริ่มต้น (ถ้าจะให้เครื่องพิมพ์ย่อ 2 หน้าลงกระดาษ A3 ให้เลือก A4 แนวตั้งที่นี่ แล้วตั้ง &quot;หลายหน้าต่อแผ่น = 2&quot; ในหน้าต่างพิมพ์)
+        </p>
+      </div>
       <ol className="space-y-1">
         {ctx.order.map((id, index) => (
           <li

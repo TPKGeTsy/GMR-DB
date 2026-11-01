@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSizeFilter, mergeParts, parseBomLines, parsePartsCsv, parseSizeFilter, planCuts, profileKey, profileLabel } from "./steel";
+import { matchesSizeFilter, mergeParts, parseBomLines, parsePartsCsv, parseSizeFilter, partsToCsv, planCuts, profileKey, profileLabel } from "./steel";
 
 const box = { steelType: "BOX", sectionX: 50, sectionY: 25 };
 const opts = { kerf: 0, newBarLength: 6000 };
@@ -253,7 +253,7 @@ describe("parseBomLines with two tables on one drawing", () => {
     ]);
     expect(skipped).toEqual([]);
     expect(parts.map((p) => [p.steelType, p.sectionX, p.sectionY, p.thickness, p.cutLength, p.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
-      ["CHANNEL", 100, 50, 2.3, 1500, 2],
+      ["CHANNEL", 100, 50, 20, 1500, 2],
       ["IBEAM", 200, 100, 21, 3000, 1],
       ["REBAR", 16, null, null, 1200, 6],
       ["SQBAR", 16, null, null, 700, 3],
@@ -291,5 +291,39 @@ describe("taught words", () => {
     const taught = parseBomLines(row, [{ keyword: "upn", steelType: "CHANNEL" }]);
     expect(taught.skipped).toEqual([]);
     expect(taught.parts[0]).toMatchObject({ steelType: "CHANNEL", sectionX: 100, sectionY: 50, thickness: 5, cutLength: 1200, quantity: 2 });
+  });
+});
+
+describe("more than three sizes", () => {
+  it("ignores the 4th number onwards", () => {
+    const { parts, skipped } = parseBomLines(["1 2 ST 75 x 75 x 2.3 x 10 x 7 1742"]);
+    expect(skipped).toEqual([]);
+    expect(parts[0]).toMatchObject({ steelType: "ST", sectionX: 75, sectionY: 75, thickness: 2.3, cutLength: 1742, quantity: 2 });
+  });
+});
+
+describe("CSV round trip", () => {
+  const parts = [
+    { steelType: "ST", sectionX: 50, sectionY: 50, thickness: 2.3, cutLength: 1742, quantity: 4 },
+    { steelType: "RT", sectionX: 75, sectionY: 38, thickness: null, cutLength: 5121.5, quantity: 1 },
+    { steelType: "REBAR", sectionX: 16, sectionY: null, thickness: null, cutLength: 1200, quantity: 6 },
+  ];
+  it("reads back what the pieces export wrote", () => {
+    const back = parsePartsCsv("\uFEFF" + partsToCsv(parts));
+    expect(back.errors).toEqual([]);
+    expect(back.parts.map((p) => [p.steelType, p.sectionX, p.sectionY, p.thickness, p.cutLength, p.quantity]).sort()).toEqual(
+      parts.map((p) => [p.steelType, p.sectionX, p.sectionY, p.thickness, p.cutLength, p.quantity]).sort()
+    );
+  });
+  it("reads quoted cells and the plan CSV (one row per bar)", () => {
+    const csv = [
+      '"รายการที่","ชนิดเหล็ก","ความยาวเหล็ก(มม.)","ชิ้นที่ตัด(มม.)","ระยะตัด(มม.)","เศษเหลือ(มม.)"',
+      '"1","ST เหล็กกล่องจัตุรัส 50 × 50 หนา 2.3","6000","1742 + 1742 + 900","3","1613"',
+      '"2","ST เหล็กกล่องจัตุรัส 50 × 50 หนา 2.3","6000","1742","3","4255"',
+    ].join("\r\n");
+    const { parts: back, errors } = parsePartsCsv(csv);
+    expect(errors).toEqual([]);
+    expect(back.find((p) => p.cutLength === 1742)).toMatchObject({ steelType: "ST", sectionX: 50, sectionY: 50, thickness: 2.3, quantity: 3 });
+    expect(back.find((p) => p.cutLength === 900)).toMatchObject({ quantity: 1 });
   });
 });

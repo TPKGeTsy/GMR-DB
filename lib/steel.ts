@@ -314,12 +314,77 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
     });
   }
 
-  result.sort((a, b) => a.label.localeCompare(b.label, "th"));
+  // Same order as the list of pieces (type, then size), so a kind of steel is in the same place in both.
+  result.sort((a, b) => comparePieces({ ...profiles.get(a.key)!, cutLength: 0 }, { ...profiles.get(b.key)!, cutLength: 0 }));
   return {
     profiles: result,
     totalToBuy: result.reduce((sum, p) => sum + p.toBuy, 0),
     hasProblem: result.some((p) => p.tooLong.length > 0),
   };
+}
+
+/** The cells of one CSV line: split at , ; or tab, with "quoted, cells" and "" kept as one cell. */
+export function splitCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === "," || ch === ";" || ch === "\t") {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += ch;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** The pieces list as CSV text (type, x, y, z, qty, t) - the same layout parsePartsCsv reads back. */
+export function partsToCsv(parts: SteelPartInput[]): string {
+  const rows = [["type", "x", "y", "z", "qty", "t"]];
+  for (const p of parts) {
+    if (p.quantity <= 0) continue;
+    rows.push([p.steelType, String(p.sectionX), p.sectionY != null ? String(p.sectionY) : "", String(p.cutLength), String(p.quantity), p.thickness != null ? String(p.thickness) : ""]);
+  }
+  return rows.map((r) => r.join(",")).join("\r\n");
+}
+
+/** A cutting plan exported as CSV (one row per bar: label, bar length, "3171 + 1896" cuts...) read back as pieces. */
+function partsFromPlanCsv(lines: string[]): { parts: SteelPartInput[]; errors: string[] } {
+  const errors: string[] = [];
+  const counts = new Map<string, SteelPartInput>();
+  const typesByLength = [...STEEL_TYPE_KEYS].sort((a, b) => steelTypeLabel(b).length - steelTypeLabel(a).length);
+  lines.forEach((raw, index) => {
+    if (!raw.trim()) return;
+    const cells = splitCsvLine(raw);
+    if (index === 0 || cells.length < 4) return;
+    const label = cells[1] ?? "";
+    const type = typesByLength.find((k) => label.startsWith(steelTypeLabel(k)));
+    const size = /Ø?(\d+(?:\.\d+)?)(?:\s*×\s*(\d+(?:\.\d+)?))?(?:\s*หนา\s*(\d+(?:\.\d+)?))?/.exec(label.slice(type ? steelTypeLabel(type).length : 0));
+    if (!type || !size) {
+      errors.push(`แถว ${index + 1}: อ่านชนิดเหล็ก "${label}" ไม่ได้`);
+      return;
+    }
+    const x = Number(size[1]);
+    const y = size[2] === undefined ? null : Number(size[2]);
+    const t = size[3] === undefined ? null : Number(size[3]);
+    for (const piece of (cells[3] ?? "").split("+")) {
+      const z = Number(piece.trim());
+      if (!(z > 0)) continue;
+      const key = `${type}|${x}|${y ?? ""}|${t ?? ""}|${z}`;
+      const found = counts.get(key);
+      if (found) found.quantity += 1;
+      else counts.set(key, { steelType: type, sectionX: x, sectionY: STEEL_TYPES[type].needsY ? y : null, thickness: t, cutLength: z, quantity: 1 });
+    }
+  });
+  return { parts: [...counts.values()], errors };
 }
 
 /** Parses pasted/exported rows: `type, x, y, length, quantity` (comma, tab or
@@ -329,11 +394,13 @@ export function planCuts(parts: SteelPartInput[], stock: SteelStockInput[], opti
 export function parsePartsCsv(text: string): { parts: SteelPartInput[]; errors: string[] } {
   const parts: SteelPartInput[] = [];
   const errors: string[] = [];
-  const lines = text.split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  // The "plan" CSV (the button above the result) can be read back too.
+  if (lines.some((l, i) => i === 0 && l.includes("ชิ้นที่ตัด"))) return partsFromPlanCsv(lines);
   lines.forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
-    const cells = line.split(/[,\t;]/).map((c) => c.trim());
+    const cells = splitCsvLine(line);
     const [typeCell, xCell, yCell, zCell, qtyCell, tCell] = cells;
     // Accepts the key (ST), the code (FB, L) or the Thai name (เหล็กแบน).
     const upper = typeCell.toUpperCase();
@@ -476,8 +543,6 @@ export function parseBomLines(lines: string[], aliases: SteelAlias[] = []): { pa
       parts.push({ steelType: bar.type, sectionX: bar.x, sectionY: null, thickness: null, cutLength: barLength, quantity });
       continue;
     }
-    // A lipped channel is written with four sizes: height x width x lip x thickness.
-    const four = /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*[xX×]\s*\d+(?:\.\d+)?\s*[xX×]\s*(\d+(?:\.\d+)?)/.exec(description);
     const size = SIZE_RE.exec(description);
     const afterSize = size ? /^\s*(\d+(?:\.\d+)?)/.exec(description.slice(size.index + size[0].length)) : null;
     const length = afterSize ? Number(afterSize[1]) : lengthText === undefined ? NaN : Number(lengthText);
@@ -492,7 +557,8 @@ export function parseBomLines(lines: string[], aliases: SteelAlias[] = []): { pa
       skipped.push({ line, reason: "ข้อมูล x, y, z ไม่ครบ" });
       continue;
     }
-    const t = type === "CHANNEL" && four ? Number(four[3]) : size[3] === undefined ? null : Number(size[3]);
+    // Only the first three numbers mean something (x, y, thickness); a 4th number or more in the description is ignored.
+    const t = size[3] === undefined ? null : Number(size[3]);
     parts.push({ steelType: type, sectionX: x, sectionY: y, thickness: t, cutLength: length, quantity });
   }
   return { parts: mergeParts(parts), skipped };
