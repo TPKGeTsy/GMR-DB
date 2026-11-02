@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { canEditPlan } from "@/lib/steelAccess";
+import { pieceLines } from "@/lib/pdfLines";
 import { getDocumentProxy } from "unpdf";
 import {
   DEFAULT_KERF_MM,
@@ -416,24 +417,12 @@ export async function parseSteelPdf(
     for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
       const page = await pdf.getPage(pageNo);
       const content = await page.getTextContent();
-      // Group the text pieces into table lines by height, then left to right.
-      const rows = new Map<number, { x: number; text: string }[]>();
-      for (const item of content.items) {
-        if (!("str" in item) || !item.str.trim()) continue;
-        const y = Math.round(item.transform[5] / 3);
-        const row = rows.get(y) ?? [];
-        row.push({ x: item.transform[4], text: item.str });
-        rows.set(y, row);
-      }
-      for (const y of [...rows.keys()].sort((a, b) => b - a)) {
-        lines.push(
-          rows
-            .get(y)!
-            .sort((a, b) => a.x - b.x)
-            .map((i) => i.text)
-            .join(" ")
-        );
-      }
+      // Group the text pieces into table lines by height, then left to right (the drawing left of the table is left out).
+      lines.push(
+        ...pieceLines(
+          content.items.flatMap((item) => ("str" in item ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }] : []))
+        )
+      );
     }
     if (lines.length === 0) return { success: false, error: "อ่านข้อความจาก PDF ไม่ได้ (อาจเป็นไฟล์ภาพสแกน)" };
 

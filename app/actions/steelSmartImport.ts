@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { revalidatePath } from "next/cache";
 import { canEditPlan } from "@/lib/steelAccess";
+import { pieceLines } from "@/lib/pdfLines";
 import { hasCutListHeader, mergeParts, parseBomLines, parsePartsCsv, type SkippedRow, type SteelPartInput } from "@/lib/steel";
 import { addPartsListImage, addDxfPart, importHardwarePdf, setHardwareFileRounds } from "@/app/actions/steelSources";
 import { addSteelParts } from "@/app/actions/steel";
@@ -28,23 +29,9 @@ async function pdfLines(bytes: Uint8Array): Promise<string[]> {
   const lines: string[] = [];
   for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 20); pageNo++) {
     const content = await (await pdf.getPage(pageNo)).getTextContent();
-    const rows = new Map<number, { x: number; text: string }[]>();
-    for (const item of content.items) {
-      if (!("str" in item) || !item.str.trim()) continue;
-      const y = Math.round(item.transform[5] / 3);
-      const row = rows.get(y) ?? [];
-      row.push({ x: item.transform[4], text: item.str });
-      rows.set(y, row);
-    }
-    for (const y of [...rows.keys()].sort((a, b) => b - a)) {
-      lines.push(
-        rows
-          .get(y)!
-          .sort((a, b) => a.x - b.x)
-          .map((i) => i.text)
-          .join(" ")
-      );
-    }
+    lines.push(
+      ...pieceLines(content.items.flatMap((item) => ("str" in item ? [{ str: item.str, x: item.transform[4], y: item.transform[5] }] : [])))
+    );
   }
   return lines;
 }
